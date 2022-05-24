@@ -11,7 +11,7 @@ mkdir -p armbian-build/output/
 mkdir -p armbian-build/userpatches/
 cp -a base/customize-image.sh armbian-build/userpatches/
 
-BOARD=${BOARD:-rpi4}
+BOARD=${BOARD:-rpi4b}
 BRANCH=${BRANCH:-current}
 RELEASE=${RELEASE:-focal}
 
