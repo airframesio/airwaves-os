@@ -1,4 +1,8 @@
-name: Build AROS
+name: Build AROS (Armbian base)
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 on:
   push:
@@ -15,13 +19,13 @@ env:
   KERNEL_ONLY: no
   KERNEL_CONFIGURE: no
   BOARD: rockpi-4b
-  BRANCH: legacy
+  BRANCH: current
   RELEASE: focal
   BUILD_DESKTOP: no
 
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout
