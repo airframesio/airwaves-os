@@ -8,24 +8,55 @@ on:
   push:
     branches:
       - main
-#  schedule:
-#    - cron: 0 8 * * 5
-#  watch:
-#    types: started
+  workflow_dispatch:
+    inputs:
+      set_branch:
+        description: "Branch: edge / current / legacy"
+        required: false
+        default: "edge"
+      set_release:
+        description: "Release: jammy / focal / bullseye"
+        required: false
+        default: "jammy"
+      set_board:
+        description: "Board: odroidn2 / lepotato"
+        required: false
+        default: "odroidn2"
+      set_desktop:
+        description: "Build Desktop: no / gnome / xfce, etc."
+        required: false
+        default: "no"
+      armbian_kernel:
+        description: "Set kernel version."
+        required: false
+        default: "5.15.25_5.10.100"
+      armbian_size:
+        description: "Set armbian rootfs size."
+        required: false
+        default: "2748"
+      armbian_fstype:
+        description: "Set armbian rootfs type."
+        required: false
+        default: "ext4"
+      armbian_sign:
+        description: "Set armbian custom name."
+        required: false
+        default: ""
 
 env:
   RELEASE_SOURCE_TAG: v2021.05
   BUILD_MINIMAL: yes
-  KERNEL_ONLY: no
+  KERNEL_ONLY: ${{ github.event.inputs.set_kernel }}
   KERNEL_CONFIGURE: no
-  BOARD: rockpi-4b
-  BRANCH: current
-  RELEASE: focal
+  BOARD: ${{ github.event.inputs.set_board }}
+  BRANCH: ${{ github.event.inputs.set_branch }}
+  RELEASE: ${{ github.event.inputs.set_release }}
   BUILD_DESKTOP: no
+  HOST: aros
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
     - name: Checkout
@@ -35,18 +66,21 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo -E apt-get -qq update
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
+
     - name: Download source code
       run: |
         curl -L -o armbian.tar.gz $(curl https://api.github.com/repos/armbian/build/releases | awk -F"[tarball_url]" '/tarball_url/{print $x}' | grep $RELEASE_SOURCE_TAG | sed 's/"//g' | sed 's/tarball_url://g' | sed 's/ //g' | sed 's/,//g')
         tar -xzf armbian.tar.gz
         rm -rf armbian.tar.gz
-    - name: Build Armbian
+    - name: Build Armbian [Board: ${BOARD}]
       id: build
       run: |
         cd armbian-build*
-        sudo -E ./compile.sh BUILD_MINIMAL=$BUILD_MINIMAL KERNEL_ONLY=$KERNEL_ONLY KERNEL_CONFIGURE=$KERNEL_CONFIGURE BOARD=$BOARD BRANCH=$BRANCH RELEASE=$RELEASE BUILD_DESKTOP=$BUILD_DESKTOP FORCE_USE_RAMDISK=yes USE_CCACHE=yes
+        sudo ./compile.sh BUILD_MINIMAL=$BUILD_MINIMAL KERNEL_ONLY=$KERNEL_ONLY KERNEL_CONFIGURE=$KERNEL_CONFIGURE BOARD=$BOARD BRANCH=$BRANCH RELEASE=$RELEASE BUILD_DESKTOP=$BUILD_DESKTOP HOST=$HOST
         echo "::set-output name=status::success"
         tar -cjvf /tmp/AROS_${BOARD}.tar.bz2 output/images/*.img
     - name: Upload Armbian image
