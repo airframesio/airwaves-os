@@ -1,4 +1,4 @@
-name: Build Armbian
+name: Build AROS
 
 on:
   release:
