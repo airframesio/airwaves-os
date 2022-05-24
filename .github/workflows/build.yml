@@ -1,0 +1,58 @@
+name: Build Armbian
+
+on:
+  release:
+    types: published
+  push:
+    branches:
+      - master
+#  schedule:
+#    - cron: 0 8 * * 5
+#  watch:
+#    types: started
+
+env:
+  RELEASE_SOURCE_TAG: v2021.05
+  BUILD_MINIMAL: yes
+  KERNEL_ONLY: no
+  KERNEL_CONFIGURE: no
+  BOARD: rpi4b
+  BRANCH: current
+  RELEASE: focal
+  BUILD_DESKTOP: no
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    if: github.event.repository.owner.id == github.event.sender.id
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@master
+
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo swapoff /swapfile
+        sudo rm -rf /swapfile /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+    - name: Download source code
+      run: |
+        curl -L -o armbian.tar.gz $(curl https://api.github.com/repos/armbian/build/releases | awk -F"[tarball_url]" '/tarball_url/{print $x}' | grep $RELEASE_SOURCE_TAG | sed 's/"//g' | sed 's/tarball_url://g' | sed 's/ //g' | sed 's/,//g')
+        tar -xzf armbian.tar.gz
+        rm -rf armbian.tar.gz
+    - name: Build Armbian
+      id: build
+      run: |
+        cd armbian-build*
+        sudo -E ./compile.sh BUILD_MINIMAL=$BUILD_MINIMAL KERNEL_ONLY=$KERNEL_ONLY KERNEL_CONFIGURE=$KERNEL_CONFIGURE BOARD=$BOARD BRANCH=$BRANCH RELEASE=$RELEASE BUILD_DESKTOP=$BUILD_DESKTOP FORCE_USE_RAMDISK=yes USE_CCACHE=yes
+        echo "::set-output name=status::success"
+        tar -cjvf /tmp/AROS_${BOARD}.tar.bz2 output/images/*.img
+    - name: Upload Armbian image
+      uses: actions/upload-artifact@master
+      if: steps.build.outputs.status == 'success'
+      with:
+        name: AROS_${BOARD}
+        path: /tmp/AROS_${BOARD}.tar.bz2
