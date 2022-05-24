@@ -15,7 +15,7 @@ env:
   KERNEL_ONLY: no
   KERNEL_CONFIGURE: no
   BOARD: rockpi-4b
-  BRANCH: current
+  BRANCH: legacy
   RELEASE: focal
   BUILD_DESKTOP: no
 
