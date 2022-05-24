@@ -75,7 +75,7 @@ jobs:
         curl -L -o armbian.tar.gz $(curl https://api.github.com/repos/armbian/build/releases | awk -F"[tarball_url]" '/tarball_url/{print $x}' | grep $RELEASE_SOURCE_TAG | sed 's/"//g' | sed 's/tarball_url://g' | sed 's/ //g' | sed 's/,//g')
         tar -xzf armbian.tar.gz
         rm -rf armbian.tar.gz
-    - name: Build Armbian [ Board: ${{ github.event.inputs.set_branch }} ]
+    - name: Build Armbian
       id: build
       run: |
         cd armbian-build*
