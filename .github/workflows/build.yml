@@ -14,7 +14,7 @@ env:
   BUILD_MINIMAL: yes
   KERNEL_ONLY: no
   KERNEL_CONFIGURE: no
-  BOARD: rpi4b.wip
+  BOARD: rockpi-4b
   BRANCH: current
   RELEASE: focal
   BUILD_DESKTOP: no
