@@ -1,4 +1,4 @@
-name: Build AROS - Armbian base
+name: Build AROS Armbian base
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
