@@ -44,13 +44,8 @@ on:
         default: ""
 
 env:
-  RELEASE_SOURCE_TAG: v2021.05
   BUILD_MINIMAL: yes
-  KERNEL_ONLY: ${{ github.event.inputs.set_kernel }}
   KERNEL_CONFIGURE: no
-  BOARD: ${{ github.event.inputs.set_board }}
-  BRANCH: ${{ github.event.inputs.set_branch }}
-  RELEASE: ${{ github.event.inputs.set_release }}
   BUILD_DESKTOP: no
   HOST: aros
 
@@ -70,15 +65,30 @@ jobs:
         sudo -E apt-get -qq update
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
+
+	KERNEL_ONLY="${{ github.event.inputs.set_kernel }}"
+	if [[ -z "${KERNEL_ONLY}" ];
+          KERNEL_ONLY="no"
+        fi
+
+        BOARD="${{ github.event.inputs.set_board }}"
+        if [[ -z "${BOARD}" ];
+          BOARD="rockpi-4b"
+        fi
+
+        BRANCH="${{ github.event.inputs.set_branch }}"
+        if [[ -z "${BRANCH}" ];
+          BRANCH="current"
+        fi
+
     - name: Download source code
       run: |
-        curl -L -o armbian.tar.gz $(curl https://api.github.com/repos/armbian/build/releases | awk -F"[tarball_url]" '/tarball_url/{print $x}' | grep $RELEASE_SOURCE_TAG | sed 's/"//g' | sed 's/tarball_url://g' | sed 's/ //g' | sed 's/,//g')
-        tar -xzf armbian.tar.gz
-        rm -rf armbian.tar.gz
-    - name: Build Armbian
+        git clone --depth 1 https://github.com/armbian/build.git
+
+    - name: Compile Armbian
       id: build
       run: |
-        cd armbian-build*
+        cd build/
         sudo -E ./compile.sh EXPERT=yes BUILD_MINIMAL=$BUILD_MINIMAL KERNEL_ONLY=$KERNEL_ONLY KERNEL_CONFIGURE=$KERNEL_CONFIGURE BOARD=$BOARD BRANCH=$BRANCH RELEASE=$RELEASE BUILD_DESKTOP=$BUILD_DESKTOP HOST=$HOST
         echo "::set-output name=status::success"
         tar -cjvf /tmp/AROS_${BOARD}.tar.bz2 output/images/*.img
