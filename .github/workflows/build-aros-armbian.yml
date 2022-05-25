@@ -108,7 +108,10 @@ jobs:
     - name: Debug Output
       if: always()
       run: |
+        pwd
+        ls -lR
         cat build/output/debug/debootstrap.log
+        cat output/debug/debootstrap.log
 
     - name: Upload Armbian image
       uses: actions/upload-artifact@master
