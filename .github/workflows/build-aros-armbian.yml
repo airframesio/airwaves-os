@@ -21,7 +21,7 @@ on:
       set_board:
         description: "Board: odroidn2 / lepotato"
         required: false
-        default: "odroidn2"
+        default: "rockpi-4b"
       set_desktop:
         description: "Build Desktop: no / gnome / xfce, etc."
         required: false
@@ -52,7 +52,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
 
     steps:
     - name: Checkout
@@ -69,7 +69,7 @@ jobs:
 
         set_board="${{ github.event.inputs.set_board }}"
         if [[ -z "${set_board}" ]]; then
-          set_board="lepotato"
+          set_board="rockpi-4b"
         fi
         echo "BOARD=${set_board}" >> $GITHUB_ENV
 
@@ -103,7 +103,7 @@ jobs:
         sudo chmod +x compile.sh
         sudo -E ./compile.sh EXPERT=yes BUILD_MINIMAL=$BUILD_MINIMAL KERNEL_ONLY=${KERNEL_ONLY} KERNEL_CONFIGURE=$KERNEL_CONFIGURE BOARD=${{ env.BOARD }} BRANCH=${{ env.BRANCH }} RELEASE=${{ env.RELEASE }} BUILD_DESKTOP=$BUILD_DESKTOP HOST=$HOST
         echo "::set-output name=status::success"
-        tar -cjvf /tmp/AROS_${BOARD}.tar.bz2 output/images/*.img
+        tar -cjvf /tmp/AROS_${BOARD}.tar.bz2 build/output/images/*.img
     - name: Upload Armbian image
       uses: actions/upload-artifact@master
       if: steps.build.outputs.status == 'success'
