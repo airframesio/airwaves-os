@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+import miniboss
+
+miniboss.group_name('aros')
+
+class ClientDumpvdl2(miniboss.Service):
+  name = "dumpvdl2"
+  image = "ghcr.io/sdr-enthusiasts/docker-dumpvdl2:latest"
+  env = {"TZ": "America/Los_Angeles", "FEED_ID": "AROS-TEST-123", "FREQUENCIES": "136725000;136975000;136875000"}
+
+#def print_services(services):
+#  if Application.name in services:
+#    print("Started ", ' '.join(services))
+
+#miniboss.on_start_services(print_services)
+
+if __name__ == "__main__":
+  miniboss.cli()
+

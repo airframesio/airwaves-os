@@ -41,15 +41,20 @@ InstallAROS() {
 
 	echo ""
 	cat << EOF
-    ___    ____  ____  _____
-   /   |  / __ \/ __ \/ ___/
-  / /| | / /_/ / / / /\__ \
- / ___ |/ _, _/ /_/ /___/ /
-/_/  |_/_/ |_|\____//____/
-  Airframes Receiver OS
+     ___    ____  ____  _____
+    /   |  / __ \/ __ \/ ___/
+   / /| | / /_/ / / / /\__ \ 
+  / ___ |/ _, _/ /_/ /___/ /
+ /_/  |_/_/ |_|\____//____/
+   Airframes Receiver OS
+
+   Board    : $BOARD
+   Family   : $LINUXFAMILY
+   Release  : $RELEASE
+   Hostname : $HOSTNAME
 EOF
 	echo ""
-	echo "Installing AROS"
+	echo "Installing AROS base"
 
 	echo root:airframes | chpasswd
         rm /root/.not_logged_in_yet
@@ -58,6 +63,8 @@ EOF
 	export DEBIAN_FRONTEND=noninteractive
 	export APT_LISTCHANGES_FRONTEND=none
 
+	echo ""
+	echo "Components:"
 	InstallDocker
 	InstallTailscale
 
