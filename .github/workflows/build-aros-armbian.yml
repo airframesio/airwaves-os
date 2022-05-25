@@ -69,6 +69,7 @@ jobs:
         echo "KERNEL_ONLY=${{ github.event.inputs.set_kernel }}" >> $GITHUB_ENV
         echo "BOARD=${{ github.event.inputs.set_board }}" >> $GITHUB_ENV
         echo "BRANCH=${{ github.event.inputs.set_branch }}" >> $GITHUB_ENV
+        echo "RELEASE=${{ github.event.inputs.set_release }}" >> $GITHUB_ENV
 
     - name: Download source code
       run: |
@@ -79,7 +80,7 @@ jobs:
       run: |
         cd build/
         sudo chmod +x compile.sh
-        sudo -E ./compile.sh EXPERT=yes BUILD_MINIMAL=$BUILD_MINIMAL KERNEL_ONLY=$KERNEL_ONLY KERNEL_CONFIGURE=$KERNEL_CONFIGURE BOARD=$BOARD BRANCH=$BRANCH RELEASE=$RELEASE BUILD_DESKTOP=$BUILD_DESKTOP HOST=$HOST
+        sudo -E ./compile.sh EXPERT=yes BUILD_MINIMAL=$BUILD_MINIMAL KERNEL_ONLY=${{ env.KERNEL_ONLY }} KERNEL_CONFIGURE=$KERNEL_CONFIGURE BOARD=${{ env.BOARD }} BRANCH=${{ env.BRANCH }} RELEASE=${{ env.RELEASE }} BUILD_DESKTOP=$BUILD_DESKTOP HOST=$HOST
         echo "::set-output name=status::success"
         tar -cjvf /tmp/AROS_${BOARD}.tar.bz2 output/images/*.img
     - name: Upload Armbian image
