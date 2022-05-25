@@ -89,6 +89,13 @@ jobs:
       run: |
         git clone --depth 1 https://github.com/armbian/build.git
 
+    - name: Patch source with customizations
+      run: |
+        mkdir -p build/output/
+        mkdir -p build/userpatches/
+        cp -a base/customize-image.sh build/userpatches/
+        cp -a base/config-default.conf build/userpatches/
+
     - name: Compile Armbian
       id: build
       run: |
