@@ -5,11 +5,13 @@ if [ ! -d "armbian-build" ]; then
   git clone --depth=1 https://github.com/armbian/build armbian-build
   cd armbian-build || exit
   touch .ignore_changes
+  cd ..
 fi
 
 mkdir -p armbian-build/output/
 mkdir -p armbian-build/userpatches/
 cp -a base/customize-image.sh armbian-build/userpatches/
+cp -a base/config-default.conf armbian-build/userpatches/
 
 BOARD=${BOARD:-rpi4b}
 BRANCH=${BRANCH:-current}
