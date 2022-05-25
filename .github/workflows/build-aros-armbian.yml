@@ -66,9 +66,9 @@ jobs:
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
 
-        KERNEL_ONLY="${{ github.event.inputs.set_kernel }}"
-        BOARD="${{ github.event.inputs.set_board }}"
-        BRANCH="${{ github.event.inputs.set_branch }}"
+        echo "KERNEL_ONLY=${{ github.event.inputs.set_kernel }}" >> $GITHUB_ENV
+        echo "BOARD=${{ github.event.inputs.set_board }}" >> $GITHUB_ENV
+        echo "BRANCH=${{ github.event.inputs.set_branch }}" >> $GITHUB_ENV
 
     - name: Download source code
       run: |
