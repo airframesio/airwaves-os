@@ -93,8 +93,8 @@ jobs:
       run: |
         mkdir -p build/output/
         mkdir -p build/userpatches/
-        cp -a base/customize-image.sh build/userpatches/
-        cp -a base/config-default.conf build/userpatches/
+        cp -a armbian/base/customize-image.sh build/userpatches/
+        cp -a armbian/base/config-default.conf build/userpatches/
 
     - name: Compile Armbian
       id: build
