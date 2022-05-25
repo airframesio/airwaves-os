@@ -39,6 +39,16 @@ Main() {
 
 InstallAROS() {
 
+	echo ""
+	cat << EOF
+    ___    ____  ____  _____
+   /   |  / __ \/ __ \/ ___/
+  / /| | / /_/ / / / /\__ \
+ / ___ |/ _, _/ /_/ /___/ /
+/_/  |_/_/ |_|\____//____/
+  Airframes Receiver OS
+EOF
+	echo ""
 	echo "Installing AROS"
 
 	echo root:airframes | chpasswd
