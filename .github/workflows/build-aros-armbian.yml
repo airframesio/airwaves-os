@@ -67,9 +67,23 @@ jobs:
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
 
-        echo "BOARD=${{ github.event.inputs.set_board }}" >> $GITHUB_ENV
-        echo "BRANCH=${{ github.event.inputs.set_branch }}" >> $GITHUB_ENV
-        echo "RELEASE=${{ github.event.inputs.set_release }}" >> $GITHUB_ENV
+        set_board="${{ github.event.inputs.set_board }}"
+        if [[ -z "${set_board}" ]]; then
+          set_board="lepotato"
+        fi
+        echo "BOARD=${set_board}" >> $GITHUB_ENV
+
+        set_branch="${{ github.event.inputs.set_branch }}"
+        if [[ -z "${set_branch}" ]]; then
+          set_branch="current"
+        fi
+        echo "BRANCH=${set_branch}" >> $GITHUB_ENV
+
+        set_release="${{ github.event.inputs.set_release }}"
+        if [[ -z "${set_release}" ]]; then
+          set_release="focal"
+        fi
+        echo "RELEASE=${set_release}" >> $GITHUB_ENV
 
     - name: Download source code
       run: |
