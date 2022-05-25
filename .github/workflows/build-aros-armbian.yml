@@ -89,6 +89,7 @@ jobs:
       id: build
       run: |
         cd build/
+        sudo chmod +x compile.sh
         sudo -E ./compile.sh EXPERT=yes BUILD_MINIMAL=$BUILD_MINIMAL KERNEL_ONLY=$KERNEL_ONLY KERNEL_CONFIGURE=$KERNEL_CONFIGURE BOARD=$BOARD BRANCH=$BRANCH RELEASE=$RELEASE BUILD_DESKTOP=$BUILD_DESKTOP HOST=$HOST
         echo "::set-output name=status::success"
         tar -cjvf /tmp/AROS_${BOARD}.tar.bz2 output/images/*.img
