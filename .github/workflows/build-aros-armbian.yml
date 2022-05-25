@@ -103,12 +103,12 @@ jobs:
         sudo chmod +x compile.sh
         sudo -E ./compile.sh BUILD_MINIMAL=$BUILD_MINIMAL KERNEL_ONLY=${KERNEL_ONLY} KERNEL_CONFIGURE=$KERNEL_CONFIGURE BOARD=${{ env.BOARD }} BRANCH=${{ env.BRANCH }} RELEASE=${{ env.RELEASE }} BUILD_DESKTOP=$BUILD_DESKTOP HOST=$HOST
         echo "::set-output name=status::success"
-        tar -cjvf /tmp/AROS_${BOARD}.tar.bz2 build/output/images/*.img
+        tar -cjvf /tmp/AROS_${BOARD}.tar.bz2 output/images/*.img
 
     - name: Debug Output
       if: always()
       run: |
-        cat output/debug/debootstrap.log
+        cat build/output/debug/debootstrap.log
 
     - name: Upload Armbian image
       uses: actions/upload-artifact@master
