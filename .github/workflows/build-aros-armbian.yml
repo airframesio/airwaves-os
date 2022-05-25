@@ -66,8 +66,8 @@ jobs:
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
 
-	KERNEL_ONLY="${{ github.event.inputs.set_kernel }}"
-	if [[ -z "${KERNEL_ONLY}" ];
+        KERNEL_ONLY="${{ github.event.inputs.set_kernel }}"
+        if [[ -z "${KERNEL_ONLY}" ];
           KERNEL_ONLY="no"
         fi
 
