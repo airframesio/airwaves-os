@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+. /opt/aros/aros.config
+
+FirstRun() {
+  echo "AROS first run"
+  InstallInitialContainers
+  ContainersNotInstalled
+  ApplyConfiguration
+}
+
+InstallInitialContainers() {
+  echo "  * Installing initial Docker images:"
+
+  echo "    + airframesio/manager                      [${CONTAINER_AROS_FEEDER_WEB}, installed, enabled]"
+  docker pull ghcr.io/airframesio/feeder-web:${CONTAINER_AROS_FEEDER_WEB} 2> /dev/null
+  docker create -p 80:80 -p 443:443 --name aros_web --restart=always \
+    -v /var/run/docker.sock:/var/run/docker.sock -v /etc/aros:/etc/aros \
+    ghcr.io/airframesio/feeder-web:${CONTAINER_AROS_FEEDER_WEB} 2> /dev/null
+  echo "    + airframesio/web                          [${CONTAINER_AROS_FEEDER_WEB}, installed, enabled]"
+  echo "    + airframesio/decoder-acars-acarsdec       [${CONTAINER_AROS_HFDL_DUMPHFDL}, installed, disabled]"
+  echo "    + airframesio/decoder-adsb-readsb          [${CONTAINER_AROS_HFDL_DUMPHFDL}, installed, disabled]"
+  echo "    + airframesio/decoder-hfdl-dumphfdl        [${CONTAINER_AROS_HFDL_DUMPHFDL}, installed, disabled]"
+  echo "    + airframesio/decoder-vdl-dumpvdl2         [${CONTAINER_AROS_VDL_DUMPVDL2}, installed, disabled]"
+  echo "    + airframesio/decoder-vdl-vdlm2dec         [${CONTAINER_AROS_VDL_DUMPVDL2}, installed, enabled]"
+  echo "    + airframesio/decoder-satcom-aoa           [${CONTAINER_AROS_SATCOM_AOA}, installed, disabled]"
+  echo "    + airframesio/decoder-satcom-aoi           [${CONTAINER_AROS_SATCOM_AOI}, installed, disabled]"
+  echo "    + airframesio/decoder-uat-dump978          [${CONTAINER_AROS_HFDL_DUMPHFDL}, installed, disabled]"
+  echo "    + airframesio/feeder-adsb-adsbx.com        [${CONTAINER_AROS_SATCOM_AOI}, installed, disabled]"
+  echo "    + airframesio/feeder-acars-airframes.io    [${CONTAINER_AROS_SATCOM_AOI}, installed, enabled]"
+  echo "    + airframesio/feeder-vdl-airframes.io      [${CONTAINER_AROS_SATCOM_AOI}, installed, enabled]"
+  echo "    + airframesio/feeder-uat-adsbx.com         [${CONTAINER_AROS_SATCOM_AOI}, installed, disabled]"
+
+  docker pull portainer/portainer-ce:${CONTAINER_PORTAINER} 2> /dev/null > /dev/null
+  docker volume create portainer_data 2> /dev/null
+  docker create -p 8000:8000 -p 9443:9443 --name portainer --restart=always \
+    -v /var/run/docker.sock:/var/run/docker.sock -v portainer_data:/data \
+    portainer/portainer-ce:${CONTAINER_PORTAINER} 2> /dev/null
+  echo "    + portainer                                [${CONTAINER_PORTAINER}, installed, enabled]"
+
+  docker pull sdr-enthusiasts/acarshub:${CONTAINER_SDR_ENTHUSIASTS_ACARSHUB} 2> /dev/null > /dev/null
+  echo "    + sdr-enthusiasts/acarshub                 [${CONTAINER_SDR_ENTHUSIASTS_ACARSHUB}, installed, disabled]"
+}
+
+ContainersNotInstalled() {
+  echo "  * Containers not installed or enabled:"
+  echo "    + kx1t/planefence                          [${CONTAINER_KX1T_PLANEFENCE}, not installed]"
+}
+
+ApplyConfiguration() {
+  echo "  * Applying AROS configuration (/etc/aros/config.json)"
+  echo "    - Removed stale entries"
+  echo "    + Creating configured outputs"
+  echo "      * acarsdec --> acars-airframes.io"
+  echo "      * vdlm2dec --> vdl-airframes.io"
+  echo "    + Ensuring container parity"
+}
+
+if [ -f "/opt/aros/.needs-first-run" ]; then
+  FirstRun
+fi
