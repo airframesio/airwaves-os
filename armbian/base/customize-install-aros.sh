@@ -95,15 +95,15 @@ EOF
 
 InstallDocker() {
   echo "    * Installing Docker"
-  curl -fsSL https://get.docker.com | sh 2>&1 > /dev/null
+  curl -fsSL https://get.docker.com | sh 2> /dev/null > /dev/null
 }
 
 InstallTailscale() {
   echo "    * Installing Tailscale"
   curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/focal.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
   curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/focal.tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list >/dev/null
-  sudo apt-get -qq update
-  sudo apt-get -qq install tailscale
+  sudo apt-get -qq update > /dev/null
+  sudo apt-get -qq install tailscale > /dev/null
 }
 
 InstallAROS "$@"

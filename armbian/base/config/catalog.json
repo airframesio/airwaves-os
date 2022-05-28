@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "catalog": {
+    "source": "https://api.airframes.io/catalog",
+    "version": 102,
+    "updated": "2022-05-28T22:12:03Z",
+    "items": [
+      {
+        "uuid": "89da24d1-fdfa-4b83-ab5d-8b2cb11df647",
+        "name": "decoder-vdl-dumpvdl2",
+        "summary": "Decoder client for VDL",
+        "description": "Decoder VDL2 messages using dumpvdl2 and an SDR",
+        "version": "0.0.1",
+        "logo": { "url": "" },
+        "categories": ["decoder", "vdl"],
+        "official": true,
+        "provides": ["decoder", "output"],
+        "requires": ["sdr"],
+        "source": { "type": "container", "image": "airframes/decoder-vdl-dumpvdl2", "tag": "0.0.1" }
+      },
+      {
+        "uuid": "47e5f544-9526-4bd0-9200-f62bcfb56d59",
+        "name": "decoder-vdl-vdlm2dec",
+        "summary": "Decoder client for VDL",
+        "description": "Decoder VDL2 messages using vdlm2dec and an SDR",
+        "version": "0.0.1",
+        "logo": { "url": "" },
+        "categories": ["decoder", "vdl"],
+        "official": true,
+        "provides": ["decoder", "output"],
+        "requires": ["sdr"],
+        "source": { "type": "container", "image": "airframes/decoder-vdl-vdlm2dec", "tag": "0.0.1" }
+      },
+      {
+        "uuid": "e6892892-d04c-45bf-900d-c6fe386eb8bb",
+        "name": "Planefence",
+        "summary": "Detect aircraft within a boundary around your receiver and get alerted.",
+        "description": "Planefence will create a log of aircraft heard by your Feeder Station that are within a \"fence\", that is, less than a certain distance and lower than a certain altitude from your station. This log is displayed on a website and is also made available in daily CSV files. Furthermore, Planefence can send a Tweet for every plane in the fence, and (coming soon!) will be able to collect noise figures to see how loud the aircraft are that fly above your Feeder Station.",
+        "version": "1.0.0",
+        "logo": { "url": "" },
+        "categories": ["alerts", "social"],
+        "official": true,
+        "provides": ["web"],
+        "source": { "type": "container", "image": "kx1t/planefence", "tag": "latest" }
+      },
+      {
+        "uuid": "e5162f33-d442-4fda-8aef-014cc0764baf",
+        "name": "ACARS Hub",
+        "summary": "Alternative web interface to view realtime ACARS/VDL messages heard by your station.",
+        "description": "Docker container to view ACARS messages. It makes extensive use of the airframes work to make the messages more 'human-readable' as well as provide more detail for each of the messages.",
+        "version": "3.0.7",
+        "logo": { "url": "" },
+        "categories": ["messages", "ui"],
+        "official": false,
+        "provides": ["web"],
+        "source": { "type": "container", "image": "sdr-enthusiasts/acarshub", "tag": "3.0.7" }
+      }
+    ]
+  }
+}
