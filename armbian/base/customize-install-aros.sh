@@ -7,7 +7,7 @@ LINUXFAMILY=$2
 BOARD=$3
 BUILD_DESKTOP=$4
 
-. aros.config
+. /opt/aros/aros.config
 
 ImportFile() {
   echo "Importing file"
@@ -69,6 +69,17 @@ EOF
   mkdir -p /etc/aros
   cp /tmp/overlay/config/templates/aros-config.json.template /etc/aros/config.json
 
+  echo "    + /etc/systemd/system/aros-first-run.service"
+  cp /tmp/overlay/config/templates/systemd-aros-first-run.service.template /etc/systemd/system/aros-first-run.service
+  systemctl --no-reload enable aros-first-run.service
+
+  echo "    + /etc/systemd/system/aros-manager.service"
+  cp /tmp/overlay/config/templates/systemd-aros-manager.service.template /etc/systemd/system/aros-manager.service
+  systemctl --no-reload enable aros-manager.service
+
+  echo "    + /opt/aros/.needs-first-run"
+  touch /opt/aros/.needs-first-run
+
   echo "    + setting hostname to ${HOSTNAME}"
   /tmp/overlay/scripts/change_hostname.sh $HOSTNAME
 
@@ -76,7 +87,6 @@ EOF
 
   echo "  Components:"
   InstallDocker
-  InstallInitialContainers
   InstallTailscale
 
   chage -d 0 root
@@ -86,21 +96,6 @@ EOF
 InstallDocker() {
   echo "    * Installing Docker"
   curl -fsSL https://get.docker.com | sh 2>&1 > /dev/null
-}
-
-InstallInitialContainers() {
-  echo "    * Installing initial Docker images:"
-
-  echo "      + airframesio/feeder-web                  [${CONTAINER_AROS_FEEDER_WEB}, enabled]"
-  docker pull ghcr.io/airframesio/feeder-web:${CONTAINER_AROS_FEEDER_WEB}
-
-  echo "      + airframesio/feeder-hfdl-dumphfdl        [${CONTAINER_AROS_HFDL_DUMPHFDL}, disabled]"
-  echo "      + airframesio/feeder-vdl-dumpvdl2         [${CONTAINER_AROS_VDL_DUMPVDL2}, disabled]"
-  echo "      + airframesio/feeder-satcom-aoa           [${CONTAINER_AROS_SATCOM_AOA}, disabled]"
-  echo "      + airframesio/feeder-satcom-aoi           [${CONTAINER_AROS_SATCOM_AOI}, disabled]"
-
-  echo "      + portainer                               [${CONTAINER_PORTAINER}, enabled]"
-  docker pull portainer/portainer-ce:${CONTAINER_PORTAINER}
 }
 
 InstallTailscale() {

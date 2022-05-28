@@ -1,0 +1,16 @@
+[Unit]
+Description=AROS Manager
+Documentation=https://airframes.io
+After=network.target local-fs.target
+
+[Service]
+ExecStart=/opt/aros/bin/manager
+
+Type=notify
+Delegate=yes
+KillMode=process
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

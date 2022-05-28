@@ -1,0 +1,14 @@
+[Unit]
+Description=AROS first run
+Wants=network-online.target
+After=network.target network-online.target
+ConditionPathExists=/opt/aros/.needs_first_run
+
+[Service]
+Type=idle
+RemainAfterExit=yes
+ExecStart=/opt/aros/scripts/first-run
+TimeoutStartSec=2min
+
+[Install]
+WantedBy=multi-user.target

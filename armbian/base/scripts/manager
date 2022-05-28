@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+
+. /opt/aros/aros.config
+
+FirstRun() {
+  InstallInitialContainers
+}
+
+InstallInitialContainers() {
+  echo "    * Installing initial Docker images:"
+
+  echo "      + airframesio/feeder-web                  [${CONTAINER_AROS_FEEDER_WEB}, enabled]"
+  docker pull ghcr.io/airframesio/feeder-web:${CONTAINER_AROS_FEEDER_WEB}
+  docker create -p 80:80 -p 443:443 --name aros_web --restart=always \
+    -v /var/run/docker.sock:/var/run/docker.sock -v /etc/aros:/etc/aros \
+    ghcr.io/airframesio/feeder-web:${CONTAINER_AROS_FEEDER_WEB}
+
+  echo "      + airframesio/feeder-hfdl-dumphfdl        [${CONTAINER_AROS_HFDL_DUMPHFDL}, disabled]"
+  echo "      + airframesio/feeder-vdl-dumpvdl2         [${CONTAINER_AROS_VDL_DUMPVDL2}, disabled]"
+  echo "      + airframesio/feeder-satcom-aoa           [${CONTAINER_AROS_SATCOM_AOA}, disabled]"
+  echo "      + airframesio/feeder-satcom-aoi           [${CONTAINER_AROS_SATCOM_AOI}, disabled]"
+
+  echo "      + portainer                               [${CONTAINER_PORTAINER}, enabled]"
+  docker pull portainer/portainer-ce:${CONTAINER_PORTAINER}
+  docker volume create portainer_data
+  docker create -p 8000:8000 -p 9443:9443 --name portainer --restart=always \
+    -v /var/run/docker.sock:/var/run/docker.sock -v portainer_data:/data \
+    portainer/portainer-ce:${CONTAINER_PORTAINER}
+}
+
+Main() {
+  echo "Manager is running"
+  sleep 60
+}
+
+if [ -f "/opt/aros/.needs-first-run" ]; then
+  FirstRun
+fi
+
+Main "$@"
