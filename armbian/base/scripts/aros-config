@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+
+echo "aros-config v0.0.1"
+echo "Airframes Receiver OS Configuration for CLI"
+echo ""
+
+if [[ $EUID != 0 ]]; then
+  echo "This tool requires root privileges. Try again with \"sudo \"!" >&2
+  sleep 2
+  exit 1
+fi
+
+if  [[ -f ${BASH_SOURCE}-functions ]]; then source ${BASH_SOURCE}-functions;
+  elif  [[ -f /opt/aros-config/functions.sh ]]; then source /opt/aros-config/functions.sh;
+  else exit 1;
+fi
+
+if [[ $1 == "--help" ]]; then
+  echo "Commands:"
+  echo ""
+  echo "  set-hostname HOSTNAME    Sets the system's hostname"
+  echo "  set-user-uuid UUID       Sets the Airframes user uuid"
+  echo "  set-user-token TOKEN     Sets the Airframes user token"
+  echo ""
+  echo "  test-auth                Tests if authentication to Airframes is working"
+  echo ""
+  echo "  apply                    Apply the current AROS configuration to the system"
+  echo "  repair                   Repair the system and AROS configuration" 
+  echo "  upgrade                  Upgrade to the latest release of AROS"
+  echo ""
+  exit
+fi
+
+main "$@"
+
+while true
+do
+  LIST=()
+
+  LIST+=( "System" "System settings" )
+  LIST+=( "Airframes" "Airframes.io settings" )
+
+  LIST_LENGTH="$((11+${#LIST[@]}/2))"
+  BOX_LENGTH=${#LIST[@]}
+  MENU_TITLE="Configure Airframes Receiver OS"
+
+  DIALOG_CANCEL=1
+  DIALOG_ESC=255
+  TITLE_LENGTH=${#MENU_TITLE}
+
+  [[ "$TITLE_LENGTH" -lt 60 ]] && TITLE_LENGTH="60"
+
+  if [[ -z $1 ]]; then
+    exec 3>&1
+    main=$(dialog --colors --backtitle "${BACK_TITLE}" --title " aros-config " --clear --cancel-label "Exit" --menu "\n$MENU_TITLE \nWebsite: \Z1https://airframes.io\Z0\n " $LIST_LENGTH $TITLE_LENGTH $BOX_LENGTH "${LIST[@]}")
+    exec 3>&-
+
+    exit_status=$?
+
+    [[ $exit_status == $DIALOG_CANCEL || $exit_status == $DIALOG_ESC ]] && exit
+
+    dialog --backtitle "$BACK_TITLE" --title "Please wait" --infobox "\nLoading ${main,,} submodule ... " 5 $((26+${#main}))
+  fi
+
+  case $1 in
+    "system")
+      submenu_system
+      ;;
+    "airframes")
+      submenu_airframes
+      ;;
+    "armbian")
+      armbian-config
+      ;;
+    "help")
+      unset main
+      t="aros-config is a CLI tool to customize the Airframes Receiver OS."
+      show_box "Help" "$t" "18"
+      ;;
+  esac
+
+done
+

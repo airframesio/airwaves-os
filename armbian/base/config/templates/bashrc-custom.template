@@ -1,0 +1,8 @@
+export LS_OPTIONS='--color=auto'
+alias l='ls $LS_OPTIONS -l'
+alias ll='ls $LS_OPTIONS -la'
+
+# Logs
+alias j='sudo journalctl -b -n 100 -f'
+
+export PATH=$PATH:/sbin:/usr/local/sbin

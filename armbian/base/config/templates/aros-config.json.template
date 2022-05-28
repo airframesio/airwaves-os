@@ -1,0 +1,28 @@
+{
+  "version": 1,
+
+  "system": {
+    "uuid": null,
+    "network": {
+      "hostname": "airframes",
+      "avahi": true,
+      "lan": { "enabled": true, "interface": "eth0", "type": "dhcp" },
+      "wifi": { "enabled": true, "interface": "wlan0", "type": "dhcp", "ssid": "airframes", "psk": "airframes" },
+    },
+    "devices": []
+  },
+
+  "airframes": {
+    "enabled": true,
+    "user": { "uuid": "c4c46296-29a3-4b01-ad49-8f8983fa51e8", "token": "redacted" },
+    "refresh": { "airframes": "1 hour", "airports": "1 day", "flights": "5 minutes" }
+  },
+
+  "neighbor_systems": [],
+  "stations": [],
+
+  "apps": [ "feeder-web", "acarsdec", "dumphfdl", "dumpvdl2"],
+  "inputs": [],
+  "outputs": []
+}
+

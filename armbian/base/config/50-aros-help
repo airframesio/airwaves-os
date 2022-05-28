@@ -1,0 +1,60 @@
+#!/bin/bash
+
+THIS_SCRIPT="help"
+MOTD_DISABLE=""
+
+HIDE_IP_PATTERN="^dummy0|^lo|^docker0"
+COLOR_GREEN="\e[0;92m"
+COLOR_END="\x1B[0m"
+HOSTNAME=$(hostname)
+
+[[ -f /etc/armbian-release ]] && . /etc/armbian-release
+[[ -f /etc/armbian-distribution-status ]] && . /etc/armbian-distribution-status
+[[ -f /etc/lsb-release && -f /etc/armbian-distribution-status ]] && DISTRIBUTION_CODENAME=$(cat /etc/lsb-release | grep CODENAME | cut -d"=" -f2) && DISTRIBUTION_STATUS=$(cat /etc/armbian-distribution-status | grep $DISTRIBUTION_CODENAME | cut -d"=" -f2)
+[[ -f /etc/os-release && -f /etc/armbian-distribution-status ]] && DISTRIBUTION_CODENAME=$(cat /etc/os-release | grep VERSION_CODENAME | cut -d"=" -f2) && DISTRIBUTION_STATUS=$(cat /etc/armbian-distribution-status | grep $DISTRIBUTION_CODENAME | cut -d"=" -f2)
+[[ -f /etc/default/armbian-motd ]] && . /etc/default/armbian-motd
+
+HIDE_IP_PATTERN="${HIDE_IP_PATTERN}|^docker0"
+
+for f in $MOTD_DISABLE; do
+        [[ $f == $THIS_SCRIPT ]] && exit 0
+done
+
+function get_ip_addresses() {
+        local ips=()
+        for f in /sys/class/net/*; do
+                local intf=$(basename $f)
+                if [[ $intf =~ $HIDE_IP_PATTERN ]]; then
+                        continue
+                else
+                        local tmp=$(ip -4 addr show dev $intf | grep -v "$intf:avahi" | awk '/inet/ {print $2}' | cut -d'/' -f1)
+                        [[ -n $tmp ]] && ips+=("$tmp")
+                fi
+        done
+        echo "${ips[@]}"
+}
+
+function get_primary_ip_address() {
+        local ips=()
+        for f in /sys/class/net/*; do
+                local intf=$(basename $f)
+                if [[ $intf =~ $HIDE_IP_PATTERN ]]; then
+                        continue
+                else
+                        local tmp=$(ip -4 addr show dev $intf | grep -v "$intf:avahi" | awk '/inet/ {print $2}' | cut -d'/' -f1)
+                        [[ -n $tmp ]] && ips+=("$tmp")
+                fi
+        done
+        echo "${ips[0]}"
+}
+
+ip_addresses=$(get_ip_addresses &)
+primary_ip_address=$(get_primary_ip_address &)
+
+toilet -t -f mini Get Started
+echo "Your receiver is ready to be set up."
+echo
+echo -e "  * Go to ${COLOR_GREEN}http://${HOSTNAME}.local${COLOR_END} or ${COLOR_GREEN}http://${primary_ip_address}${COLOR_END} in your web browser"
+echo -e "  * Default username: airframes"
+echo -e "  * Default password: changeme"
+echo
