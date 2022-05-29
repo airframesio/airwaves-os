@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-. /opt/aros/aros.config
+. /opt/aros/build.config
 
 FirstRun() {
   echo "AROS first run"

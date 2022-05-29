@@ -25,13 +25,34 @@ if [[ $1 == "--help" ]]; then
   echo "  test-auth                Tests if authentication to Airframes is working"
   echo ""
   echo "  apply                    Apply the current AROS configuration to the system"
+  echo "  show                     Show current configuration"
   echo "  repair                   Repair the system and AROS configuration" 
   echo "  upgrade                  Upgrade to the latest release of AROS"
   echo ""
   exit
 fi
 
-main "$@"
+. /opt/aros/build.config
+
+
+ApplyConfig() {
+  /opt/aros/scripts/apply-config
+}
+
+ShowConfig() {
+  /opt/aros/scripts/show-config
+}
+
+Repair() {
+  /opt/aros/scripts/repair
+}
+
+Upgrade() {
+  /opt/aros/scripts/update
+}
+
+#main "$@"
+
 
 while true
 do
@@ -50,7 +71,7 @@ do
 
   [[ "$TITLE_LENGTH" -lt 60 ]] && TITLE_LENGTH="60"
 
-  if [[ -z $1 ]]; then
+  if [[ -z "$1" ]]; then
     exec 3>&1
     main=$(dialog --colors --backtitle "${BACK_TITLE}" --title " aros-config " --clear --cancel-label "Exit" --menu "\n$MENU_TITLE \nWebsite: \Z1https://airframes.io\Z0\n " $LIST_LENGTH $TITLE_LENGTH $BOX_LENGTH "${LIST[@]}")
     exec 3>&-
@@ -63,6 +84,10 @@ do
   fi
 
   case $1 in
+    "show")
+      ShowConfig
+      exit 0
+      ;;
     "system")
       submenu_system
       ;;

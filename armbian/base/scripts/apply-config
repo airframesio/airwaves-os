@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+. /opt/aros/build.config
+
+if [ ! -f "$AROS_STATION_CONFIG" ]; then
+  echo "AROS config must exist at $AROS_STATION_CONFIG in order to apply it."
+  exit 1
+fi
+

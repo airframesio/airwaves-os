@@ -16,7 +16,19 @@
         "official": true,
         "provides": ["decoder", "output"],
         "requires": ["sdr"],
-        "source": { "type": "container", "image": "airframes/decoder-vdl-dumpvdl2", "tag": "0.0.1" }
+        "source": { "type": "container", "image": "airframes/decoder-vdl-dumpvdl2", "tag": "0.0.1" },
+        "default_config": {
+          "ports": [
+            { "name": "zmq-server", "outer": 7001, "inner": "5555" }
+          ],
+          "sdr": {
+            "gain": null,
+            "correction": null
+          },
+          "options": [
+            "--output decoded:text:file:path=-"
+          ]
+        }
       },
       {
         "uuid": "47e5f544-9526-4bd0-9200-f62bcfb56d59",

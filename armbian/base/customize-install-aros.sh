@@ -7,7 +7,7 @@ LINUXFAMILY=$2
 BOARD=$3
 BUILD_DESKTOP=$4
 
-. /opt/aros/aros.config
+. /opt/aros/build.config
 
 ImportFile() {
   echo "Importing file"

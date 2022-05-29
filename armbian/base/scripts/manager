@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-. /opt/aros/aros.config
+. /opt/aros/build.config
 
 Main() {
   echo "Manager is running"
