@@ -12,7 +12,7 @@ mkdir -p armbian-build/output/
 mkdir -p armbian-build/userpatches/overlay
 cp -aR base/* armbian-build/userpatches/overlay/
 cp -a base/lib.config armbian-build/userpatches/
-#cp -aR patches/* armbian-build/userpatches/
+cp -aR patches/* armbian-build/userpatches/
 
 cp -a base/customize-image.sh armbian-build/userpatches/
 cp -a base/config-default.conf armbian-build/userpatches/
