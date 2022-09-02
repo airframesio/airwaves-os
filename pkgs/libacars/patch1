@@ -1,0 +1,13 @@
+--- libacars-2.1.4/CMakeLists.txt	2022-03-06 12:37:58.000000000 -0800
++++ libacars-2.1.4.new/CMakeLists.txt	2022-09-01 13:06:52.252578254 -0700
+@@ -64,4 +64,10 @@
+ elseif (WIN32)
+ 	set (CPACK_GENERATOR "ZIP")
+ endif ()
++set (CPACK_PACKAGE_CONTACT "kevin@airframes.io")
++set (CPACK_DEBIAN_PACKAGE_MAINTAINER "Kevin Elliott")
++set (CPACK_DEBIAN_PACKAGE_SHLIBDEPS YES)
++set (CPACK_DEBIAN_PACKAGE_DEPENDS "libxml2-dev (>= 2.9.13), zlib1g-dev (>= 1:1.2.11)")
++set (CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/szpajder/libacars")
++set (CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
+ include (CPack)

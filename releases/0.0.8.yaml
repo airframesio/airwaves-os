@@ -1,0 +1,19 @@
+release:
+  name: ItchyNScratchy
+  manager:
+    name: 'Kevin Elliott'
+    email: 'kevin@airframes.io'
+    github: 'https://github.com/kevinelliott'
+  version: 0.0.8
+  dependencies:
+    packages:
+      - name: libacars
+        version: 2.1.4
+      - name: acarsdec
+        version: 3.7.0
+      - name: dumpvdl2
+        version: 2.2.0
+      - name: dumphfdl
+        version: 1.3.0
+      - name: vdlm2dec
+        version: 2.2.0

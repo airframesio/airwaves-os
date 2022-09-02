@@ -1,0 +1,13 @@
+--- CMakeLists.txt.orig	2022-09-01 15:31:20.184299974 -0700
++++ CMakeLists.txt	2022-09-01 15:35:21.029557249 -0700
+@@ -38,4 +38,10 @@
+ elseif (WIN32)
+ 	set (CPACK_GENERATOR "ZIP")
+ endif ()
++set (CPACK_PACKAGE_CONTACT "kevin@airframes.io")
++set (CPACK_DEBIAN_PACKAGE_MAINTAINER "Kevin Elliott")
++set (CPACK_DEBIAN_PACKAGE_SHLIBDEPS YES)
++set (CPACK_DEBIAN_PACKAGE_DEPENDS "libacars (>= 2), librtlsdr-dev (> 0), libusb-1.0-0-dev (> 0), libsqlite3-dev (> 0), libsoapysdr-dev (> 0), libprotobuf-c-dev (> 0), libzmq3-dev (> 0)")
++set (CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/szpajder/dumpvdl2")
++set (CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
+ include (CPack)

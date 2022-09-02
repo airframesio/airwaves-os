@@ -1,0 +1,25 @@
+--- CMakeLists.txt.orig	2022-09-01 16:35:48.046802200 -0700
++++ CMakeLists.txt	2022-09-01 16:42:21.339664377 -0700
+@@ -81,3 +81,22 @@
+ install(TARGETS acarsdec
+ 	RUNTIME DESTINATION bin
+ )
++
++set (CPACK_RESOURCE_FILE_README "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
++set (CPACK_PACKAGE_VERSION_MAJOR "3")
++set (CPACK_PACKAGE_VERSION_MINOR "7")
++set (CPACK_PACKAGE_VERSION_PATCH "0")
++set (CPACK_PACKAGE_CHECKSUM "SHA256")
++set (CPACK_STRIP_FILES TRUE)
++if (UNIX)
++	set (CPACK_GENERATOR "TGZ")
++elseif (WIN32)
++	set (CPACK_GENERATOR "ZIP")
++endif ()
++set (CPACK_PACKAGE_CONTACT "kevin@airframes.io")
++set (CPACK_DEBIAN_PACKAGE_MAINTAINER "Kevin Elliott")
++set (CPACK_DEBIAN_PACKAGE_SHLIBDEPS YES)
++set (CPACK_DEBIAN_PACKAGE_DEPENDS "libacars (>= 2), librtlsdr-dev (> 0), libmirisdr-dev (> 0), libairspy-dev (> 0), ibpaho-mqtt-dev (> 0)")
++set (CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/TLeconte/vdlm2dec")
++set (CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
++include (CPack)
