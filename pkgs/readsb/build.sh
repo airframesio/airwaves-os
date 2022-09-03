@@ -10,7 +10,6 @@ SOURCE_NAME="readsb"
 SOURCE_VERSION="3.14.1592~dev"
 SOURCE_GITHUB_REPO="wiedehopf/${SOURCE_NAME}"
 SOURCE_URL="https://github.com/${SOURCE_GITHUB_REPO}/tarball/dev"
-DEPENDENCIES="git build-essential debhelper libusb-1.0-0-dev librtlsdr-dev librtlsdr0 pkg-config libncurses-dev zlib1g-dev zlib1g libzstd-dev libzstd1"
 
 # Derivative Envs
 
@@ -21,7 +20,6 @@ BUILD_PATH="${PACKAGE_NAME}/build"
 
 # Build
 
-#sudo apt install -y ${DEPENDENCIES} 2>/dev/null
 mkdir -p ${TEMP_PATH}
 cd ${TEMP_PATH}
 rm -rf ${TAR_FILE} ${PACKAGE_NAME}
