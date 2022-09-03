@@ -15,5 +15,18 @@ release:
         version: 2.2.0
       - name: dumphfdl
         version: 1.3.0
+      - name: mlat-client
+        version: 0.2.11
+      - name: readsb
+        version: 3.14.1592~dev
       - name: vdlm2dec
         version: 2.2.0
+    containers:
+      - name: airframes-feeder-api
+        version: 0.0.2
+        repo: ghcr.io
+        image: airframesio/feeder-api
+      - name: airframes-feeder-web
+        version: 0.0.2
+        repo: ghcr.io
+        image: airframesio/feeder-web
