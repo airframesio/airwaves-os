@@ -4,58 +4,93 @@
 
 FirstRun() {
   echo "AROS first run"
+  ChangeHostname
   InstallInitialContainers
   ContainersNotInstalled
   ApplyConfiguration
+}
+
+ChangeHostname() {
+  NEW_HOSTNAME="airframes-$(cat /sys/class/net/eth0/address | awk -F: '{ print $4$5$6}')"
+  echo "  * Setting hostname: ${NEW_HOSTNAME}"
+  /opt/aros/scripts/change-hostname.sh ${NEW_HOSTNAME}
+  hostnamectl set-hostname ${NEW_HOSTNAME}
+  systemctl restart avahi-daemon
 }
 
 InstallInitialContainers() {
   echo "  * Installing initial Docker images:"
 
   echo "    + airframesio/manager                      [${CONTAINER_AROS_FEEDER_WEB}, installed, enabled]"
-  docker pull ghcr.io/airframesio/feeder-web:${CONTAINER_AROS_FEEDER_WEB} 2> /dev/null
+  docker pull ghcr.io/airframesio/feeder-web:${CONTAINER_AROS_FEEDER_WEB} >/dev/null 2>&1
+  docker stop aros_web >/dev/null 2>&1
+  docker rm aros_web >/dev/null 2>&1
   docker create -p 80:80 -p 443:443 --name aros_web --restart=always \
     -v /var/run/docker.sock:/var/run/docker.sock -v /etc/aros:/etc/aros \
-    ghcr.io/airframesio/feeder-web:${CONTAINER_AROS_FEEDER_WEB} 2> /dev/null
-  echo "    + airframesio/web                          [${CONTAINER_AROS_FEEDER_WEB}, installed, enabled]"
-  echo "    + airframesio/decoder-acars-acarsdec       [${CONTAINER_AROS_HFDL_DUMPHFDL}, installed, disabled]"
-  echo "    + airframesio/decoder-adsb-readsb          [${CONTAINER_AROS_HFDL_DUMPHFDL}, installed, disabled]"
-  echo "    + airframesio/decoder-hfdl-dumphfdl        [${CONTAINER_AROS_HFDL_DUMPHFDL}, installed, disabled]"
-  echo "    + airframesio/decoder-vdl-dumpvdl2         [${CONTAINER_AROS_VDL_DUMPVDL2}, installed, disabled]"
-  echo "    + airframesio/decoder-vdl-vdlm2dec         [${CONTAINER_AROS_VDL_DUMPVDL2}, installed, enabled]"
-  echo "    + airframesio/decoder-satcom-aoa           [${CONTAINER_AROS_SATCOM_AOA}, installed, disabled]"
-  echo "    + airframesio/decoder-satcom-aoi           [${CONTAINER_AROS_SATCOM_AOI}, installed, disabled]"
-  echo "    + airframesio/decoder-uat-dump978          [${CONTAINER_AROS_HFDL_DUMPHFDL}, installed, disabled]"
-  echo "    + airframesio/feeder-adsb-adsbx.com        [${CONTAINER_AROS_SATCOM_AOI}, installed, disabled]"
-  echo "    + airframesio/feeder-acars-airframes.io    [${CONTAINER_AROS_SATCOM_AOI}, installed, enabled]"
-  echo "    + airframesio/feeder-vdl-airframes.io      [${CONTAINER_AROS_SATCOM_AOI}, installed, enabled]"
-  echo "    + airframesio/feeder-uat-adsbx.com         [${CONTAINER_AROS_SATCOM_AOI}, installed, disabled]"
+    ghcr.io/airframesio/feeder-web:${CONTAINER_AROS_FEEDER_WEB} >/dev/null 2>&1
+  echo "    + airframesio/feeder-web                   [${CONTAINER_AROS_FEEDER_WEB}, installed, enabled]"
+  echo "    + airframesio/decoder-acars-acarsdec       [${CONTAINER_AROS_HFDL_DUMPHFDL}, disabled]"
+  echo "    + airframesio/decoder-adsb-readsb          [${CONTAINER_AROS_HFDL_DUMPHFDL}, disabled]"
+  echo "    + airframesio/decoder-hfdl-dumphfdl        [${CONTAINER_AROS_HFDL_DUMPHFDL}, disabled]"
+  echo "    + airframesio/decoder-vdl-dumpvdl2         [${CONTAINER_AROS_VDL_DUMPVDL2}, disabled]"
+  echo "    + airframesio/decoder-vdl-vdlm2dec         [${CONTAINER_AROS_VDL_DUMPVDL2}, disabled]"
+  echo "    + airframesio/decoder-satcom-aoa           [${CONTAINER_AROS_SATCOM_AOA}, disabled]"
+  echo "    + airframesio/decoder-satcom-aoi           [${CONTAINER_AROS_SATCOM_AOI}, disabled]"
+  echo "    + airframesio/decoder-uat-dump978          [${CONTAINER_AROS_HFDL_DUMPHFDL}, disabled]"
+  echo "    + airframesio/feeder-adsb-adsbx            [${CONTAINER_AROS_SATCOM_AOI}, disabled]"
+  echo "    + airframesio/feeder-acars-airframesio     [${CONTAINER_AROS_SATCOM_AOI}, disabled]"
+  echo "    + airframesio/feeder-vdl-airframesio       [${CONTAINER_AROS_SATCOM_AOI}, disabled]"
+  echo "    + airframesio/feeder-uat-adsbx.com         [${CONTAINER_AROS_SATCOM_AOI}, disabled]"
 
-  docker pull portainer/portainer-ce:${CONTAINER_PORTAINER} 2> /dev/null > /dev/null
-  docker volume create portainer_data 2> /dev/null
+  docker pull portainer/portainer-ce:${CONTAINER_PORTAINER} >/dev/null 2>&1
+  docker stop portainer >/dev/null 2>&1
+  docker rm portainer >/dev/null 2>&1
+  docker volume create portainer_data >/dev/null 2>&1
   docker create -p 8000:8000 -p 9443:9443 --name portainer --restart=always \
     -v /var/run/docker.sock:/var/run/docker.sock -v portainer_data:/data \
-    portainer/portainer-ce:${CONTAINER_PORTAINER} 2> /dev/null
+    portainer/portainer-ce:${CONTAINER_PORTAINER} >/dev/null 2>&1
   echo "    + portainer                                [${CONTAINER_PORTAINER}, installed, enabled]"
 
-  docker pull sdr-enthusiasts/acarshub:${CONTAINER_SDR_ENTHUSIASTS_ACARSHUB} 2> /dev/null > /dev/null
+  docker pull sdr-enthusiasts/acarshub:${CONTAINER_SDR_ENTHUSIASTS_ACARSHUB} >/dev/null 2>&1
+  docker stop acarshub >/dev/null 2>&1
+  docker rm acarshub >/dev/null 2>&1
+  docker create -p 8900:80 --name acarshub --restart=always --tty --device=/dev/bus/usb:/dev/bus/usb \
+    --tmpfs=/database:exec,size=64M --tmpfs=/run:exec,size=64M --tmpfs=/var/log,size=64M \
+    -v /var/run/docker.sock:/var/run/docker.sock -v acarshub_acars_data:/run/acars -e TZ=America/Los_Angeles -e ENABLE_VDLM=false -e ENABLE_ACARS=false -e MIN_LOG_LEVEL=5 \
+    ghcr.io/sdr-enthusiasts/docker-acarshub:${CONTAINER_SDR_ENTHUSIASTS_ACARSHUB} >/dev/null 2>&1
   echo "    + sdr-enthusiasts/acarshub                 [${CONTAINER_SDR_ENTHUSIASTS_ACARSHUB}, installed, disabled]"
 }
 
 ContainersNotInstalled() {
   echo "  * Containers not installed or enabled:"
-  echo "    + kx1t/planefence                          [${CONTAINER_KX1T_PLANEFENCE}, not installed]"
+  echo "    + kx1t/planefence                          [${CONTAINER_KX1T_PLANEFENCE}]"
 }
 
 ApplyConfiguration() {
   echo "  * Applying AROS configuration (/etc/aros/config.json)"
   echo "    - Removed stale entries"
   echo "    + Creating configured outputs"
-  echo "      * acarsdec --> acars-airframes.io"
-  echo "      * vdlm2dec --> vdl-airframes.io"
+  echo "      * acarsdec --> acars@airframes.io"
+  echo "      * vdlm2dec --> vdl@airframes.io"
   echo "    + Ensuring container parity"
+  StartContainers
+}
+
+StartContainers() {
+  echo "    + Starting container:"
+  echo "      - portainer"
+  docker container start portainer >/dev/null 2>&1
+  echo "      - aros_web"
+  docker container start aros_web >/dev/null 2>&1
+  echo "      - acarshub"
+  docker container start acarshub >/dev/null 2>&1
+}
+
+RemoveFirstRunFile() {
+  rm -rf /opt/aros/.needs-first-run
 }
 
 if [ -f "/opt/aros/.needs-first-run" ]; then
   FirstRun
+  RemoveFirstRunFile
 fi

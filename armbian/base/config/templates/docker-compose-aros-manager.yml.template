@@ -1,0 +1,13 @@
+version: "3.9"
+services:
+  manager:
+    image: airframes/aros-manager
+    privileged: true
+    pull_policy: missing
+    restart: always
+
+volumes:
+
+networks:
+  aros: {}
+

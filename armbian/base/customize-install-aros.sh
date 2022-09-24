@@ -59,9 +59,6 @@ EOF
   echo "    + /etc/avahi/services/aros.service"
   cp /tmp/overlay/config/templates/avahi-aros.service.template /etc/avahi/services/aros.service
 
-  echo "    + /etc/network/interfaces.d/wlan0.conf"
-  cp /tmp/overlay/config/templates/wlan0.conf.template /etc/network/interfaces.d/wlan0.conf
-
   echo "    + /root/.bashrc"
   cp /tmp/overlay/config/templates/bashrc-custom.template /root/.bashrc
 
@@ -81,7 +78,7 @@ EOF
   touch /opt/aros/.needs-first-run
 
   echo "    + setting hostname to ${HOSTNAME}"
-  /tmp/overlay/scripts/change_hostname.sh $HOSTNAME
+  /tmp/overlay/scripts/change-hostname.sh $HOSTNAME
 
   echo ""
 

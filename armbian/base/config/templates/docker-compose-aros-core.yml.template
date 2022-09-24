@@ -1,0 +1,12 @@
+version: "3.9"
+services:
+  web:
+    image: airframes/aros-web
+    pull_policy: missing
+    restart: unless-stopped
+
+volumes:
+
+networks:
+  aros: {}
+

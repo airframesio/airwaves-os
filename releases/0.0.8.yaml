@@ -30,3 +30,12 @@ release:
         version: 0.0.2
         repo: ghcr.io
         image: airframesio/feeder-web
+      - name: airframes-feeder-stats
+        version: 0.0.2
+        repo: ghcr.io
+        image: airframesio/feeder-stats
+      - name: wiedehopf-tar1090
+        version: 1.0.0
+        repo: ghcr.io
+        image: airframesio/wiedehopf-tar1090
+

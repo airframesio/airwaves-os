@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "system": {
+    "uuid": "b22e3d4a-d529-4fe7-9b2f-838c78c1fda4",
+    "network": {
+      "hostname": "airframes1",
+      "avahi": true,
+      "lan": { "enabled": true, "interface": "eth0", "type": "dhcp" },
+      "wifi": { "enabled": true, "interface": "wlan0", "type": "dhcp", "ssid": "airframes", "psk": "airframes" },
+    },
+    "devices": [
+      { "uuid": "551d2d2c-0b56-471c-8c49-cab92a64c4c4", "type": "sdr", "driver": "rtlsdr", "driver-id": "0001" },
+      { "uuid": "f9cebc47-6db0-4025-a167-03356d243968", "type": "sdr", "driver": "rtlsdr", "driver-id": "0002" },
+    ]
+  },
+  "airframes": {
+    "user": { "uuid": "c4c46296-29a3-4b01-ad49-8f8983fa51e8", "token": "redacted" },
+    "refresh": { "airframes": "1 hour", "airports": "1 day", "flights": "5 minutes" }
+  },
+  "stations": [
+    { "uuid": "caeef706-3a22-466c-89f6-dc1c9f4f7334", "name": "KE-KMHR-ACARS1", "type": "local" },
+    { "uuid": "936c3cc7-a836-4280-9164-34f4e8047723", "name": "KE-KMHR-ACARS2", "type": "proxied", "via": { "type": "system", "uuid": "7ddb0d05-1ca3-4865-8dc7-a637f8bb69dd" } },
+    { "uuid": "a0ca51f4-71f6-4be7-b835-291c4325d85e", "name": "KE-KMHR-VDL1", "type": "local" },
+    { "uuid": "4380c6b7-ad27-4c07-a653-9ddfb47e7941", "name": "KE-KMHR-VDL2", "type": "proxied", "via": { "type": "system", "uuid": "7ddb0d05-1ca3-4865-8dc7-a637f8bb69dd" } },
+    { "uuid": "40b8af2a-6282-465b-8b16-a0655a22556e", "name": "KE-KMHR-HFDL1", "type": "proxied", "via": { "type": "system", "uuid": "538f3b59-206a-4151-b6e3-88ac3596028e" } },
+    { "uuid": "a7566c99-d35e-4492-a0b8-c7ed464479ff", "name": "KE-KMHR-HFDL2", "type": "proxied", "via": { "type": "system", "uuid": "a41cb05c-27cf-4d0c-a617-607b0d38e5b5" } },
+    { "uuid": "b6f21bc7-805d-4bcc-83ca-29888651110a", "name": "KE-KMHR-AERO1", "type": "proxied", "via": { "type": "system", "uuid": "f87158d0-c67c-474f-bccd-77b8e2d70be3" } },
+    { "uuid": "46c2311e-9090-45f9-983d-63a0a8efdc0c", "name": "KE-KMHR-IRIDIUM1", "type": "proxied", "via": { "type": "system", "uuid": "039696a8-69a5-4e5c-a7b8-1c56a2d18e0b" } }
+  ],
+  "neighbor_systems": [
+    { "uuid": "7ddb0d05-1ca3-4865-8dc7-a637f8bb69dd", "network": { "hostname": "airframes2" }, "token": "redacted" },
+    { "uuid": "538f3b59-206a-4151-b6e3-88ac3596028e", "network": { "hostname": "airframes3" }, "token": "redacted" },
+    { "uuid": "a41cb05c-27cf-4d0c-a617-607b0d38e5b5", "network": { "hostname": "airframes4" }, "token": "redacted" },
+    { "uuid": "f87158d0-c67c-474f-bccd-77b8e2d70be3", "network": { "hostname": "airframes5" }, "token": "redacted" },
+    { "uuid": "039696a8-69a5-4e5c-a7b8-1c56a2d18e0b", "network": { "hostname": "airframes6" }, "token": "redacted" }
+  ],
+  "inputs": [
+    {
+      "uuid": "c582886f-c3bf-40bb-a6c7-27f1df15c6a6",
+      "type": "local",
+      "device": "551d2d2c-0b56-471c-8c49-cab92a64c4c4",
+      "system": "b22e3d4a-d529-4fe7-9b2f-838c78c1fda4",
+      "decoder": "c1e0e0da-47d8-4506-9c6d-f91d249505ea",
+      "station": "caeef706-3a22-466c-89f6-dc1c9f4f7334"
+    }
+  ],
+  "outputs": [
+    {
+      "uuid": "a22ed4da-50de-41af-907e-81c",
+      "type": "feed",
+      "format": "json",
+      "source": { "type": "input", "input": "" }"
+      "destination": { "protocol": "udp", "hostname": "feed.airframes.io", "port": 5550, "station_uuid": "caeef706-3a22-466c-89f6-dc1c9f4f7334" }
+    }
+  ]
+}
+
