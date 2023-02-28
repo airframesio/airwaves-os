@@ -14,5 +14,5 @@ for releases.
 
 ### GitHub
 
-GitHub workflows will be triggered that will build the AROS images for various platforms.
+GitHub workflows will be triggered that will build the Airwaves OS images for various platforms.
 
