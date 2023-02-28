@@ -1,10 +1,10 @@
-# Airframes Receiver OS (AROS)
+# Airwaves OS
 
 ## Download
 
 ## Building images
 
-AROS can be built locally on a desktop for various architectures using the Armbian build flow, or via GitHub
+Airwaves OS can be built locally on a desktop for various architectures using the Armbian build flow, or via GitHub
 for releases.
 
 ### Locally
