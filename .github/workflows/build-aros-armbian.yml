@@ -93,8 +93,8 @@ jobs:
       run: |
         mkdir -p build/output/
         mkdir -p build/userpatches/
-        mkdir -p armbian-build/userpatches/overlay
-        cp -aR base/* armbian-build/userpatches/overlay/
+        mkdir -p build/userpatches/overlay
+        cp -aR armbian/base/* build/userpatches/overlay/
         cp -a armbian/base/customize-image.sh build/userpatches/
         cp -a armbian/base/config-default.conf build/userpatches/
 
