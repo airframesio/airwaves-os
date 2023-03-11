@@ -112,7 +112,7 @@ jobs:
       if: always()
       run: |
         pwd
-        ls -lR
+        ls -lR build/userpatches build/output build/config build/patches
         cat build/output/debug/debootstrap-list.log
         cat build/output/debug/debootstrap.log
 
