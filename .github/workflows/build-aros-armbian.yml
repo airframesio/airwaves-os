@@ -104,7 +104,8 @@ jobs:
         cd build/
         sudo chmod +x compile.sh
         ./compile.sh BUILD_MINIMAL=$BUILD_MINIMAL KERNEL_ONLY=${KERNEL_ONLY} KERNEL_CONFIGURE=$KERNEL_CONFIGURE BOARD=${{ env.BOARD }} BRANCH=${{ env.BRANCH }} RELEASE=${{ env.RELEASE }} BUILD_DESKTOP=$BUILD_DESKTOP HOST=$HOST default
-        echo "::set-output name=status::success"
+      #  echo "::set-output name=status::success" ## deprecated trying below
+	echo "{name}={status::success}" >> $GITHUB_OUTPUT
         pwd
         tar -cjvf /tmp/AROS_${BOARD}.tar.bz2 output/images/*.img
 
@@ -112,7 +113,7 @@ jobs:
       if: always()
       run: |
         pwd
-        ls -lR build/userpatches build/output build/config build/patches
+        ls -lR build/userpatches build/output build/config build/patch || /bin/true
         cat build/output/debug/debootstrap-list.log
         cat build/output/debug/debootstrap.log
 
