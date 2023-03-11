@@ -113,8 +113,6 @@ jobs:
       run: |
         pwd
         ls -lR build/userpatches build/output build/config build/patch || /bin/true
-        cat build/output/debug/debootstrap-list.log
-        cat build/output/debug/debootstrap.log
 
     - name: Upload Armbian image
       uses: actions/upload-artifact@master
