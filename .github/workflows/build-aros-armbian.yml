@@ -93,6 +93,8 @@ jobs:
       run: |
         mkdir -p build/output/
         mkdir -p build/userpatches/
+        mkdir -p build/userpatches/overlay
+        cp -aR armbian/base/* build/userpatches/overlay/
         cp -a armbian/base/customize-image.sh build/userpatches/
         cp -a armbian/base/config-default.conf build/userpatches/
 
@@ -101,18 +103,16 @@ jobs:
       run: |
         cd build/
         sudo chmod +x compile.sh
-        sudo -E ./compile.sh BUILD_MINIMAL=$BUILD_MINIMAL KERNEL_ONLY=${KERNEL_ONLY} KERNEL_CONFIGURE=$KERNEL_CONFIGURE BOARD=${{ env.BOARD }} BRANCH=${{ env.BRANCH }} RELEASE=${{ env.RELEASE }} BUILD_DESKTOP=$BUILD_DESKTOP HOST=$HOST
+        ./compile.sh BUILD_MINIMAL=$BUILD_MINIMAL KERNEL_ONLY=${KERNEL_ONLY} KERNEL_CONFIGURE=$KERNEL_CONFIGURE BOARD=${{ env.BOARD }} BRANCH=${{ env.BRANCH }} RELEASE=${{ env.RELEASE }} BUILD_DESKTOP=$BUILD_DESKTOP HOST=$HOST default
         echo "::set-output name=status::success"
         pwd
-        tar -cjvf /tmp/AROS_${BOARD}.tar.bz2 build/output/images/*.img
+        tar -cjvf /tmp/AROS_${BOARD}.tar.bz2 output/images/*.img
 
     - name: Debug Output
       if: always()
       run: |
         pwd
-        ls -lR
-        cat build/output/debug/debootstrap-list.log
-        cat build/output/debug/debootstrap.log
+        ls -lR build/userpatches build/output build/config build/patch || /bin/true
 
     - name: Upload Armbian image
       uses: actions/upload-artifact@master
