@@ -45,7 +45,6 @@ on:
 
 env:
   BUILD_MINIMAL: yes
-  KERNEL_ONLY: no
   KERNEL_CONFIGURE: no
   BUILD_DESKTOP: no
   HOST: aros
