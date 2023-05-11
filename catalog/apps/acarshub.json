@@ -4,7 +4,8 @@
     "0.0.1": {
       "containers": {
         "acarshub": {
-          "image": "ghcr.io/sdr-enthusiasts/docker-acarshub:latest"
+          "version": "3.2.2",
+          "image": "ghcr.io/sdr-enthusiasts/docker-acarshub:v3.2.2Build917"
         },
         "acarsdec": {
           "image": "ghcr.io/sdr-enthusiasts/docker-acarsdec:latest"
