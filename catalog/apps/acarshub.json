@@ -2,7 +2,20 @@
   "slug": "acarshub",
   "versions": {
     "0.0.1": {
-      
+      "containers": {
+        "acarshub": {
+          "image": "ghcr.io/sdr-enthusiasts/docker-acarshub:latest"
+        },
+        "acarsdec": {
+          "image": "ghcr.io/sdr-enthusiasts/docker-acarsdec:latest"
+        },
+        "dumpvdl2": {
+          "image": "ghcr.io/sdr-enthusiasts/docker-dumpvdl2:latest"
+        },
+        "acars_router": {
+          "image": "ghcr.io/sdr-enthusiasts/acars_router:latest"
+        }
+      },
     }
   }
 }
