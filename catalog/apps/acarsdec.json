@@ -1,6 +1,8 @@
 {
   "slug": "acarsdec",
   "name": "acarsdec",
+  "author": { "name": "Thierry Leconte", "url": "https://github.com/TLeconte" },
+  "maintainer": { "name": "Kevin Elliott", "url": "https://github.com/kevinelliott" },
   "provides": [
     "decoder",
     "output"
