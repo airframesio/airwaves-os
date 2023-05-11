@@ -4,8 +4,16 @@
       "slug": "acarshub",
       "name": "ACARS Hub",
       "description": "ACARS Hub utilizes RTLSDR dongle(s) to view/stream ACARS/VDLM2 aircraft data transmissions",
-      "author": { "name": "Fred Clauson", "github_url": "https://github.com/fredclauson" },
-      "maintainer": { "name": "Fred Clauson", "github_url": "https://github.com/fredclauson" },
+      "author": { "name": "Fred Clauson", "url": "https://github.com/fredclauson" },
+      "maintainer": { "name": "Fred Clauson", "url": "https://github.com/fredclauson" },
+      "current_version": "0.0.1"
+    },
+    {
+      "slug": "acarsdec",
+      "name": "acarsdec",
+      "description": "",
+      "author": { "name": "Thierry Leconte", "url": "https://github.com/TLeconte" },
+      "maintainer": { "name": "Kevin Elliott", "url": "https://github.com/kevinelliott" },
       "current_version": "0.0.1"
     }
   ]
