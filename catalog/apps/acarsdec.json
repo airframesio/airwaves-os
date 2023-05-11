@@ -5,7 +5,7 @@
       "containers": {
         "acarsdec": {
           "image": "ghcr.io/sdr-enthusiasts/docker-acarsdec:latest"
-        },
+        }
       },
     }
   }
