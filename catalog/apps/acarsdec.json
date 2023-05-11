@@ -1,0 +1,12 @@
+{
+  "slug": "acarsdec",
+  "versions": {
+    "0.0.1": {
+      "containers": {
+        "acarsdec": {
+          "image": "ghcr.io/sdr-enthusiasts/docker-acarsdec:latest"
+        },
+      },
+    }
+  }
+}
