@@ -1,8 +1,8 @@
 {
   "slug": "acarsdec",
   "provides": [
-    "acars",
-    "feeder"
+    "decoder",
+    "output"
   ],
   "versions": {
     "0.0.1": {
