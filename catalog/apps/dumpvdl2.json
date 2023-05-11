@@ -1,5 +1,12 @@
 {
   "slug": "dumpvdl2",
+  "name": "dumpvdl2",
+  "author": { "name": "", "url": "" },
+  "maintainer": { "name": "", "url": "" },
+  "provides": [
+    "decoder",
+    "output"
+  ],
   "versions": {
     "0.0.1": {
       "containers": {
