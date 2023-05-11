@@ -2,6 +2,8 @@
 
 ## Download
 
+An official public build has not been released yet while we work out some issues.
+
 ## Building images
 
 Airwaves OS can be built locally on a desktop for various architectures using the Armbian build flow, or via GitHub
