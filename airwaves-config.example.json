@@ -11,7 +11,12 @@
     "devices": [
       { "uuid": "551d2d2c-0b56-471c-8c49-cab92a64c4c4", "type": "sdr", "driver": "rtlsdr", "driver-id": "0001" },
       { "uuid": "f9cebc47-6db0-4025-a167-03356d243968", "type": "sdr", "driver": "rtlsdr", "driver-id": "0002" },
-    ]
+    ],
+    "apps": {
+      "installed": [
+        { "acarsdec": "0.0.1" }
+      ]
+    }
   },
   "airframes": {
     "user": { "uuid": "c4c46296-29a3-4b01-ad49-8f8983fa51e8", "token": "redacted" },
