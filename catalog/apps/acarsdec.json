@@ -1,5 +1,6 @@
 {
   "slug": "acarsdec",
+  "name": "acarsdec",
   "provides": [
     "decoder",
     "output"
