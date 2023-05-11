@@ -49,7 +49,7 @@ CustomizeArmbian() {
   cp -aR /tmp/overlay/* /opt/aros
   chmod -R +x /opt/aros/scripts
 
-  bash /tmp/overlay/customize-install-aros.sh $RELEASE $LINUXFAMILY $BOARD $BUILD_DESKTOP
+  bash /tmp/overlay/customize-install-airwaves-os.sh $RELEASE $LINUXFAMILY $BOARD $BUILD_DESKTOP
 }
 
 Main "$@"
