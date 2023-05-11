@@ -1,5 +1,9 @@
 {
   "slug": "acarsdec",
+  "provides": [
+    "acars",
+    "feeder"
+  ],
   "versions": {
     "0.0.1": {
       "containers": {
