@@ -35,6 +35,7 @@ jobs:
             ### Release ${{ steps.tagName.outputs.tag }} images below, in no particular order
 
   images:
+    needs: ['prepare']
     timeout-minutes: 60
     if: ${{ github.repository_owner == 'airframesio' }}
     strategy:
