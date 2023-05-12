@@ -107,7 +107,7 @@ jobs:
         run: |
           cd build/
           sudo chmod +x compile.sh
-          bash ./compile.sh HOST=${{env.HOST}} BOARD=${{env.BOARD}} ${{env.VARIANT}} ${{env.EXTRA}}
+          bash ./compile.sh default HOST=${{env.HOST}} BOARD=${{env.BOARD}} ${{env.VARIANT}} ${{env.EXTRA}}
           echo "::set-output name=status::success"
           pwd
           tar -cjvf /tmp/AROS_${BOARD}.tar.bz2 output/images/*.img
