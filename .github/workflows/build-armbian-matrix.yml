@@ -1,0 +1,158 @@
+name: Build Airwaves OS (matrix)
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - main
+  
+  workflow_dispatch:
+    inputs:
+      set_branch:
+        description: "Branch: edge / current / legacy"
+        required: false
+        default: "current"
+      set_release:
+        description: "Release: jammy / focal / bullseye"
+        required: false
+        default: "jammy"
+      set_board:
+        description: "Board: odroidn2 / lepotato"
+        required: false
+        default: "rockpi-4b"
+      set_desktop:
+        description: "Build Desktop: no / gnome / xfce, etc."
+        required: false
+        default: "no"
+      armbian_kernel:
+        description: "Set kernel version."
+        required: false
+        default: "5.15.25_5.10.100"
+      armbian_size:
+        description: "Set armbian rootfs size."
+        required: false
+        default: "2748"
+      armbian_fstype:
+        description: "Set armbian rootfs type."
+        required: false
+        default: "ext4"
+      armbian_sign:
+        description: "Set armbian custom name."
+        required: false
+        default: ""
+
+env:
+  BUILD_MINIMAL: yes
+  KERNEL_CONFIGURE: no
+  BUILD_DESKTOP: no
+  HOST: aros
+  PREFER_DOCKER: yes
+
+jobs:
+  images:
+    timeout-minutes: 60
+    if: ${{ github.repository_owner == 'airframesio' }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - aa: 0805
+            board: rpi4b
+            desc: Raspberry Pi 4B, with Armbian + RPiFoundation kernel (current), cli
+            variant: "CLOUD_IMAGE=no BRANCH=current"
+            
+    runs-on: "${{ matrix.runner_tags }}"
+    name: "${{ matrix.aa }} ${{ matrix.desc }}"
+
+    env:
+      BOARD: "${{ matrix.board }}"
+      VARIANT: "${{ matrix.variant }}"
+      EXTRA: "'DONT_BUILD_ARTIFACTS=kernel,firmware,full_firmware,rootfs,fake_ubuntu_advantage_tools,armbian-config,armbian-zsh,armbian-plymouth-theme' COMPRESS_OUTPUTIMAGE=xz SHOW_DEBIAN=yes SHARE_LOG=yes "
+
+      OCI_TARGET_BASE: "ghcr.io/${{ github.repository }}/" # This is picked up by the Docker launcher automatically
+      DOCKER_ARMBIAN_BASE_COORDINATE_PREFIX: "ghcr.io/${{ github.repository }}:armbian-next-" # Use Docker image in same repo
+      DOCKER_SKIP_UPDATE: "yes" # Do not apt update/install/requirements/etc during Dockerfile build, trust DOCKER_ARMBIAN_BASE_COORDINATE_PREFIX's images are up-to-date
+      
+    steps:
+      - name: Checkout
+        uses: actions/checkout@master
+
+      - name: Initialization environment
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq autoremove --purge
+          sudo -E apt-get -qq clean
+
+          set_board="${{ github.event.inputs.set_board }}"
+          if [[ -z "${set_board}" ]]; then
+            set_board="rockpi-4b"
+          fi
+          echo "BOARD=${set_board}" >> $GITHUB_ENV
+
+          set_branch="${{ github.event.inputs.set_branch }}"
+          if [[ -z "${set_branch}" ]]; then
+            set_branch="current"
+          fi
+          echo "BRANCH=${set_branch}" >> $GITHUB_ENV
+
+          set_release="${{ github.event.inputs.set_release }}"
+          if [[ -z "${set_release}" ]]; then
+            set_release="focal"
+          fi
+          echo "RELEASE=${set_release}" >> $GITHUB_ENV
+
+      - name: Download source code
+        run: |
+          git clone --depth 1 https://github.com/armbian/build.git
+
+      - name: Patch source with customizations
+        run: |
+          mkdir -p build/output/
+          mkdir -p build/userpatches/
+          mkdir -p build/userpatches/overlay
+          cp -aR armbian/base/* build/userpatches/overlay/
+          cp -a armbian/base/customize-image.sh build/userpatches/
+          cp -a armbian/base/config-default.conf build/userpatches/
+
+      - name: Build board ${{ matrix.board }}
+        id: buildBoard
+        run: |
+          cd build/
+          sudo chmod +x compile.sh
+          bash ./compile.sh "HOST=${{env.HOST}} "BOARD=${{env.BOARD}}" ${{env.VARIANT}} ${{env.EXTRA}}
+          echo "::set-output name=status::success"
+          pwd
+          tar -cjvf /tmp/AROS_${BOARD}.tar.bz2 output/images/*.img
+
+      - name: Debug Output
+        if: always()
+        run: |
+          pwd
+          ls -lR build/userpatches build/output build/config build/patch || /bin/true
+
+      - name: Release ${{ matrix.board }}
+        id: release1
+        continue-on-error: true
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # de2c0eb8 = v0.1.5; already with koplo199's node16 fixes
+        if: startsWith(github.ref, 'refs/tags/') # only for tags. GitHub requires tags for releases.
+        with:
+          files: |
+            output/images/*.xz
+
+#       - name: Upload Armbian image
+#         uses: actions/upload-artifact@master
+#         if: steps.build.outputs.status == 'success'
+#         with:
+#           name: AROS_${BOARD}
+#           path: /tmp/AROS_${BOARD}.tar.bz2
+
+      - name: Cleanup output images
+        if: always()
+        run: |
+          rm -rf output/images userpatches/VERSION
