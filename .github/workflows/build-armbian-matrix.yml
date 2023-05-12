@@ -44,10 +44,9 @@ jobs:
           - aa: 0805
             board: rpi4b
             desc: Raspberry Pi 4B, with Armbian + RPiFoundation kernel (current), cli
-            runner_tags: [ self-hosted, Linux, 'armbian', 'image-arm64' ]
             variant: "CLOUD_IMAGE=no BRANCH=current"
             
-    runs-on: "${{ matrix.runner_tags }}"
+    runs-on: "ubuntu-22.04"
     name: "${{ matrix.aa }} ${{ matrix.desc }}"
 
     env:
