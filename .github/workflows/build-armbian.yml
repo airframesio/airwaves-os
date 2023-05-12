@@ -48,6 +48,7 @@ env:
   KERNEL_CONFIGURE: no
   BUILD_DESKTOP: no
   HOST: aros
+  PREFER_DOCKER: yes
 
 jobs:
   build:
