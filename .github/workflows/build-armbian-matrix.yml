@@ -8,42 +8,6 @@ on:
   push:
     branches:
       - main
-  
-  workflow_dispatch:
-    inputs:
-      set_branch:
-        description: "Branch: edge / current / legacy"
-        required: false
-        default: "current"
-      set_release:
-        description: "Release: jammy / focal / bullseye"
-        required: false
-        default: "jammy"
-      set_board:
-        description: "Board: odroidn2 / lepotato"
-        required: false
-        default: "rockpi-4b"
-      set_desktop:
-        description: "Build Desktop: no / gnome / xfce, etc."
-        required: false
-        default: "no"
-      armbian_kernel:
-        description: "Set kernel version."
-        required: false
-        default: "5.15.25_5.10.100"
-      armbian_size:
-        description: "Set armbian rootfs size."
-        required: false
-        default: "2748"
-      armbian_fstype:
-        description: "Set armbian rootfs type."
-        required: false
-        default: "ext4"
-      armbian_sign:
-        description: "Set armbian custom name."
-        required: false
-        default: ""
-
 env:
   BUILD_MINIMAL: yes
   KERNEL_CONFIGURE: no
@@ -52,6 +16,24 @@ env:
   PREFER_DOCKER: yes
 
 jobs:
+
+  prepare:
+    runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'airframesio' }}
+    outputs:
+      tagName: ${{ steps.tagName.outputs.tag }}
+    steps:
+      - uses: olegtarasov/get-tag@14deb5cb39a98e81adb64f8ac8b27aefab278784 # get the tag name from the ref. v2.1.2 https://github.com/olegtarasov/get-tag/releases/tag/v2.1.2
+        id: tagName
+      # This creates an empty release on the tag with just the header.
+      - name: Release ${{ matrix.board }}
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # de2c0eb8 = v0.1.5; already with koplo199's node16 fixes
+        if: startsWith(github.ref, 'refs/tags/') # only for tags. GitHub requires tags for releases.
+        with:
+          append_body: true # append, since we've descriptions in there already
+          body: |
+            ### Release ${{ steps.tagName.outputs.tag }} images below, in no particular order
+
   images:
     timeout-minutes: 60
     if: ${{ github.repository_owner == 'airframesio' }}
@@ -62,6 +44,7 @@ jobs:
           - aa: 0805
             board: rpi4b
             desc: Raspberry Pi 4B, with Armbian + RPiFoundation kernel (current), cli
+            runner_tags: [ self-hosted, Linux, 'armbian', 'image-arm64' ]
             variant: "CLOUD_IMAGE=no BRANCH=current"
             
     runs-on: "${{ matrix.runner_tags }}"
