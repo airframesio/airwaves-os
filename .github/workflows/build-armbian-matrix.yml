@@ -10,10 +10,10 @@ on:
       - main
 env:
   BUILD_MINIMAL: yes
-  KERNEL_CONFIGURE: no
   BUILD_DESKTOP: no
-  HOST: aros
+  KERNEL_CONFIGURE: no
   PREFER_DOCKER: yes
+  HOST: aros
 
 jobs:
 
