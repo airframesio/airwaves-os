@@ -71,24 +71,6 @@ jobs:
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
 
-          set_board="${{ github.event.inputs.set_board }}"
-          if [[ -z "${set_board}" ]]; then
-            set_board="rockpi-4b"
-          fi
-          echo "BOARD=${set_board}" >> $GITHUB_ENV
-
-          set_branch="${{ github.event.inputs.set_branch }}"
-          if [[ -z "${set_branch}" ]]; then
-            set_branch="current"
-          fi
-          echo "BRANCH=${set_branch}" >> $GITHUB_ENV
-
-          set_release="${{ github.event.inputs.set_release }}"
-          if [[ -z "${set_release}" ]]; then
-            set_release="focal"
-          fi
-          echo "RELEASE=${set_release}" >> $GITHUB_ENV
-
       - name: Download source code
         run: |
           git clone --depth 1 https://github.com/armbian/build.git
@@ -106,8 +88,7 @@ jobs:
         id: buildBoard
         run: |
           cd build/
-          sudo chmod +x compile.sh
-          bash ./compile.sh default HOST=${{env.HOST}} BOARD=${{env.BOARD}} ${{env.VARIANT}} ${{env.EXTRA}}
+          bash ./compile.sh HOST=${{env.HOST}} BOARD=${{env.BOARD}} ${{env.VARIANT}} ${{env.EXTRA}}
           echo "::set-output name=status::success"
           pwd
           tar -cjvf /tmp/AROS_${BOARD}.tar.bz2 output/images/*.img
