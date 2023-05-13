@@ -45,7 +45,7 @@ jobs:
           - aa: 0805
             board: rpi4b
             desc: Raspberry Pi 4B, with Armbian + RPiFoundation kernel (current), cli
-            variant: "CLOUD_IMAGE=no BRANCH=current"
+            variant: "CLOUD_IMAGE=no BRANCH=edge"
             
     runs-on: "ubuntu-22.04"
     name: "${{ matrix.aa }} ${{ matrix.desc }}"
