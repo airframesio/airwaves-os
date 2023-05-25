@@ -44,8 +44,8 @@ jobs:
         include:
           - aa: 0801
             board: rock-5b
-            desc: Rock 5B, with Armbian + RPiFoundation kernel (current), cli
-            variant: "CLOUD_IMAGE=no BRANCH=current"
+            desc: Rock 5B, with Armbian + RPiFoundation kernel (edge), cli
+            variant: "CLOUD_IMAGE=no BRANCH=edge"
           - aa: 0805
             board: rpi4b
             desc: Raspberry Pi 4B, with Armbian + RPiFoundation kernel (edge), cli
