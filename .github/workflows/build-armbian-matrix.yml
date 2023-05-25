@@ -42,13 +42,29 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - aa: 0801
+          - aa: 0101
             board: rock-5b
-            desc: Rock 5B, with Armbian + RPiFoundation kernel (edge), cli
+            desc: Rock 5B, with Armbian (edge), cli
             variant: "CLOUD_IMAGE=no BRANCH=edge"
-          - aa: 0805
+          - aa: 0102
             board: rpi4b
-            desc: Raspberry Pi 4B, with Armbian + RPiFoundation kernel (edge), cli
+            desc: Raspberry Pi 4B, with Armbian (edge), cli
+            variant: "CLOUD_IMAGE=no BRANCH=edge"
+          - aa: 0701
+            board: virtual-qemu
+            desc: Virtual QEMU ARM64, with Armbian (edge), cli
+            variant: "CLOUD_IMAEG=no BRANCH=edge"
+          - aa: 0801
+            board: uefi-arm64
+            desc: UEFI ARM64, with Armbian (edge), cli
+            variant: "CLOUD_IMAGE=no BRANCH=edge"
+          - aa: 0802
+            board: uefi-riscv64
+            desc: UEFI RiscV64, with Armbian (edge), cli
+            variant: "CLOUD_IMAGE=no BRANCH=edge"
+          - aa: 0803
+            board: uefi-x86
+            desc: UEFI x86, with Armbian (edge), cli
             variant: "CLOUD_IMAGE=no BRANCH=edge"
             
     runs-on: "ubuntu-22.04"
