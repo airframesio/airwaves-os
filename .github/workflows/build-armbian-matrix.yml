@@ -52,8 +52,8 @@ jobs:
             variant: "CLOUD_IMAGE=no BRANCH=edge"
           - aa: 0701
             board: virtual-qemu
-            desc: Virtual QEMU ARM64, with Armbian (edge), cli
-            variant: "CLOUD_IMAEG=no BRANCH=edge"
+            desc: Virtual QEMU ARM64, with Armbian (current), cli
+            variant: "CLOUD_IMAEG=no BRANCH=current"
           - aa: 0801
             board: uefi-arm64
             desc: UEFI ARM64, with Armbian (edge), cli
