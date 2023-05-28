@@ -91,8 +91,8 @@ jobs:
         mkdir -p build/output/
         mkdir -p build/userpatches/extensions/
 
-        cp -ar extensions/* build/userpatches/extensions/
-        cp -ar base/*.conf build/userpatches/
+        cp -ar armbian/extensions/* build/userpatches/extensions/
+        cp -ar armbian/baes/*.conf build/userpatches/
 
     - name: Compile Armbian
       id: build
