@@ -42,9 +42,9 @@ function post_family_tweaks__install_airwaves_os_base() {
   display_alert "install systemd units" "${EXTENSION}" "info" 
   run_host_command_logged cp "${EXTENSION_DIR}"/config/templates/avahi-aros.service.template "${SDCARD}"/etc/avahi/services/aros.service
   run_host_command_logged cp "${EXTENSION_DIR}"/config/templates/systemd-aros-first-run.service.template "${SDCARD}"/etc/systemd/system/aros-first-run.service
-  run_host_command_logged systemctl --no-reload enable aros-first-run.service
+  chroot_sdcard systemctl --no-reload enable aros-first-run.service
   run_host_command_logged cp "${EXTENSION_DIR}"/config/templates/systemd-aros-manager.service.template "${SDCARD}"/etc/systemd/system/aros-manager.service
-  run_host_command_logged systemctl --no-reload enable aros-manager.service
+  chroot_sdcard systemctl --no-reload enable aros-manager.service
 
 }
 
