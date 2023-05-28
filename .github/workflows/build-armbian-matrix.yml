@@ -97,12 +97,11 @@ jobs:
 
       - name: Patch source with customizations
         run: |
-          mkdir -p build/output/
-          mkdir -p build/userpatches/
-          mkdir -p build/userpatches/overlay
-          cp -aR armbian/base/* build/userpatches/overlay/
-          cp -a armbian/base/customize-image.sh build/userpatches/
-          cp -a armbian/base/config-default.conf build/userpatches/
+        mkdir -p build/output/
+        mkdir -p build/userpatches/extensions/
+
+        cp -ar armbian/extensions/* build/userpatches/extensions/
+        cp -ar armbian/base/*.conf build/userpatches/
 
       - name: Build board ${{ matrix.board }}
         id: buildBoard
