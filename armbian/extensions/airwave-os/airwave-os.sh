@@ -1,11 +1,19 @@
 #!/bin/bash
 
-set -e
+function user_config__airwave_os_extra_packages() {
+  display_alert "Add additional debian packages for airwaveOS depdencncies" "custom_airwave" "info"
+  add_packages_to_image armbian-config git golang avahi-daemon avahi-utils nala sudo
+}
+	
+CustomizeArmbian() {
+  echo "Running AROS customization installer..."
 
-RELEASE=$1
-LINUXFAMILY=$2
-BOARD=$3
-BUILD_DESKTOP=$4
+  mkdir -p /opt/aros
+  cp -aR /tmp/overlay/* /opt/aros
+  chmod -R +x /opt/aros/scripts
+
+#  bash /tmp/overlay/customize-install-airwaves-os.sh $RELEASE $LINUXFAMILY $BOARD $BUILD_DESKTOP
+}
 
 . /opt/aros/build.config
 
