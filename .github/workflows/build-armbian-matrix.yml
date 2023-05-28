@@ -108,7 +108,7 @@ jobs:
         id: buildBoard
         run: |
           cd build/
-          bash ./compile.sh HOST=${{env.HOST}} BOARD=${{env.BOARD}} RELEASE=${{env.RELEASE}} BUILD_MINIMAL=${{env.BUILD_MINIMAL}} BUILD_DESKTOP=${{env.BUILD_DESKTOP}} REPOSITORY_INSTALL="${{env.REPOSITORY_INSTALL}}" ${{env.VARIANT}} ${{env.EXTRA}}
+          bash ./compile.sh HOST=${{env.HOST}} BOARD=${{env.BOARD}} RELEASE=${{env.RELEASE}} BUILD_MINIMAL=${{env.BUILD_MINIMAL}} BUILD_DESKTOP=${{env.BUILD_DESKTOP}} REPOSITORY_INSTALL="${{env.REPOSITORY_INSTALL}}" ${{env.VARIANT}} ${{env.EXTRA}} airwaves-os
           echo "::set-output name=status::success"
           pwd
           tar -cjvf /tmp/AROS_${BOARD}.tar.bz2 output/images/*.img
