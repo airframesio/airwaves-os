@@ -101,7 +101,6 @@ jobs:
           mkdir -p build/userpatches/extensions/
           cp -ar armbian/extensions/* build/userpatches/extensions/
           cp -ar armbian/base/*.conf build/userpatches/
-          echo "just yelling to make GHA accept this change"
 
       - name: Build board ${{ matrix.board }}
         id: buildBoard
