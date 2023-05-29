@@ -40,7 +40,7 @@ function post_family_tweaks__install_airwaves_os_base() {
   run_host_command_logged cp "${EXTENSION_DIR}"/config/templates/aros-config.json.template "${SDCARD}"/etc/aros/config.json
   run_host_command_logged touch "${SDCARD}"/opt/aros/.needs-first-run
 
-  display_alart "build.config aros.config symlink hacks" "${EXTENSION}" "warn"
+  display_alert "build.config aros.config symlink hacks" "${EXTENSION}" "warn"
   chroot_sdcard ln -sF /etc/aros/config/build.config /etc/aros/build.config
   #chroot_sdcard ln -sF /etc/aros/config/build.config /etc/aros/aros.config
  
