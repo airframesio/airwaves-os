@@ -101,8 +101,8 @@ jobs:
           mkdir -p build/userpatches/extensions/
           cp -ar armbian/extensions/* build/userpatches/extensions/
           cp -ar armbian/base/*.conf build/userpatches/
-          echo "temp version hack"
-          echo 23.05.0-trunk > build/VERSION
+          echo "short-circuit version for hitting artifact cache for kernel"
+          echo 23.05.1 > build/userpatches/VERSION
       
       - name: Build board ${{ matrix.board }}
         id: buildBoard
