@@ -36,9 +36,13 @@ function post_family_tweaks__install_airwaves_os_base() {
   display_alert "install config files" "${EXTENSION}" "info"
   run_host_command_logged cp "${EXTENSION_DIR}"/config/templates/bashrc-custom.template "${SDCARD}"/root/.bashrc
   run_host_command_logged mkdir -p "${SDCARD}"/etc/aros
+  run_host_command_logged mkdir -p "${SDCARD}"/opt/aros
   run_host_command_logged cp "${EXTENSION_DIR}"/config/templates/aros-config.json.template "${SDCARD}"/etc/aros/config.json
-  run_host_command_logged cp "${EXTENSION_DIR}"/config/build.config "${SDCARD}"/opt/aros/
   run_host_command_logged touch "${SDCARD}"/opt/aros/.needs-first-run
+
+  display_alart "build.config aros.config symlink hacks" "${EXTENSION}" "warn"
+  chroot_sdcard ln -sF /etc/aros/config/build.config /etc/aros/build.config
+  #chroot_sdcard ln -sF /etc/aros/config/build.config /etc/aros/aros.config
  
   display_alert "install systemd units" "${EXTENSION}" "info" 
   run_host_command_logged cp "${EXTENSION_DIR}"/config/templates/avahi-aros.service.template "${SDCARD}"/etc/avahi/services/aros.service
