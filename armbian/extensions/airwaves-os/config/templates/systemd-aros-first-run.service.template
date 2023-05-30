@@ -2,7 +2,7 @@
 Description=AROS first run
 Wants=network-online.target
 After=network.target network-online.target
-ConditionPathExists=/opt/aros/.needs_first_run
+ConditionPathExists=/opt/aros/.needs-first-run
 
 [Service]
 Type=idle

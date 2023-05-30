@@ -13,7 +13,7 @@ function pre_install_kernel_debs__add_aros_scripts() {
   display_alert "Copying airwaves-os scripts to image->/opt/aros" "${EXTENSION}" "info"
 
   run_host_command_logged mkdir -p "${SDCARD}"/opt/aros
-  run_host_command_logged cp -aR "${EXTENSION_DIR}"/* "${SDCARD}"/opt/aros
+  run_host_command_logged cp -aR "${EXTENSION_DIR}"/* "${SDCARD}"/opt/aros/
   run_host_command_logged chmod -R +x "${SDCARD}"/opt/aros/scripts
 
 }
@@ -36,8 +36,13 @@ function post_family_tweaks__install_airwaves_os_base() {
   display_alert "install config files" "${EXTENSION}" "info"
   run_host_command_logged cp "${EXTENSION_DIR}"/config/templates/bashrc-custom.template "${SDCARD}"/root/.bashrc
   run_host_command_logged mkdir -p "${SDCARD}"/etc/aros
+  run_host_command_logged mkdir -p "${SDCARD}"/opt/aros
   run_host_command_logged cp "${EXTENSION_DIR}"/config/templates/aros-config.json.template "${SDCARD}"/etc/aros/config.json
   run_host_command_logged touch "${SDCARD}"/opt/aros/.needs-first-run
+
+  display_alert "build.config aros.config symlink hacks" "${EXTENSION}" "warn"
+  chroot_sdcard ln -sF /opt/aros/config/build.config /opt/aros/build.config
+  #chroot_sdcard ln -sF /opt/aros/config/build.config /opt/aros/aros.config
  
   display_alert "install systemd units" "${EXTENSION}" "info" 
   run_host_command_logged cp "${EXTENSION_DIR}"/config/templates/avahi-aros.service.template "${SDCARD}"/etc/avahi/services/aros.service
