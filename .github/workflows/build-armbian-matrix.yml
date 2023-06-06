@@ -39,33 +39,41 @@ jobs:
     needs: ['prepare']
     if: ${{ github.repository_owner == 'airframesio' }}
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           - aa: 0101
             board: rock-5b
-            desc: Rock 5B, with Armbian (edge), cli
-            variant: "CLOUD_IMAGE=no BRANCH=edge"
+            desc: Rock 5B, with Armbian (legacy), cli
+            variant: "CLOUD_IMAGE=no BRANCH=legacy"
           - aa: 0102
             board: rpi4b
             desc: Raspberry Pi 4B, with Armbian (edge), cli
             variant: "CLOUD_IMAGE=no BRANCH=edge"
+          - aa: 0103
+            board: rockpi-4b
+            desc: Rockpi 4B non-plus, with Armbian (current), cli
+            variant: "CLOUD_IMAGE=no BRANCH=current"
           - aa: 0701
-            board: virtual-qemu
-            desc: Virtual QEMU ARM64, with Armbian (current), cli
-            variant: "CLOUD_IMAEG=no BRANCH=current"
+            board: lepotato
+            desc: Libre Computer lepotato ARM64, with Armbian (current), cli
+            variant: "CLOUD_IMAGE=no BRANCH=current"
+          - aa: 0702
+            board: odroidn2
+            desc: Odroidn2, with Armbian (current), cli
+            variant: "CLOUD_IMAGE=no BRANCH=current"
+          - aa: 0703
+            board: radxa-zero
+            desc: raxda-zero, with Armbian (current), cli
+            variant: "CLOUD_IMAGE=no BRANCH=current"
           - aa: 0801
             board: uefi-arm64
             desc: UEFI ARM64, with Armbian (edge), cli
-            variant: "CLOUD_IMAGE=no BRANCH=edge"
-          - aa: 0802
-            board: uefi-riscv64
-            desc: UEFI RiscV64, with Armbian (edge), cli
-            variant: "CLOUD_IMAGE=no BRANCH=edge"
+            variant: "CLOUD_IMAGE=no BRANCH=current"
           - aa: 0803
             board: uefi-x86
-            desc: UEFI x86, with Armbian (edge), cli
-            variant: "CLOUD_IMAGE=no BRANCH=edge"
+            desc: UEFI x86, with Armbian (current), cli
+            variant: "CLOUD_IMAGE=no BRANCH=current"
             
     runs-on: "ubuntu-22.04"
     name: "${{ matrix.aa }} ${{ matrix.desc }}"
