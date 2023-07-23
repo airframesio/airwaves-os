@@ -6,7 +6,7 @@ function extension_prepare_config__airwaves_os() {
 
 function user_config__airwaves_os_extra_packages() {
   display_alert "Add additional debian packages for AirwaveOS dependencies" "${EXTENSION}" "info"
-  add_packages_to_image git golang avahi-daemon avahi-utils nala sudo
+  add_packages_to_rootfs git golang avahi-daemon avahi-utils nala sudo
 }
 	
 function pre_install_kernel_debs__add_aros_scripts() {
