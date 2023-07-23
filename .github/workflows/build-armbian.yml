@@ -111,5 +111,5 @@ jobs:
       if: steps.build.outputs.status == 'success'
       with:
         name: airwaves_OS_${{ env.BOARD }}
-        path: "${{ github.workspace }}/build/output/images/*${{ env.BOARD }}_${{ env.RELEASE}}_${{ env.BRANCH }}*img.xz"
+        path: "${{ job.compile_armbian.output.armbian_image_version }}.img.xz"
         if-no-files-found: error
