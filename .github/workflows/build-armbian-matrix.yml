@@ -20,7 +20,7 @@ env:
 jobs:
 
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: ${{ github.repository_owner == 'airframesio' }}
     outputs:
       tagName: ${{ steps.tagName.outputs.tag }}
@@ -76,7 +76,7 @@ jobs:
             desc: UEFI x86, with Armbian (current), cli
             variant: "CLOUD_IMAGE=no BRANCH=current"
             
-    runs-on: "ubuntu-22.04"
+    runs-on: self-hosted
     name: "${{ matrix.aa }} ${{ matrix.desc }}"
 
     env:
