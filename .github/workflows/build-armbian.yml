@@ -41,7 +41,7 @@ on:
         default: ""
 
 env:
-  BUILD_MINIMAL: yes
+  BUILD_MINIMAL: no
   KERNEL_CONFIGURE: no
   BUILD_DESKTOP: no
   HOST: aros
@@ -93,8 +93,6 @@ jobs:
 
         cp -ar armbian/extensions/* build/userpatches/extensions/
         cp -ar armbian/base/*.conf build/userpatches/
-        echo "short-circuit version to get artifact cache for kernels"
-        echo 23.05.1 > build/userpatches/VERSION
 
     - name: Compile Armbian
       id: build
