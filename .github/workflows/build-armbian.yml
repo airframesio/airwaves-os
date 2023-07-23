@@ -59,6 +59,7 @@ jobs:
     - name: Checkout armbian
       uses: actions/checkout@v3
       with:
+        repository: armbian/build
         path: build
         clean: no
 
