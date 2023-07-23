@@ -111,4 +111,4 @@ jobs:
       if: steps.build.outputs.status == 'success'
       with:
         name: airwaves_OS_${{ env.BOARD }}
-        path: ${GITHUB_WORKSPACE}/build/output/images/airwaves*${{ env.BOARD }}*.img.xz
+        path: ${{ env.GITHUB_WORKSPACE }}/build/output/images/airwaves*${{ env.BOARD }}*.img.xz
