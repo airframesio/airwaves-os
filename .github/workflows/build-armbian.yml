@@ -110,5 +110,5 @@ jobs:
       uses: actions/upload-artifact@master
       if: steps.build.outputs.status == 'success'
       with:
-        name: airwaves_OS_${BOARD}
-        path: ${GITHUB_WORKSPACE}/build/output/images/airwaves*${BOARD}*.img.xz
+        name: airwaves_OS_${{ env.board BOARD }}
+        path: ${GITHUB_WORKSPACE}/build/output/images/airwaves*${{ env.BOARD }}*.img.xz
