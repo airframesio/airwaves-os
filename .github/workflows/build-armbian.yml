@@ -94,8 +94,8 @@ jobs:
         mkdir -p ${GITHUB_WORKSPACE}/build/output/
         mkdir -p ${GITHUB_WORKSPACE}/build/userpatches/extensions/
 
-        cp -ar ${GITHUB_WORKSPACE/airwaves-os/armbian/extensions/* ${GITHUB_WORKSPACE}/build/userpatches/extensions/
-        cp -ar ${GITHUB_WORKSPACE/airwaves-os/armbian/base/*.conf ${GITHUB_WORKSPACE}/build/userpatches/
+        cp -ar ${GITHUB_WORKSPACE}/airwaves-os/armbian/extensions/* ${GITHUB_WORKSPACE}/build/userpatches/extensions/
+        cp -ar ${GITHUB_WORKSPACE}/airwaves-os/armbian/base/*.conf ${GITHUB_WORKSPACE}/build/userpatches/
 
     - name: Compile Armbian
       id: build
