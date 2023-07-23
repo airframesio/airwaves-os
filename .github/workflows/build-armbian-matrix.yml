@@ -82,10 +82,10 @@ jobs:
     env:
       BOARD: "${{ matrix.board }}"
       VARIANT: "${{ matrix.variant }}"
-      EXTRA: "KERNEL_CONFIGURE=no COMPRESS_OUTPUTIMAGE=xz SHARE_LOG=yes"
-#       OCI_TARGET_BASE: "ghcr.io/${{ github.repository }}/" # This is picked up by the Docker launcher automatically
-#       DOCKER_ARMBIAN_BASE_COORDINATE_PREFIX: "ghcr.io/${{ github.repository }}:armbian-next-" # Use Docker image in same repo
-#       DOCKER_SKIP_UPDATE: "yes" # Do not apt update/install/requirements/etc during Dockerfile build, trust DOCKER_ARMBIAN_BASE_COORDINATE_PREFIX's images are up-to-date
+      EXTRA: "COMPRESS_OUTPUTIMAGE=xz SHARE_LOG=no"
+      OCI_TARGET_BASE: "ghcr.io/${{ github.repository }}/" # This is picked up by the Docker launcher automatically
+      DOCKER_ARMBIAN_BASE_COORDINATE_PREFIX: "ghcr.io/${{ github.repository }}:armbian-next-" # Use Docker image in same repo
+      DOCKER_SKIP_UPDATE: "yes" # Do not apt update/install/requirements/etc during Dockerfile build, trust DOCKER_ARMBIAN_BASE_COORDINATE_PREFIX's images are up-to-date
       
     steps:
       - name: Checkout
@@ -95,10 +95,10 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          sudo -E apt-get -qq update
-          sudo -E apt-get -qq autoremove --purge
-          sudo -E apt-get -qq clean
+          #sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          #sudo -E apt-get -qq update
+          #sudo -E apt-get -qq autoremove --purge
+          #sudo -E apt-get -qq clean
 
       - name: Download source code
         run: |
@@ -110,8 +110,6 @@ jobs:
           mkdir -p build/userpatches/extensions/
           cp -ar armbian/extensions/* build/userpatches/extensions/
           cp -ar armbian/base/*.conf build/userpatches/
-          echo "short-circuit version for hitting artifact cache for kernel"
-          echo 23.05.1 > build/userpatches/VERSION
       
       - name: Build board ${{ matrix.board }}
         id: buildBoard

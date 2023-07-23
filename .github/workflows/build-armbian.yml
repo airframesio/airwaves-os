@@ -45,7 +45,6 @@ env:
   KERNEL_CONFIGURE: no
   BUILD_DESKTOP: no
   HOST: aros
-  PREFER_DOCKER: yes
 
 jobs:
   build:
@@ -59,10 +58,10 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-        sudo -E apt-get -qq update
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
+        #sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        #sudo -E apt-get -qq update
+        #sudo -E apt-get -qq autoremove --purge
+        #sudo -E apt-get -qq clean
 
         set_board="${{ github.event.inputs.set_board }}"
         if [[ -z "${set_board}" ]]; then
@@ -78,7 +77,7 @@ jobs:
 
         set_release="${{ github.event.inputs.set_release }}"
         if [[ -z "${set_release}" ]]; then
-          set_release="focal"
+          set_release="jammy"
         fi
         echo "RELEASE=${set_release}" >> $GITHUB_ENV
 
