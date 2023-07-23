@@ -100,16 +100,10 @@ jobs:
     - name: Compile Armbian
       id: build
       run: |
-        cd ${GITHUB_WORKSPACE/build/
+        cd ${GITHUB_WORKSPACE}/build/
         chmod +x compile.sh
         ./compile.sh VENDOR=AROS COMPRESS_OUTPUTIMAGE=xz PREFER_DOCKER=yes BUILD_MINIMAL=$BUILD_MINIMAL BOARD=${{ env.BOARD }} BRANCH=${{ env.BRANCH }} RELEASE=${{ env.RELEASE }} BUILD_DESKTOP=$BUILD_DESKTOP HOST=$HOST airwaves-os
         echo "::set-output name=status::success"
-
-    - name: Debug Output
-      if: always()
-      run: |
-        pwd
-        ls -lR build/userpatches build/output build/config build/patch || /bin/true
 
     - name: Upload Armbian image
       uses: actions/upload-artifact@master
