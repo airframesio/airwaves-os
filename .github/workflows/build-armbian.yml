@@ -51,8 +51,17 @@ jobs:
     runs-on: self-hosted
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@master
+    - name: Checkout airwaves-os
+      uses: actions/checkout@v3
+      with:
+        path: airwaves-os
+
+    - name: Checkout armbian
+      uses: actions/checkout@v3
+      with:
+        repository: armbian/build
+        path: build
+        clean: no
 
     - name: Initialization environment
       env:
@@ -81,37 +90,26 @@ jobs:
         fi
         echo "RELEASE=${set_release}" >> $GITHUB_ENV
 
-    - name: Download source code
-      run: |
-        git clone --depth 1 https://github.com/armbian/build.git
-
     - name: Patch source with customizations
       run: |
-        mkdir -p build/output/
-        mkdir -p build/userpatches/extensions/
+        mkdir -p ${GITHUB_WORKSPACE}/build/output/
+        mkdir -p ${GITHUB_WORKSPACE}/build/userpatches/extensions/
 
-        cp -ar armbian/extensions/* build/userpatches/extensions/
-        cp -ar armbian/base/*.conf build/userpatches/
+        cp -ar ${GITHUB_WORKSPACE}/airwaves-os/armbian/extensions/* ${GITHUB_WORKSPACE}/build/userpatches/extensions/
+        cp -ar ${GITHUB_WORKSPACE}/airwaves-os/armbian/base/*.conf ${GITHUB_WORKSPACE}/build/userpatches/
 
     - name: Compile Armbian
       id: build
       run: |
-        cd build/
-        sudo chmod +x compile.sh
-        ./compile.sh PREFER_DOCKER=yes BUILD_MINIMAL=$BUILD_MINIMAL BOARD=${{ env.BOARD }} BRANCH=${{ env.BRANCH }} RELEASE=${{ env.RELEASE }} BUILD_DESKTOP=$BUILD_DESKTOP HOST=$HOST airwaves-os
+        cd ${GITHUB_WORKSPACE}/build/
+        chmod +x compile.sh
+        ./compile.sh COMPRESS_OUTPUTIMAGE=xz PREFER_DOCKER=yes BUILD_MINIMAL=$BUILD_MINIMAL BOARD=${{ env.BOARD }} BRANCH=${{ env.BRANCH }} RELEASE=${{ env.RELEASE }} BUILD_DESKTOP=$BUILD_DESKTOP HOST=$HOST airwaves-os
         echo "::set-output name=status::success"
-        pwd
-        tar -cjvf /tmp/AROS_${BOARD}.tar.bz2 output/images/*.img
-
-    - name: Debug Output
-      if: always()
-      run: |
-        pwd
-        ls -lR build/userpatches build/output build/config build/patch || /bin/true
 
     - name: Upload Armbian image
       uses: actions/upload-artifact@master
       if: steps.build.outputs.status == 'success'
       with:
-        name: AROS_${BOARD}
-        path: /tmp/AROS_${BOARD}.tar.bz2
+        name: airwaves_OS_${{ env.BOARD }}
+        path: "${{ github.workspace }}/build/output/images/${{ steps.build.outputs.armbian_image_version }}.img.xz"
+        if-no-files-found: error
