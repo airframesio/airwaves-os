@@ -112,3 +112,4 @@ jobs:
       with:
         name: airwaves_OS_${{ env.BOARD }}
         path: "${{ github.workspace }}/build/output/images/*${{ env.BOARD }}_${{ env.RELEASE}}_${{ env.BRANCH }}*img.xz"
+        if-no-files-found: error
