@@ -103,7 +103,7 @@ jobs:
       run: |
         cd ${GITHUB_WORKSPACE}/build/
         chmod +x compile.sh
-        ./compile.sh VENDOR=AROS COMPRESS_OUTPUTIMAGE=xz PREFER_DOCKER=yes BUILD_MINIMAL=$BUILD_MINIMAL BOARD=${{ env.BOARD }} BRANCH=${{ env.BRANCH }} RELEASE=${{ env.RELEASE }} BUILD_DESKTOP=$BUILD_DESKTOP HOST=$HOST airwaves-os
+        ./compile.sh COMPRESS_OUTPUTIMAGE=xz PREFER_DOCKER=yes BUILD_MINIMAL=$BUILD_MINIMAL BOARD=${{ env.BOARD }} BRANCH=${{ env.BRANCH }} RELEASE=${{ env.RELEASE }} BUILD_DESKTOP=$BUILD_DESKTOP HOST=$HOST airwaves-os
         echo "::set-output name=status::success"
 
     - name: Upload Armbian image
