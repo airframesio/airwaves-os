@@ -49,7 +49,7 @@ env:
   # For easier reuse across the multiple chunks ('armbian/os' repo)
   USERPATCHES_REPOSITORY: "airframesio/airwaves-os"
   USERPATCHES_REF: "main" # branch or tag or sha1
-  USERPATCHES_DIR: "armbian-userpatches" # folder inside USERPATCHES_REPOSITORY
+  USERPATCHES_DIR: "armbian/armbian-userpatches" # folder inside USERPATCHES_REPOSITORY
 
   # Armbian envs. Adjust to your needs.
   # OCI_TARGET_BASE: "ghcr.io/${{ github.repository }}/" # This is picked up by the Docker launcher automatically. It does _not_ override the targets.yaml during info resolution.
