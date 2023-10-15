@@ -138,7 +138,7 @@ jobs:
         id: prepare-matrix
         run: |
           # this sets outputs "artifact-matrix" #and "image-matrix"
-          bash ./compile.sh gha-matrix airframes-os ${{env.EXTRA_PARAMS_ALL_BUILDS}} \
+          bash ./compile.sh gha-matrix airwaves-os ${{env.EXTRA_PARAMS_ALL_BUILDS}} \
             REVISION="${{ steps.prepare-date-outputs.outputs.revision_release }}" \
             TARGETS_FILTER_INCLUDE='${{ github.event.inputs.targetsFilterInclude || '' }}' \
             MATRIX_ARTIFACT_CHUNKS=1 \
@@ -508,7 +508,7 @@ jobs:
       - name: Integrated reprepro-based deb-download and reprepro script generation
         id: rolling-repo-reprepro-download-script
         run: |
-          bash ./compile.sh airframes-os debs-to-repo-rolling-reprepro REPO_REPREPRO_PATH=/armbian/output/reprepro-db REPO_GPG_KEYID="${{ steps.import_gpg.outputs.keyid }}" BETA=${{ github.event.inputs.nightly || 'yes' }} ${{env.EXTRA_PARAMS_ALL_BUILDS}}
+          bash ./compile.sh airwaves-os debs-to-repo-rolling-reprepro REPO_REPREPRO_PATH=/armbian/output/reprepro-db REPO_GPG_KEYID="${{ steps.import_gpg.outputs.keyid }}" BETA=${{ github.event.inputs.nightly || 'yes' }} ${{env.EXTRA_PARAMS_ALL_BUILDS}}
 
       - name: "Logs debs-to-repo-rolling-reprepro: ${{ steps.rolling-repo-reprepro-download-script.outputs.logs_url }}"
         run: |
@@ -517,7 +517,7 @@ jobs:
       #- name: Prepare the reprepro scripts
       #  id: prepare-scripts-reprepro
       #  run: |
-      #    bash ./compile.sh airframes-os debs-to-repo-reprepro BETA=${{ github.event.inputs.nightly || 'yes' }} ${{env.EXTRA_PARAMS_ALL_BUILDS}}
+      #    bash ./compile.sh airwaves-os debs-to-repo-reprepro BETA=${{ github.event.inputs.nightly || 'yes' }} ${{env.EXTRA_PARAMS_ALL_BUILDS}}
       #
       #- name: "Logs debs-to-repo-reprepro: ${{ steps.prepare-scripts-reprepro.outputs.logs_url }}"
       #  run: |

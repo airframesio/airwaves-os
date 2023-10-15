@@ -10,4 +10,4 @@ userpatches_ref: "main"
 userpatches_dir: "armbian/armbian-userpatches" # folder inside the userpatches repo; use "." if stuff is in the root of the repo
 
 ghcr_user: "${{ github.repository_owner }}"
-userpatches_config_for_prepare_job: "airframes-os" # use "" for no config file
+userpatches_config_for_prepare_job: "airwaves-os" # use "" for no config file
