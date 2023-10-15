@@ -1,0 +1,85 @@
+common-gha-configs:
+  rpardini-gha: &rpardini-gha
+    runners:
+      default: "ubuntu-latest" # or a ["tag", "list"]
+      by-name:
+        kernel: [ "self-hosted", "Linux", 'armbian', "artifact-kernel" ]
+      by-name-and-arch:
+        rootfs-arm64: [ "self-hosted", "Linux", 'armbian', "rootfs-arm64" ]
+        image-arm64: [ "self-hosted", "Linux", 'armbian', "image-arm64" ]
+
+lists:
+
+  my-physical-boards: &my-physical-boards
+    # Actual Physical boards
+    - { BOARD: odroidn2, BRANCH: edge }
+    #- { BOARD: odroidhc4, BRANCH: edge }
+    #- { BOARD: radxa-zero, BRANCH: edge }
+    - { BOARD: orangepi3b, BRANCH: edge }
+    #- { BOARD: odroidm1, BRANCH: edge }
+    - { BOARD: tinkerboard-2, BRANCH: current }
+    - { BOARD: lepotato, BRANCH: edge }
+    #- { BOARD: rpi4b, BRANCH: edge, RELEASE: lunar } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
+    - { BOARD: rpi4b, BRANCH: edge, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel
+    - { BOARD: rockpro64, BRANCH: edge }
+    - { BOARD: rockpro64, BRANCH: current }
+    #- { BOARD: khadas-vim3l, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
+    #- { BOARD: khadas-vim3, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
+
+
+targets:
+
+  some-userspace-rpardini:
+    configs: [ airwaves-os ]
+    pipeline:
+      build-image: no # don't build images for this
+      only-artifacts: [ "armbian-base-files", "armbian-desktop", "rootfs" ] # only these artifacts
+      gha: *rpardini-gha
+    vars: # common vars, must exist.
+      USERSPACE_ONLY: "yes" # this does nothing, but some var must exist. might as well be this.
+      CLOUD_IMAGE: "no" # rpardini-specific cloud stuff due to airwaves-os
+    items-from-inventory:
+      userspace: # creates items from userspace inventory automatically... 'eos' distributions are always skipped.
+        #skip-releases: [ "sid" ] # do NOT include these releases
+        only-releases: [ "bookworm"  ] # ONLY include these releases
+        # skip-desktops: [ "lxde" ] # do NOT include these desktops
+        only-desktops: [ "gnome", "xfce" ] # ONLY include these desktops
+        cli: yes # include normal CLI userspace
+        minimal: no # include minimal CLI userspace
+        cloud: yes # include cloud CLI userspace (rpardini's stuff, default is no)
+        desktops: no # include desktops, one per desktop_variations below; 'eos' ones are always skipped
+        arches: # wanted architectures, and their "example" BOARD and BRANCH.
+          arm64: [ { BOARD: "uefi-arm64", BRANCH: "current" } ]
+          amd64: [ { BOARD: "uefi-x86", BRANCH: "current" } ]
+
+  all-of-armbian-wip-no-images-only-kernel-and-uboot:
+    enabled: no
+    configs: [ airwaves-os ]
+    pipeline:
+      gha: *rpardini-gha
+      # build-image: no # don't build images for this target ("no" here is a boolean, not string)
+      #only-artifacts: [ "kernel", "uboot" ] # only build these artifacts for these targets. it's "uboot", not "u-boot"
+    vars:
+      BUILD_MINIMAL: "yes"
+      BUILD_DESKTOP: "no"
+      CLOUD_IMAGE: "no"
+      RELEASE: jammy
+
+    items-from-inventory:
+      #wip: yes # includes all work-in-progress boards
+      #all: yes # includes all available BOARD and BRANCH combinations
+      #conf: yes # includes all supported boards
+      not-eos: yes # not-eos boards, all branches
+
+
+  cli-debian:
+    enabled: yes
+    configs: [ airwaves-os ]
+    pipeline:
+      gha: *rpardini-gha
+    vars:
+      RELEASE: bookworm
+      BUILD_MINIMAL: "no" # quoting "no" is the first lesson of YAML
+      CLOUD_IMAGE: "no"
+    items: # list of reference-lists
+      - *my-physical-boards
