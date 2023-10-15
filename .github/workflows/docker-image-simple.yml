@@ -50,8 +50,8 @@ jobs:
       - name: Checkout build repo
         uses: actions/checkout@v3
         with:
-          repository: ${{ github.repository_owner }}/armbian-build
-          ref: extensions
+          repository: armbian/armbian-build
+          ref: main
           clean: true # true is default. it *will* delete the hosts /dev if mounted inside.
 
       - name: Set up QEMU
