@@ -174,4 +174,3 @@ jobs:
       build-sha1: ${{ steps.latest-commit.outputs.sha1 }}
       images_release: ${{ steps.prepare-date-outputs.outputs.images_release }}
       revision_release: ${{ steps.prepare-date-outputs.outputs.revision_release }}
-
