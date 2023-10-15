@@ -25,6 +25,7 @@ lists:
     - { BOARD: rockpro64, BRANCH: current }
     #- { BOARD: khadas-vim3l, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
     #- { BOARD: khadas-vim3, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
+    - { BOARD: uefi-x86, BRANCH: current}
 
 
 targets:
