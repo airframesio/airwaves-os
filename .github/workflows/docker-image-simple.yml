@@ -1,8 +1,8 @@
 name: docker-image-simple
 
 on:
-  schedule:
-    - cron: '30 0 * * *' # Scheduled runs every day at 0:30am UTC
+#  schedule:
+#    - cron: '30 0 * * *' # Scheduled runs every day at 0:30am UTC
   workflow_dispatch:
   workflow_call:
 
@@ -50,8 +50,8 @@ jobs:
       - name: Checkout build repo
         uses: actions/checkout@v3
         with:
-          repository: ${{ github.repository_owner }}/armbian-build
-          ref: extensions
+          repository: armbian/build
+          ref: main
           clean: true # true is default. it *will* delete the hosts /dev if mounted inside.
 
       - name: Set up QEMU
