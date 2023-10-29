@@ -16,30 +16,28 @@ lists:
 
   my-physical-boards: &my-physical-boards
     # Actual Physical boards
-    #- { BOARD: odroidn2, BRANCH: edge }
-    #- { BOARD: odroidhc4, BRANCH: edge }
+    - { BOARD: odroidn2, BRANCH: edge }
+    - { BOARD: odroidhc4, BRANCH: edge }
     - { BOARD: odroidn2l, BRANCH: edge }
     - { BOARD: radxa-zero2, BRANCH: edge }
-    - { BOARD: radxa-zero2, BRANCH: current }
-    - { BOARD: radxa-zero2, BRANCH: current, RELEASE: bullseye }
-    #- { BOARD: radxa-zero, BRANCH: edge }
+    - { BOARD: radxa-zero, BRANCH: edge }
     - { BOARD: orangepi3b, BRANCH: legacy }
     - { BOARD: orangepi3b, BRANCH: edge }
     - { BOARD: odroidm1, BRANCH: edge }
     # - { BOARD: tinkerboard-2, BRANCH: legacy }
-    - { BOARD: rpi4b, BRANCH: edge, RELEASE: lunar } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
+    - { BOARD: rpi4b, BRANCH: edge, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
     #- { BOARD: rpi4b, BRANCH: edge, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel
     - { BOARD: rockpro64, BRANCH: edge }
     - { BOARD: rockpro64, BRANCH: current }
-    #- { BOARD: t95z, BRANCH: edge }
-    #- { BOARD: oneplus5, BRANCH: edge }
-    #- { BOARD: phytium-d2000, BRANCH: legacy }
-    # - { BOARD: thinkpad-x13s, BRANCH: sc8280xp }
+    - { BOARD: pineh64b, BRANCH: current }
+    - { BOARD: orangepi3-lts, BRANCH: current }
+    - { BOARD: rockpi-4b, BRANCH: edge }
+    - { BOARD: rockpi-4c, BRANCH: edge }
+    - { BOARD: rock-4se, BRANCH: edge }
     - { BOARD: khadas-vim3l, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
     - { BOARD: khadas-vim3, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
     - { BOARD: khadas-vim4, BRANCH: legacy, ENABLE_EXTENSIONS: "image-output-oowow" }
     - { BOARD: khadas-vim1s, BRANCH: legacy, ENABLE_EXTENSIONS: "image-output-oowow" }
-    - { BOARD: mixtile-blade3, BRANCH: jriek66, RELEASE: trixie }
 
   my-virtual-boards: &my-virtual-boards
     # UTM images, virtual
@@ -110,10 +108,11 @@ lists:
 targets:
 
   some-userspace-rpardini:
+    enabled: no
     configs: [ airwaves-os ]
     pipeline:
       build-image: no # don't build images for this
-      only-artifacts: [ "armbian-base-files", "armbian-desktop", "rootfs" ] # only these artifacts
+      only-artifacts: [ "armbian-base-files", "rootfs" ] # only these artifacts
       gha: *airwaves-gha
     vars: # common vars, must exist.
       USERSPACE_ONLY: "yes" # this does nothing, but some var must exist. might as well be this.
@@ -121,13 +120,12 @@ targets:
     items-from-inventory:
       userspace: # creates items from userspace inventory automatically... 'eos' distributions are always skipped.
         #skip-releases: [ "sid" ] # do NOT include these releases
-        only-releases: [ "bookworm", "jammy", "trixie", "mantic" ] # ONLY include these releases
+        only-releases: [ "bookworm"  ] # ONLY include these releases
         # skip-desktops: [ "lxde" ] # do NOT include these desktops
-        only-desktops: [ "gnome", "xfce" ] # ONLY include these desktops
         cli: yes # include normal CLI userspace
         minimal: no # include minimal CLI userspace
-        cloud: yes # include cloud CLI userspace (rpardini's stuff, default is no)
-        desktops: yes # include desktops, one per desktop_variations below; 'eos' ones are always skipped
+        cloud: no # include cloud CLI userspace (rpardini's stuff, default is no)
+        desktops: no # include desktops, one per desktop_variations below; 'eos' ones are always skipped
         desktop_variations:
           - [ browsers ] # browsers appgroup
         arches: # wanted architectures, and their "example" BOARD and BRANCH.
@@ -165,8 +163,6 @@ targets:
       CLOUD_IMAGE: "no"
     items: # list of reference-lists
       - *my-physical-boards
-      - *my-virtual-boards
-      - *not-mine
 
   cloud-rescues:
     enabled: no
