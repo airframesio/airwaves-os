@@ -29,7 +29,7 @@ lists:
     #- { BOARD: rpi4b, BRANCH: edge, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel
     - { BOARD: rockpro64, BRANCH: edge }
     - { BOARD: rockpro64, BRANCH: current }
-    - { BOARD: pineh64b, BRANCH: current }
+    - { BOARD: pineh64-b, BRANCH: current }
     - { BOARD: orangepi3-lts, BRANCH: current }
     - { BOARD: rockpi-4b, BRANCH: edge }
     - { BOARD: rockpi-4c, BRANCH: edge }
