@@ -37,6 +37,20 @@ lists:
 
 
 targets:
+  force-artifacts:
+    enabled: yes
+    configs: [ airwaves-os ]
+    pipeline:
+      gha: *airwaves-gha
+      build-image: no # don't build images for this
+      only-artifacts: [ "armbian-base-files", "kernel", "uboot", "rootfs" ] # only these artifacts
+    vars:
+      BUILD_MINIMAL: "no" # quoting "no" is the first lesson of YAML
+      CLOUD_IMAGE: "no"
+    items: # list of reference-lists
+      - *airwaves-boards
+      - *airwaves-boards-rpi
+
 
   cli-debian:
     enabled: yes
@@ -49,11 +63,6 @@ targets:
       CLOUD_IMAGE: "no"
     items: # list of reference-lists
       - *airwaves-boards
-    items-from-inventory:
-      #wip: yes # includes all work-in-progress boards
-      #all: yes # includes all available BOARD and BRANCH combinations
-      #conf: yes # includes all supported boards
-      not-eos: yes # not-eos boards, all branches
 
   cli-rpi:
     enabled: yes
@@ -66,10 +75,5 @@ targets:
       CLOUD_IMAGE: "no"
     items: # list of reference-lists
       - *airwaves-boards-rpi
-    items-from-inventory:
-      #wip: yes # includes all work-in-progress boards
-      #all: yes # includes all available BOARD and BRANCH combinations
-      #conf: yes # includes all supported boards
-      not-eos: yes # not-eos boards, all branches
 
 
