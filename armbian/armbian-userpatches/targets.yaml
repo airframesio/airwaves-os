@@ -18,14 +18,13 @@ lists:
     - { BOARD: rock-5b, BRANCH: legacy }
     - { BOARD: orangepi5, BRANCH: legacy }
     - { BOARD: lepotato, BRANCH: current }
-    - { BOARD: rpi4b, BRANCH: edge, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
     # - { BOARD: rockpro64, BRANCH: edge }
-    # - { BOARD: rockpro64, BRANCH: current }
-    # - { BOARD: pineh64-b, BRANCH: current }
-    # - { BOARD: orangepi3-lts, BRANCH: current }
-    # - { BOARD: rockpi-4b, BRANCH: edge }
+    - { BOARD: rockpro64, BRANCH: current }
+    - { BOARD: pineh64-b, BRANCH: current }
+    - { BOARD: orangepi3-lts, BRANCH: current }
+    - { BOARD: rockpi-4b, BRANCH: edge }
     # - { BOARD: rockpi-4c, BRANCH: edge }
-    # - { BOARD: rock-4se, BRANCH: edge }
+    - { BOARD: rock-4se, BRANCH: edge }
     # - { BOARD: khadas-vim3l, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
     # - { BOARD: khadas-vim3, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
     # - { BOARD: khadas-vim4, BRANCH: legacy, ENABLE_EXTENSIONS: "image-output-oowow" }
@@ -33,24 +32,13 @@ lists:
     # - { BOARD: uefi-arm64, BRANCH: edge, ENABLE_EXTENSIONS: image-output-utm }
     # # Plain UEFI's, for physical machines
     # - { BOARD: uefi-arm64, BRANCH: edge }
+  airwaves-boards-rpi: &airwaves-boards-rpi
+    # Actual Physical boards
+    - { BOARD: rpi4b, BRANCH: edge, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
+    - { BOARD: rpi4b, BRANCH: current, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
 
 
 targets:
-
-  kernel-and-uboot:
-    enabled: yes
-    configs: [ airwaves-os ]
-    pipeline:
-      gha: *airwaves-gha
-      only-artifacts: [ "kernel", "uboot" ]
-      build-image: "no"
-    vars:
-      RELEASE: bookworm
-      BUILD_MINIMAL: "no" # quoting "no" is the first lesson of YAML
-      CLOUD_IMAGE: "no"
-      USERSPACE_ONLY: "yes" # this does nothing, but some var must exist.
-    items: # list of reference-lists
-      - *airwaves-boards
 
   cli-debian:
     enabled: yes
@@ -64,5 +52,16 @@ targets:
     items: # list of reference-lists
       - *airwaves-boards
 
+  cli-rpi:
+    enabled: yes
+    configs: [ airwaves-os ]
+    pipeline:
+      gha: *airwaves-gha
+    vars:
+      RELEASE: jammy
+      BUILD_MINIMAL: "no" # quoting "no" is the first lesson of YAML
+      CLOUD_IMAGE: "no"
+    items: # list of reference-lists
+      - *airwaves-boards-rpi
 
 
