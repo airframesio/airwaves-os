@@ -119,7 +119,7 @@ jobs: # <TEMPLATE-IGNORE>
       - name: Integrated reprepro-based deb-download and reprepro script generation
         id: rolling-repo-reprepro-download-script
         run: |
-          bash ./compile.sh [[userpatches_config_for_prepare_job]] debs-to-repo-rolling-reprepro REPO_REPREPRO_PATH=/armbian/output/reprepro-db REPO_GPG_KEYID="${{ steps.import_gpg.outputs.keyid }}" BETA=${{ github.event.inputs.nightly || 'yes' }} ${{env.EXTRA_PARAMS_ALL_BUILDS}}
+          bash ./compile.sh [[userpatches_config_for_prepare_job]] debs-to-repo-rolling-reprepro REPO_REPREPRO_PATH=/armbian/output/reprepro-db REPO_GPG_KEYID="${{ steps.import_gpg.outputs.keyid }}" BETA=${{ github.event.inputs.nightly || 'yes' }} ${{env.EXTRA_PARAMS_ALL_BUILDS}} OCI_TARGET_BASE=${{env.OCI_TARGET_BASE}}
 
       - name: "Logs debs-to-repo-rolling-reprepro: ${{ steps.rolling-repo-reprepro-download-script.outputs.logs_url }}"
         run: |
