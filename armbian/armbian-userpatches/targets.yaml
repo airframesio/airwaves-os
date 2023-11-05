@@ -18,12 +18,10 @@ lists:
     - { BOARD: rock-5b, BRANCH: legacy }
     - { BOARD: orangepi5, BRANCH: legacy }
     - { BOARD: lepotato, BRANCH: current }
-    # - { BOARD: rockpro64, BRANCH: edge }
     - { BOARD: rockpro64, BRANCH: current }
     - { BOARD: pineh64-b, BRANCH: current }
     - { BOARD: orangepi3-lts, BRANCH: current }
     - { BOARD: rockpi-4b, BRANCH: edge }
-    # - { BOARD: rockpi-4c, BRANCH: edge }
     - { BOARD: rock-4se, BRANCH: edge }
     # - { BOARD: khadas-vim3l, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
     # - { BOARD: khadas-vim3, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
@@ -34,8 +32,8 @@ lists:
     # - { BOARD: uefi-arm64, BRANCH: edge }
   airwaves-boards-rpi: &airwaves-boards-rpi
     # Actual Physical boards
-    - { BOARD: rpi4b, BRANCH: edge, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
-    - { BOARD: rpi4b, BRANCH: current, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
+    - { BOARD: rpi4b, BRANCH: edge } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
+    - { BOARD: rpi4b, BRANCH: current } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
 
 
 targets:
@@ -51,6 +49,11 @@ targets:
       CLOUD_IMAGE: "no"
     items: # list of reference-lists
       - *airwaves-boards
+    items-from-inventory:
+      #wip: yes # includes all work-in-progress boards
+      #all: yes # includes all available BOARD and BRANCH combinations
+      #conf: yes # includes all supported boards
+      not-eos: yes # not-eos boards, all branches
 
   cli-rpi:
     enabled: yes
@@ -63,5 +66,10 @@ targets:
       CLOUD_IMAGE: "no"
     items: # list of reference-lists
       - *airwaves-boards-rpi
+    items-from-inventory:
+      #wip: yes # includes all work-in-progress boards
+      #all: yes # includes all available BOARD and BRANCH combinations
+      #conf: yes # includes all supported boards
+      not-eos: yes # not-eos boards, all branches
 
 
