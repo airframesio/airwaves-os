@@ -4,6 +4,7 @@ common-gha-configs:
       default: "ubuntu-latest" # or a ["tag", "list"]
       by-name:
         kernel: [ "self-hosted", "Linux", 'armbian', "artifact-kernel" ]
+        uboot: [ "self-hosted", "Linux", 'armbian', "X64" ]
       by-name-and-arch:
         rootfs-arm64: [ "self-hosted", "Linux", 'armbian', "rootfs-arm64" ]
         image-arm64: [ "self-hosted", "Linux", 'armbian', "image-arm64" ]
