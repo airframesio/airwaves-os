@@ -4,84 +4,38 @@ common-gha-configs:
       default: "ubuntu-latest" # or a ["tag", "list"]
       by-name:
         kernel: [ "self-hosted", "Linux", 'armbian', "artifact-kernel" ]
+        uboot: [ "self-hosted", "Linux", 'armbian', "X64" ]
       by-name-and-arch:
         rootfs-arm64: [ "self-hosted", "Linux", 'armbian', "rootfs-arm64" ]
         image-arm64: [ "self-hosted", "Linux", 'armbian', "image-arm64" ]
         rootfs-armhf: [ "self-hosted", "Linux", 'armbian', "rootfs-armhf" ]
         image-armhf: [ "self-hosted", "Linux", 'armbian', "image-armhf" ]
-        rootfs-riscv64: [ "self-hosted", "Linux", 'armbian', "rootfs-riscv64" ]
-        image-riscv64: [ "self-hosted", "Linux", 'armbian', "image-riscv64" ]
 
 lists:
 
-  my-physical-boards: &my-physical-boards
+  airwaves-boards: &airwaves-boards
     # Actual Physical boards
-    - { BOARD: odroidn2, BRANCH: edge }
-    - { BOARD: odroidhc4, BRANCH: edge }
-    - { BOARD: odroidn2l, BRANCH: edge }
-    - { BOARD: radxa-zero2, BRANCH: edge }
-    - { BOARD: radxa-zero, BRANCH: edge }
-    - { BOARD: orangepi3b, BRANCH: legacy }
-    - { BOARD: orangepi3b, BRANCH: edge }
-    - { BOARD: odroidm1, BRANCH: edge }
-    # - { BOARD: tinkerboard-2, BRANCH: legacy }
-    - { BOARD: rpi4b, BRANCH: edge, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
-    #- { BOARD: rpi4b, BRANCH: edge, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel
-    - { BOARD: rockpro64, BRANCH: edge }
+    - { BOARD: rock-5b, BRANCH: legacy }
+    - { BOARD: orangepi5, BRANCH: legacy }
+    - { BOARD: lepotato, BRANCH: current }
     - { BOARD: rockpro64, BRANCH: current }
+    - { BOARD: tritium-h5, BRANCH: current }
     - { BOARD: pineh64-b, BRANCH: current }
     - { BOARD: orangepi3-lts, BRANCH: current }
     - { BOARD: rockpi-4b, BRANCH: edge }
-    - { BOARD: rockpi-4c, BRANCH: edge }
     - { BOARD: rock-4se, BRANCH: edge }
-    - { BOARD: khadas-vim3l, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
-    - { BOARD: khadas-vim3, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
-    - { BOARD: khadas-vim4, BRANCH: legacy, ENABLE_EXTENSIONS: "image-output-oowow" }
-    - { BOARD: khadas-vim1s, BRANCH: legacy, ENABLE_EXTENSIONS: "image-output-oowow" }
+    # - { BOARD: khadas-vim3l, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
+    # - { BOARD: khadas-vim3, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
+    # - { BOARD: khadas-vim4, BRANCH: legacy, ENABLE_EXTENSIONS: "image-output-oowow" }
+    # - { BOARD: khadas-vim1s, BRANCH: legacy, ENABLE_EXTENSIONS: "image-output-oowow" }
+    # - { BOARD: uefi-arm64, BRANCH: edge, ENABLE_EXTENSIONS: image-output-utm }
+    # # Plain UEFI's, for physical machines
+    # - { BOARD: uefi-arm64, BRANCH: edge }
+  airwaves-boards-rpi: &airwaves-boards-rpi
+    # Actual Physical boards
+    - { BOARD: rpi4b, BRANCH: edge, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
+    - { BOARD: rpi4b, BRANCH: current, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
 
-  my-virtual-boards: &my-virtual-boards
-    # UTM images, virtual
-    - { BOARD: uefi-arm64, BRANCH: edge, ENABLE_EXTENSIONS: image-output-utm }
-    - { BOARD: uefi-x86, BRANCH: edge, ENABLE_EXTENSIONS: image-output-utm }
-    # Plain UEFI's, for physical machines
-    - { BOARD: uefi-arm64, BRANCH: edge }
-    - { BOARD: uefi-x86, BRANCH: edge }
-
-  not-mine: &not-mine
-    #- { BOARD: orangepizero2, BRANCH: legacy }
-    #- { BOARD: odroidxu4, BRANCH: current }
-    #- { BOARD: bananapicm4io, BRANCH: edge }
-    #- { BOARD: aml-s9xx-box, BRANCH: edge }
-    #- { BOARD: helios64, BRANCH: edge }
-    #- { BOARD: rock-5b, BRANCH: collabora, RELEASE: bookworm }
-    # - { BOARD: orangepi5, BRANCH: edge }
-    #- { BOARD: hikey960, BRANCH: edge } # PR https://github.com/armbian/build/pull/5660
-    - { BOARD: hinlink-h28k, BRANCH: legacy } # PR https://github.com/armbian/build/pull/5747
-    #- { BOARD: tinkerboard, BRANCH: edge }
-    # very distant from being mine
-    # - { BOARD: star64, BRANCH: edge, RELEASE: sid } # only sid has proper riscv64 support in Debian?
-    #- { BOARD: helios64, BRANCH: current }
-    - { BOARD: tritium-h3, BRANCH: edge }
-    - { BOARD: tritium-h5, BRANCH: edge }
-    - { BOARD: rk322x-box, BRANCH: edge }
-    - { BOARD: rk322x-box, BRANCH: current }
-    #- { BOARD: nanopiduo2, BRANCH: current, RELEASE: bullseye }
-
-  home-assistant-boards: &home-assistant-boards
-    - { BOARD: odroidhc4, BRANCH: current }
-    #- { BOARD: tinkerboard-2, BRANCH: edge }
-
-  cloud-rescues: &cloud-rescues
-    # rescue e2img's, for both ddk and edge, x86 and arm64
-    - { BOARD: uefi-arm64, BRANCH: ddk, ENABLE_EXTENSIONS: uefi-rescue }
-    - { BOARD: uefi-arm64, BRANCH: edge,  ENABLE_EXTENSIONS: uefi-rescue }
-    - { BOARD: uefi-x86, BRANCH: ddk, ENABLE_EXTENSIONS: uefi-rescue }
-    - { BOARD: uefi-x86, BRANCH: edge, ENABLE_EXTENSIONS: uefi-rescue }
-
-  cloud-metadata: &cloud-metadata
-    # edge, x86 and arm64, with cloud-metadata
-    - { BOARD: uefi-x86, BRANCH: edge, ENABLE_EXTENSIONS: cloud-metadata }
-    - { BOARD: uefi-arm64, BRANCH: edge, ENABLE_EXTENSIONS: cloud-metadata }
 
 targets:
 
@@ -95,7 +49,18 @@ targets:
       BUILD_MINIMAL: "no" # quoting "no" is the first lesson of YAML
       CLOUD_IMAGE: "no"
     items: # list of reference-lists
-      - *my-physical-boards
+      - *airwaves-boards
 
+  cli-jammy:
+    enabled: yes
+    configs: [ airwaves-os ]
+    pipeline:
+      gha: *airwaves-gha
+    vars:
+      RELEASE: jammy
+      BUILD_MINIMAL: "no" # quoting "no" is the first lesson of YAML
+      CLOUD_IMAGE: "no"
+    items: # list of reference-lists
+      - *airwaves-boards-rpi
 
 
