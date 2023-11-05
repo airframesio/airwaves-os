@@ -4,6 +4,7 @@ common-gha-configs:
       default: "ubuntu-latest" # or a ["tag", "list"]
       by-name:
         kernel: [ "self-hosted", "Linux", 'armbian', "artifact-kernel" ]
+        uboot: [ "self-hosted", "Linux", 'armbian', "X64" ]
       by-name-and-arch:
         rootfs-arm64: [ "self-hosted", "Linux", 'armbian', "rootfs-arm64" ]
         image-arm64: [ "self-hosted", "Linux", 'armbian', "image-arm64" ]
@@ -17,14 +18,12 @@ lists:
     - { BOARD: rock-5b, BRANCH: legacy }
     - { BOARD: orangepi5, BRANCH: legacy }
     - { BOARD: lepotato, BRANCH: current }
-    - { BOARD: rpi4b, BRANCH: edge, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
-    # - { BOARD: rockpro64, BRANCH: edge }
-    # - { BOARD: rockpro64, BRANCH: current }
-    # - { BOARD: pineh64-b, BRANCH: current }
-    # - { BOARD: orangepi3-lts, BRANCH: current }
-    # - { BOARD: rockpi-4b, BRANCH: edge }
-    # - { BOARD: rockpi-4c, BRANCH: edge }
-    # - { BOARD: rock-4se, BRANCH: edge }
+    - { BOARD: rockpro64, BRANCH: current }
+    - { BOARD: tritium-h5, BRANCH: current }
+    - { BOARD: pineh64-b, BRANCH: current }
+    - { BOARD: orangepi3-lts, BRANCH: current }
+    - { BOARD: rockpi-4b, BRANCH: edge }
+    - { BOARD: rock-4se, BRANCH: edge }
     # - { BOARD: khadas-vim3l, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
     # - { BOARD: khadas-vim3, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
     # - { BOARD: khadas-vim4, BRANCH: legacy, ENABLE_EXTENSIONS: "image-output-oowow" }
@@ -32,6 +31,10 @@ lists:
     # - { BOARD: uefi-arm64, BRANCH: edge, ENABLE_EXTENSIONS: image-output-utm }
     # # Plain UEFI's, for physical machines
     # - { BOARD: uefi-arm64, BRANCH: edge }
+  airwaves-boards-rpi: &airwaves-boards-rpi
+    # Actual Physical boards
+    - { BOARD: rpi4b, BRANCH: edge, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
+    - { BOARD: rpi4b, BRANCH: current, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
 
 
 targets:
@@ -48,5 +51,16 @@ targets:
     items: # list of reference-lists
       - *airwaves-boards
 
+  cli-jammy:
+    enabled: yes
+    configs: [ airwaves-os ]
+    pipeline:
+      gha: *airwaves-gha
+    vars:
+      RELEASE: jammy
+      BUILD_MINIMAL: "no" # quoting "no" is the first lesson of YAML
+      CLOUD_IMAGE: "no"
+    items: # list of reference-lists
+      - *airwaves-boards-rpi
 
 
