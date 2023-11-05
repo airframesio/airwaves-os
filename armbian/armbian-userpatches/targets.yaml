@@ -33,23 +33,23 @@ lists:
     # - { BOARD: uefi-arm64, BRANCH: edge }
   airwaves-boards-rpi: &airwaves-boards-rpi
     # Actual Physical boards
-    - { BOARD: rpi4b, BRANCH: edge } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
-    - { BOARD: rpi4b, BRANCH: current } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
+    - { BOARD: rpi4b, BRANCH: edge, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
+    - { BOARD: rpi4b, BRANCH: current, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
 
 
 targets:
 
-  #  cli-debian:
-  #    enabled: yes
-  #    configs: [ airwaves-os ]
-  #    pipeline:
-  #      gha: *airwaves-gha
-  #    vars:
-  #      RELEASE: bookworm
-  #      BUILD_MINIMAL: "no" # quoting "no" is the first lesson of YAML
-  #      CLOUD_IMAGE: "no"
-  #    items: # list of reference-lists
-  #      - *airwaves-boards
+  cli-debian:
+    enabled: yes
+    configs: [ airwaves-os ]
+    pipeline:
+      gha: *airwaves-gha
+    vars:
+      RELEASE: bookworm
+      BUILD_MINIMAL: "no" # quoting "no" is the first lesson of YAML
+      CLOUD_IMAGE: "no"
+    items: # list of reference-lists
+      - *airwaves-boards
 
   cli-jammy:
     enabled: yes
@@ -62,6 +62,5 @@ targets:
       CLOUD_IMAGE: "no"
     items: # list of reference-lists
       - *airwaves-boards-rpi
-      - *airwaves-boards
 
 
