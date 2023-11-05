@@ -43,8 +43,8 @@ on:
 env:
 
   # For easier reuse across the multiple chunks ('armbian/build' repo)
-  BUILD_REPOSITORY: "armbian/build"
-  BUILD_REF: "main" # branch or tag or sha1
+  BUILD_REPOSITORY: "rpardini/armbian-build"
+  BUILD_REF: "extensions" # branch or tag or sha1
 
   # For easier reuse across the multiple chunks ('armbian/os' repo)
   USERPATCHES_REPOSITORY: "airframesio/airwaves-os"

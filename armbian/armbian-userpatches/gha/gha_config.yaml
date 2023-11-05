@@ -1,8 +1,8 @@
 org: "airframesio" # can't be an expression, only string.
 
 # armbian/build coordinates
-org_and_build_repo: "armbian/build"
-build_ref: "main"
+org_and_build_repo: "rpardini/armbian-build"
+build_ref: "extensions"
 
 # armbian/os coordinates. set all to empty to not use userpatches.
 org_and_userpatches_repo: "airframesio/airwaves-os"
