@@ -19,6 +19,7 @@ lists:
     - { BOARD: orangepi5, BRANCH: legacy }
     - { BOARD: lepotato, BRANCH: current }
     - { BOARD: rockpro64, BRANCH: current }
+    - { BOARD: tritium-h5, BRANCH: current }
     - { BOARD: pineh64-b, BRANCH: current }
     - { BOARD: orangepi3-lts, BRANCH: current }
     - { BOARD: rockpi-4b, BRANCH: edge }
@@ -37,34 +38,20 @@ lists:
 
 
 targets:
-  force-artifacts:
-    enabled: yes
-    configs: [ airwaves-os ]
-    pipeline:
-      gha: *airwaves-gha
-      build-image: no # don't build images for this
-      only-artifacts: [ "armbian-base-files", "kernel", "uboot", "rootfs" ] # only these artifacts
-    vars:
-      BUILD_MINIMAL: "no" # quoting "no" is the first lesson of YAML
-      CLOUD_IMAGE: "no"
-    items: # list of reference-lists
-      - *airwaves-boards
-      - *airwaves-boards-rpi
 
+  #  cli-debian:
+  #    enabled: yes
+  #    configs: [ airwaves-os ]
+  #    pipeline:
+  #      gha: *airwaves-gha
+  #    vars:
+  #      RELEASE: bookworm
+  #      BUILD_MINIMAL: "no" # quoting "no" is the first lesson of YAML
+  #      CLOUD_IMAGE: "no"
+  #    items: # list of reference-lists
+  #      - *airwaves-boards
 
-  cli-debian:
-    enabled: yes
-    configs: [ airwaves-os ]
-    pipeline:
-      gha: *airwaves-gha
-    vars:
-      RELEASE: bookworm
-      BUILD_MINIMAL: "no" # quoting "no" is the first lesson of YAML
-      CLOUD_IMAGE: "no"
-    items: # list of reference-lists
-      - *airwaves-boards
-
-  cli-rpi:
+  cli-jammy:
     enabled: yes
     configs: [ airwaves-os ]
     pipeline:
@@ -75,5 +62,6 @@ targets:
       CLOUD_IMAGE: "no"
     items: # list of reference-lists
       - *airwaves-boards-rpi
+      - *airwaves-boards
 
 
