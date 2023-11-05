@@ -57,7 +57,7 @@ env:
   EXTRA_PARAMS_ALL_BUILDS: "SHARE_LOG=yes ${{ github.event.inputs.extraParamsAllBuilds }}"
 
   # Added to every image build arguments.
-  EXTRA_PARAMS_IMAGE: "'DONT_BUILD_ARTIFACTS=any' COMPRESS_OUTPUTIMAGE=xz SHOW_DEBIAN=yes SKIP_CUSTOM_REPO=${{github.event.inputs.skipCustomRepo}}" # IMAGE_VERSION is individually added at the build step.
+  EXTRA_PARAMS_IMAGE: "'DONT_BUILD_ARTIFACTS=kernel' COMPRESS_OUTPUTIMAGE=xz SHOW_DEBIAN=yes SKIP_CUSTOM_REPO=${{github.event.inputs.skipCustomRepo}}" # IMAGE_VERSION is individually added at the build step.
 
 jobs:
 
