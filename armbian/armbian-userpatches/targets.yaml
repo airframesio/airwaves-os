@@ -24,13 +24,34 @@ lists:
     - { BOARD: orangepi3-lts, BRANCH: current }
     - { BOARD: rockpi-4b, BRANCH: edge }
     - { BOARD: rock-4se, BRANCH: edge }
-    # - { BOARD: khadas-vim3l, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
-    # - { BOARD: khadas-vim3, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
-    # - { BOARD: khadas-vim4, BRANCH: legacy, ENABLE_EXTENSIONS: "image-output-oowow" }
-    # - { BOARD: khadas-vim1s, BRANCH: legacy, ENABLE_EXTENSIONS: "image-output-oowow" }
+  airwaves-boards: &airwaves-boards-extra
+    # Actual Physical boards
+    - { BOARD: nanopi-r6s, BRANCH: legacy }
+    - { BOARD: nanopipct6, BRANCH: legacy }
+    - { BOARD: orangepi3b, BRANCH: legacy }
+    - { BOARD: rock-3a, BRANCH: edge }
+    - { BOARD: quartz64b, BRANCH: edge }
+    - { BOARD: odroidm1, BRANCH: edge }
+    - { BOARD: raxda-zero, BRANCH: current }
+    - { BOARD: odroidn2, BRANCH: current }
+    - { BOARD: odroidc4, BRANCH: current }
+    - { BOARD: pine64, BRANCH: current }
+    - { BOARD: rockpi-4bplus, BRANCH: edge }
+    - { BOARD: nanopct4, BRANCH: edge }
+    - { BOARD: rockpro64, BRANCH: current }
+    - { BOARD: orangepi4, BRANCH: current }
+    - { BOARD: tinkerboard-2, BRANCH: current }
+    - { BOARD: roc-rk3399-pc, BRANCH: current }
+    - { BOARD: nanopi-r4s, BRANCH: current }
+    - { BOARD: nanopi-r4se, BRANCH: current }
+    - { BOARD: nanopim4v2, BRANCH: current }
+    - { BOARD: khadas-vim3l, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
+    - { BOARD: khadas-vim3, BRANCH: edge, ENABLE_EXTENSIONS: "image-output-oowow" }
+    - { BOARD: khadas-vim4, BRANCH: legacy, ENABLE_EXTENSIONS: "image-output-oowow" }
+    - { BOARD: khadas-vim1s, BRANCH: legacy, ENABLE_EXTENSIONS: "image-output-oowow" }
     # - { BOARD: uefi-arm64, BRANCH: edge, ENABLE_EXTENSIONS: image-output-utm }
     # # Plain UEFI's, for physical machines
-    # - { BOARD: uefi-arm64, BRANCH: edge }
+    - { BOARD: uefi-arm64, BRANCH: edge }
   airwaves-boards-rpi: &airwaves-boards-rpi
     # Actual Physical boards
     - { BOARD: rpi4b, BRANCH: edge, RELEASE: jammy } # rpi4b requires Ubuntu's flash-kernel and will be skipped for Debian
@@ -50,6 +71,7 @@ targets:
       CLOUD_IMAGE: "no"
     items: # list of reference-lists
       - *airwaves-boards
+    #  - *airwaves-boards-extra
 
   cli-jammy:
     enabled: yes
