@@ -19,6 +19,8 @@ lists:
     - { BOARD: orangepi5, BRANCH: legacy }
     - { BOARD: lepotato, BRANCH: current }
     - { BOARD: rockpro64, BRANCH: current }
+    - { BOARD: odroidn2, BRANCH: current }
+    - { BOARD: odroidc4, BRANCH: current }
     - { BOARD: tritium-h5, BRANCH: current }
     - { BOARD: pineh64-b, BRANCH: current }
     - { BOARD: orangepi3-lts, BRANCH: current }
@@ -33,8 +35,6 @@ lists:
     - { BOARD: quartz64b, BRANCH: edge }
     - { BOARD: odroidm1, BRANCH: edge }
     - { BOARD: raxda-zero, BRANCH: current }
-    - { BOARD: odroidn2, BRANCH: current }
-    - { BOARD: odroidc4, BRANCH: current }
     - { BOARD: pine64, BRANCH: current }
     - { BOARD: rockpi-4bplus, BRANCH: edge }
     - { BOARD: nanopct4, BRANCH: edge }
