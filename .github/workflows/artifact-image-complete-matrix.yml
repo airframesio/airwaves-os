@@ -77,8 +77,8 @@ jobs:
       - name: "Prepare date-based release outputs"
         id: prepare-date-outputs
         run: |
-          echo "images_release=$(date +%y.%m.%d)-airframesio-${{ github.run_number }}" >> $GITHUB_OUTPUT
-          echo "revision_release=$(date +%y.%m.%d)-airframesio-${{ github.run_number }}" >> $GITHUB_OUTPUT
+          echo "images_release=Airwaves_OS-$(date +%y.%m.%d)-${{ github.run_number }}" >> $GITHUB_OUTPUT
+          echo "revision_release=Airwaves_OS-$(date +%y.%m.%d)-${{ github.run_number }}" >> $GITHUB_OUTPUT
 
       # cleanup the place where we will clone the userpatches repo, to avoid git going insane and cleaning everything later
       - name: Cleanup userpatches repo
@@ -496,14 +496,14 @@ jobs:
 
       - name: copy the reprepro db inside armbian output/reprepro-db
         run: |
-          
+
           mkdir -pv output/reprepro-db/db
           if [[ -d /opt/armbian_repo/db ]]; then
             cp -pv /opt/armbian_repo/db/packages.db output/reprepro-db/db/packages.db
           else
             rm -rf output/reprepro-db
           fi
-          
+
 
       - name: Integrated reprepro-based deb-download and reprepro script generation
         id: rolling-repo-reprepro-download-script
@@ -577,11 +577,11 @@ jobs:
       - name: Run the OCI-tagging script
         id: run-scripts-oci-tagging
         run: |
-          
+
           set -x
           [[ ! -f /usr/local/bin/oras ]] &&  wget -O- "https://github.com/oras-project/oras/releases/download/v1.0.1/oras_1.0.1_linux_arm64.tar.gz" | sudo tar xzf - -C/usr/local/bin/ && oras version
           bash -x output/info/reprepro/oci_tag_versions.sh
-          
+
 
 
 # # Generate priv
