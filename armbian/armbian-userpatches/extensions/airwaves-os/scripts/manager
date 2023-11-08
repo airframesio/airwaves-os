@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-. /opt/aros/build.config
+. /opt/airwaves/build.config
 
 Main() {
   echo "Manager is running"

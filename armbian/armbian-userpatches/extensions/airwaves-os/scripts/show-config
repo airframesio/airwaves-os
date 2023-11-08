@@ -2,12 +2,12 @@
 
 import json
 
-config_file = '/etc/aros/config.json'
+config_file = '/etc/airwaves/config.json'
 
 try:
   file = open(config_file, 'r')
 except FileNotFoundError:
-  print('AROS configuration not found at %s' % (config_file))
+  print('Airwaves OS configuration not found at %s' % (config_file))
   exit(1)
 
 config = json.loads(f.read())

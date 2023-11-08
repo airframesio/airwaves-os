@@ -3,7 +3,7 @@
 . /opt/aros/build.config
 
 FirstRun() {
-  echo "AROS first run"
+  echo "Airwaves OS first run"
   ChangeHostname
   InstallInitialContainers
   ContainersNotInstalled
@@ -13,7 +13,7 @@ FirstRun() {
 ChangeHostname() {
   NEW_HOSTNAME="airframes-$(cat /sys/class/net/eth0/address | awk -F: '{ print $4$5$6}')"
   echo "  * Setting hostname: ${NEW_HOSTNAME}"
-  /opt/aros/scripts/change-hostname.sh ${NEW_HOSTNAME}
+  /opt/airwaves/scripts/change-hostname.sh ${NEW_HOSTNAME}
   hostnamectl set-hostname ${NEW_HOSTNAME}
   systemctl restart avahi-daemon
 }
@@ -87,10 +87,10 @@ StartContainers() {
 }
 
 RemoveFirstRunFile() {
-  rm -rf /opt/aros/.needs-first-run
+  rm -rf /opt/airwaves/.needs-first-run
 }
 
-if [ -f "/opt/aros/.needs-first-run" ]; then
+if [ -f "/opt/airwaves/.needs-first-run" ]; then
   FirstRun
   RemoveFirstRunFile
 fi

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-echo "aros-config v0.0.1"
-echo "Airframes Receiver OS Configuration for CLI"
+echo "airwaves-config v0.0.1"
+echo "Airwaves OS Configuration for CLI"
 echo ""
 
 if [[ $EUID != 0 ]]; then
@@ -11,7 +11,7 @@ if [[ $EUID != 0 ]]; then
 fi
 
 if  [[ -f ${BASH_SOURCE}-functions ]]; then source ${BASH_SOURCE}-functions;
-  elif  [[ -f /opt/aros-config/functions.sh ]]; then source /opt/aros-config/functions.sh;
+  elif  [[ -f /opt/airwaves-config/functions.sh ]]; then source /opt/airwaves-config/functions.sh;
   else exit 1;
 fi
 
@@ -24,31 +24,31 @@ if [[ $1 == "--help" ]]; then
   echo ""
   echo "  test-auth                Tests if authentication to Airframes is working"
   echo ""
-  echo "  apply                    Apply the current AROS configuration to the system"
+  echo "  apply                    Apply the current Airwaves configuration to the system"
   echo "  show                     Show current configuration"
-  echo "  repair                   Repair the system and AROS configuration" 
-  echo "  upgrade                  Upgrade to the latest release of AROS"
+  echo "  repair                   Repair the system and Airwaves configuration"
+  echo "  upgrade                  Upgrade to the latest release of Airwaves"
   echo ""
   exit
 fi
 
-. /opt/aros/build.config
+. /opt/airwaves/build.config
 
 
 ApplyConfig() {
-  /opt/aros/scripts/apply-config
+  /opt/airwaves/scripts/apply-config
 }
 
 ShowConfig() {
-  /opt/aros/scripts/show-config
+  /opt/airwaves/scripts/show-config
 }
 
 Repair() {
-  /opt/aros/scripts/repair
+  /opt/airwaves/scripts/repair
 }
 
 Upgrade() {
-  /opt/aros/scripts/update
+  /opt/airwaves/scripts/update
 }
 
 #main "$@"
@@ -63,7 +63,7 @@ do
 
   LIST_LENGTH="$((11+${#LIST[@]}/2))"
   BOX_LENGTH=${#LIST[@]}
-  MENU_TITLE="Configure Airframes Receiver OS"
+  MENU_TITLE="Configure Airwaves OS"
 
   DIALOG_CANCEL=1
   DIALOG_ESC=255
@@ -99,10 +99,9 @@ do
       ;;
     "help")
       unset main
-      t="aros-config is a CLI tool to customize the Airframes Receiver OS."
+      t="airwaves-config is a CLI tool to customize the Airwaves OS."
       show_box "Help" "$t" "18"
       ;;
   esac
 
 done
-

@@ -55,6 +55,6 @@ toilet -t -f mini Get Started
 echo "Your receiver is ready to be set up."
 echo
 echo -e "  * Go to ${COLOR_GREEN}http://${HOSTNAME}.local${COLOR_END} or ${COLOR_GREEN}http://${primary_ip_address}${COLOR_END} in your web browser"
-echo -e "  * Default username: airframes"
+echo -e "  * Default username: airwaves"
 echo -e "  * Default password: changeme"
 echo
