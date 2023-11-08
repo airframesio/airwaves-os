@@ -77,8 +77,8 @@ jobs:
       - name: "Prepare date-based release outputs"
         id: prepare-date-outputs
         run: |
-          echo "images_release=Airwaves_OS-$(date +%y.%m.%d)-${{ github.run_number }}" >> $GITHUB_OUTPUT
-          echo "revision_release=Airwaves_OS-$(date +%y.%m.%d)-${{ github.run_number }}" >> $GITHUB_OUTPUT
+          echo "images_release=$(date +%y.%m.%d)-${{ github.run_number }}" >> $GITHUB_OUTPUT
+          echo "revision_release=$(date +%y.%m.%d)-${{ github.run_number }}" >> $GITHUB_OUTPUT
 
       # cleanup the place where we will clone the userpatches repo, to avoid git going insane and cleaning everything later
       - name: Cleanup userpatches repo
