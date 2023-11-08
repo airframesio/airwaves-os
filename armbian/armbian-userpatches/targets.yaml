@@ -26,6 +26,7 @@ lists:
     - { BOARD: orangepi3-lts, BRANCH: current }
     - { BOARD: rockpi-4b, BRANCH: edge }
     - { BOARD: rock-4se, BRANCH: edge }
+    - { BOARD: uefi-x86, BRANCH: edge, ENABLE_EXTENSIONS: image-output-utm }
   airwaves-boards: &airwaves-boards-extra
     # Actual Physical boards
     - { BOARD: nanopi-r6s, BRANCH: legacy }
@@ -84,5 +85,3 @@ targets:
       CLOUD_IMAGE: "no"
     items: # list of reference-lists
       - *airwaves-boards-rpi
-
-
