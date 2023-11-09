@@ -1,10 +1,10 @@
 [Unit]
-Description=AROS Manager
+Description=Airwaves Manager
 Documentation=https://airframes.io
 After=network.target local-fs.target
 
 [Service]
-ExecStart=/opt/aros/bin/manager
+ExecStart=/opt/airwaves/bin/manager
 
 Type=notify
 Delegate=yes

@@ -1,13 +1,13 @@
 [Unit]
-Description=AROS first run
+Description=Airwaves OS first run
 Wants=network-online.target
 After=network.target network-online.target
-ConditionPathExists=/opt/aros/.needs-first-run
+ConditionPathExists=/opt/airwaves/.needs-first-run
 
 [Service]
 Type=idle
 RemainAfterExit=yes
-ExecStart=/opt/aros/scripts/first-run
+ExecStart=/opt/airwaves/scripts/first-run
 TimeoutStartSec=2min
 
 [Install]
