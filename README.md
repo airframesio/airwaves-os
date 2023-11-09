@@ -1,5 +1,7 @@
 # Airwaves OS
 
+[![artifact-image-complete-matrix](https://github.com/airframesio/airwaves-os/actions/workflows/artifact-image-complete-matrix.yml/badge.svg)](https://github.com/airframesio/airwaves-os/actions/workflows/artifact-image-complete-matrix.yml)
+
 ## Download
 
 An official public build has not been released yet while we work out some issues.
