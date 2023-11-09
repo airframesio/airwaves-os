@@ -20,7 +20,7 @@ function pre_install_kernel_debs__add_airwaves_scripts() {
 
 function post_family_tweaks__install_airwaves_os_base() {
 
-  display_alert "Installing AirwaveOS base" "${EXTENSION}" "info"
+  display_alert "Installing Airwaves OS base" "${EXTENSION}" "info"
 
 #  export LANG=C LC_ALL="en_US.UTF-8"
 #  export DEBIAN_FRONTEND=noninteractive
