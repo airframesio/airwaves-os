@@ -1,7 +1,7 @@
 #!/bin/bash
 
 function extension_prepare_config__airwaves_os() {
-  display_alert "Target image will have AirwavesOS preinstalled" "${EXTENSION}" "info"
+  display_alert "Target image will have Airwaves OS preinstalled" "${EXTENSION}" "info"
 }
 
 function user_config__airwaves_os_extra_packages() {
