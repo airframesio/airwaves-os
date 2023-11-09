@@ -4,10 +4,10 @@
   "system": {
     "uuid": null,
     "network": {
-      "hostname": "airframes",
+      "hostname": "airwaves",
       "avahi": true,
       "lan": { "enabled": true, "interface": "eth0", "type": "dhcp" },
-      "wifi": { "enabled": true, "interface": "wlan0", "type": "dhcp", "ssid": "airframes", "psk": "airframes" },
+      "wifi": { "enabled": true, "interface": "wlan0", "type": "dhcp", "ssid": "airwaves", "psk": "airwaves" },
     },
     "devices": []
   },
@@ -25,4 +25,3 @@
   "inputs": [],
   "outputs": []
 }
-
