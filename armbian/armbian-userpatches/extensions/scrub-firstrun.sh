@@ -13,6 +13,7 @@ function post_family_tweaks_bsp__scrub_firstrun() {
 
 	##FIXME should we use `run_host_command_logged` here
 	rm ${RM_OPTIONS} "${destination}"/etc/profile.d/armbian-check-first-login.sh
+	rm ${RM_OPTIONS} "${destination}"/etc/updated-motd.d/10-armbian-header"
 	rm ${RM_OPTIONS} "${destination}"/etc/lib/systemd/system/systemd-journald.service.d/override.conf
 	rm ${RM_OPTIONS} "${destination}"/etc/lib/systemd/system/armbian-firstrun.service
 	rm ${RM_OPTIONS} "${destination}"/lib/systemd/system/armbian-firstrun-config.service
