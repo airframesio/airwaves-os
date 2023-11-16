@@ -45,7 +45,9 @@ function post_family_tweaks__install_airwaves_os_base() {
   #chroot_sdcard ln -sF /opt/airwaves/config/build.config /opt/airwaves/airwaves.config
 
   display_alert "install systemd units" "${EXTENSION}" "info"
-  run_host_command_logged cp "${EXTENSION_DIR}"/config/templates/avahi-airwaves.service.template "${SDCARD}"/etc/avahi/services/airwaves.service
+  run_host_command_logged cp "${EXTENSION_DIR}"/config/templates/avahi-api.service.template "${SDCARD}"/etc/avahi/services/airwaves-api.service
+  run_host_command_logged cp "${EXTENSION_DIR}"/config/templates/avahi-config.service.template "${SDCARD}"/etc/avahi/services/airwaves-config.service
+  run_host_command_logged cp "${EXTENSION_DIR}"/config/templates/avahi-web.service.template "${SDCARD}"/etc/avahi/services/airwaves-web.service
   run_host_command_logged cp "${EXTENSION_DIR}"/config/templates/systemd-airwaves-first-run.service.template "${SDCARD}"/etc/systemd/system/airwaves-first-run.service
   chroot_sdcard systemctl --no-reload enable airwaves-first-run.service
   run_host_command_logged cp "${EXTENSION_DIR}"/config/templates/systemd-airwaves-manager.service.template "${SDCARD}"/etc/systemd/system/airwaves-manager.service

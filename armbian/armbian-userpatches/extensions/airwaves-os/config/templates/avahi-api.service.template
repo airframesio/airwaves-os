@@ -1,0 +1,12 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <name replace-wildcards="yes">Airwaves API on %h</name>
+  <service protocol="ipv4">
+    <type>_airwaves._tcp</type>
+    <subtype>_api._sub._airwaves._tcp</subtype>
+    <port>82</port>
+    <txt-record>path=/v1</txt-record>
+    <txt-record>version=0.0.1</txt-record>
+  </service>
+</service-group>
