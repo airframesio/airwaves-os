@@ -26,11 +26,6 @@ function post_family_tweaks__install_airwaves_os_base() {
 #  export DEBIAN_FRONTEND=noninteractive
 #  export APT_LISTCHANGES_FRONTEND=none
 
-  display_alert "enforce default root password" "${EXTENSION}" "info"
-  chroot_sdcard passwd root <<EOF
-airwaves
-airwaves
-EOF
   display_alert "add airwaves user" "${EXTENSION}" "info"
   chroot_sdcard useradd -m -s /bin/bash airwaves
 
