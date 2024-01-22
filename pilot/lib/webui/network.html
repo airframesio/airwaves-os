@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<body>
+
+<h2>Network Config</h2>
+
+<a href="/">Back to main menu</a>
+  {{ range $if_name, $if_config := .Netplan.Network.Ethernets }}
+  <fieldset>
+    <form action="/network" method="post">
+      <label>Interface: {{ $if_name }}</label><br>
+      <input type="hidden" id="iface" name="iface" value="{{ $if_name }}">
+      <fieldset>
+        <label>IPv4</label><br>
+        <input type="radio" id="dhcpv4" name="ipv4.method" value="DHCP" {{with (index $.Interface $if_name)}}{{if .DHCPv4}}checked="checked"{{end}}{{end}}>
+        
+        <!-- DHCP -->
+        <label for="dhcpv4">DHCP</label><br>
+        <input type="radio" id="manualv4" name="ipv4.method" value="Manual" {{with (index $.Interface $if_name)}}{{if not .DHCPv4}}checked="checked"{{end}}{{end}}>
+        
+        <!-- Manual -->
+        <label for="manualv4">Manual</label><br>
+        <label for="ipv4addr">Address</label>
+        <input type="text" id="ipv4addr" name="ipv4.address" value="{{with (index $.Interface $if_name)}}{{.IPv4Addr}}{{end}}"><br>
+        <label for="ipv4mask">Netmask</label>
+        <input type="text" id="ipv4mask" name="ipv4.netmask" value="{{with (index $.Interface $if_name)}}{{.IPv4Mask}}{{end}}"><br>
+        <label for="ipv4gw">Gateway</label>
+        <input type="text" id="ipv4gw" name="ipv4.gateway" value="{{with (index $.Interface $if_name)}}{{.IPv4Gateway}}{{end}}"><br>
+
+        <!-- DNS -->
+        <label for="nameservers">Nameservers</label>
+        <input type="text" id="nameservers" name="nameservers" value="{{ $.Nameservers }}"><br>
+        <label for="searchlist">Search list</label>
+        <input type="text" id="searchlist" name="searchlist" value="{{ $.Search }}"><br>
+
+      </fieldset>
+      <input type="submit" value="Update {{ $if_name }} configuration">
+    </form>
+  </fieldset>
+  {{ end }}
+</body>
+</html>
