@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	netplanFile = "/etc/netplan/planewatcher.yaml"
+	netplanFile = "/etc/netplan/pilot.yaml"
 
 	webUIListenAddr = ":80"
 )
