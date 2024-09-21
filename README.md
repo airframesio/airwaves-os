@@ -6,6 +6,13 @@
 
 An official public build has not been released yet while we work out some issues.
 
+## Software
+
+* acarsdec
+* dumpvdl2
+* vdlm2dec
+* satdump
+
 ## Building images
 
 Airwaves OS can be built locally on a desktop for various architectures using the Armbian build flow, or via GitHub
