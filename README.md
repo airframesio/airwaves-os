@@ -12,6 +12,7 @@ An official public build has not been released yet while we work out some issues
 * dumpvdl2
 * vdlm2dec
 * satdump
+* tar1090
 
 ## Building images
 
