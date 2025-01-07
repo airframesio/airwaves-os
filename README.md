@@ -1,6 +1,10 @@
 # Airwaves OS
 
 [![artifact-image-complete-matrix](https://github.com/airframesio/airwaves-os/actions/workflows/artifact-image-complete-matrix.yml/badge.svg)](https://github.com/airframesio/airwaves-os/actions/workflows/artifact-image-complete-matrix.yml)
+![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/airframesio/airwaves-os)
+[![Contributors](https://img.shields.io/github/contributors/airframesio/airwaves-os)](https://github.com/airframesio/airwaves-os/graphs/contributors)
+[![Activity](https://img.shields.io/github/commit-activity/m/airframesio/airwaves-os)](https://github.com/airframesio/airwaves-os/pulse)
+[![Discord](https://img.shields.io/discord/1067697487927853077?logo=discord)](https://discord.gg/8Ksch7zE)
 
 ## Download
 
