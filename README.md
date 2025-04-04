@@ -30,7 +30,14 @@ An official public build has not been released yet while we work out some issues
 * satdump
 * tar1090
 
-Absolutely not listing this out yet, as the OS will have a substantial number of packages and images available to install. Initial focus is on flight tracking feeder software, but will expand rapidly after initial rounds of testing.
+Absolutely not listing this out yet, as the OS will have a substantial number of packages and images available to install. Initial focus is on flight tracking feeder software, but will expand rapidly after initial rounds of testing. Some additional areas of focus are:
+
+* ship tracking
+* space/satellite tracking
+* Air Traffic Controller audio capture and streaming
+* Police/Fire/etc audio capture and streaming
+* Meshtastic / MeshCore
+* Reticulum / Nomad Network
 
 ## Building images
 
