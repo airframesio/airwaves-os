@@ -1,3 +1,4 @@
+# trunk-ignore-all(checkov/CKV2_GHA_1)
 name: Build Airwaves OS (Armbian base)
 
 concurrency:
@@ -7,108 +8,121 @@ concurrency:
 on:
   workflow_dispatch:
     inputs:
+      # trunk-ignore(checkov/CKV_GHA_7)
       set_branch:
-        description: "Branch: edge / current / legacy"
+        description: Branch (edge / current / legacy)
         required: false
-        default: "current"
+        default: current
       set_release:
-        description: "Release: jammy / focal / bullseye"
+        description: Release (jammy / focal / bullseye)
         required: false
-        default: "jammy"
+        default: jammy
       set_board:
-        description: "Board: odroidn2 / lepotato"
+        description: Board (odroidn2 / lepotato)
         required: false
-        default: "rockpi-4b"
+        default: rockpi-4b
       set_desktop:
-        description: "Build Desktop: no / gnome / xfce, etc."
+        description: Build Desktop (no / gnome / xfce, etc)
         required: false
-        default: "no"
+        default: no
       armbian_kernel:
-        description: "Set kernel version."
+        description: Set kernel version
         required: false
-        default: "5.15.25_5.10.100"
+        default: 5.15.25_5.10.100
       armbian_size:
-        description: "Set armbian rootfs size."
+        description: Set armbian rootfs size
         required: false
         default: "2748"
       armbian_fstype:
-        description: "Set armbian rootfs type."
+        description: Set armbian rootfs type
         required: false
-        default: "ext4"
+        default: ext4
       armbian_sign:
-        description: "Set armbian custom name."
+        description: Set armbian custom name
         required: false
         default: ""
-
-env:
-  BUILD_MINIMAL: no
-  KERNEL_CONFIGURE: no
-  BUILD_DESKTOP: no
-  HOST: aros
 
 jobs:
   build:
     runs-on: self-hosted
 
+    env:
+      BUILD_MINIMAL: no
+      KERNEL_CONFIGURE: no
+      BUILD_DESKTOP: no
+      HOST: aros
+      BOARD: ${{ github.event.inputs.set_board || 'rockpi-4b' }}
+      BRANCH: ${{ github.event.inputs.set_branch || 'current' }}
+      RELEASE: ${{ github.event.inputs.set_release || 'jammy' }}
+
     steps:
-    - name: Checkout airwaves-os
-      uses: actions/checkout@v3
-      with:
-        path: airwaves-os
+      - name: Checkout airwaves-os
+        uses: actions/checkout@v4
+        with:
+          path: airwaves-os
 
-    - name: Checkout armbian
-      uses: actions/checkout@v3
-      with:
-        repository: armbian/build
-        path: build
-        clean: no
+      - name: Checkout armbian
+        uses: actions/checkout@v4
+        with:
+          repository: armbian/build
+          path: build
+          clean: no
 
-    - name: Initialization environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        #sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-        #sudo -E apt-get -qq update
-        #sudo -E apt-get -qq autoremove --purge
-        #sudo -E apt-get -qq clean
+      - name: Prepare release outputs
+        id: prepare-release-outputs
+        run: |
+          echo "release_name=\"Airwaves OS Release $(date +%y.%m.%d)-${{ github.run_number }}\"" >> $GITHUB_OUTPUT
+          echo "image_release=$(date +%y.%m.%d)-airwaves-${{ github.run_number }}" >> $GITHUB_OUTPUT
 
-        set_board="${{ github.event.inputs.set_board }}"
-        if [[ -z "${set_board}" ]]; then
-          set_board="rockpi-4b"
-        fi
-        echo "BOARD=${set_board}" >> $GITHUB_ENV
+      - name: Initialization environment
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          #sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          #sudo -E apt-get -qq update
+          #sudo -E apt-get -qq autoremove --purge
+          #sudo -E apt-get -qq clean
 
-        set_branch="${{ github.event.inputs.set_branch }}"
-        if [[ -z "${set_branch}" ]]; then
-          set_branch="current"
-        fi
-        echo "BRANCH=${set_branch}" >> $GITHUB_ENV
+      - name: Patch source with customizations
+        run: |
+          mkdir -p ${GITHUB_WORKSPACE}/build/output/
+          mkdir -p ${GITHUB_WORKSPACE}/build/userpatches/
 
-        set_release="${{ github.event.inputs.set_release }}"
-        if [[ -z "${set_release}" ]]; then
-          set_release="jammy"
-        fi
-        echo "RELEASE=${set_release}" >> $GITHUB_ENV
+          cp -ar ${GITHUB_WORKSPACE}/airwaves-os/armbian/armbian-userpatches/* ${GITHUB_WORKSPACE}/build/userpatches/
 
-    - name: Patch source with customizations
-      run: |
-        mkdir -p ${GITHUB_WORKSPACE}/build/output/
-        mkdir -p ${GITHUB_WORKSPACE}/build/userpatches/
+      - name: Compile Armbian
+        id: build
+        run: |
+          cd ${GITHUB_WORKSPACE}/build/
+          chmod +x compile.sh
+          ./compile.sh COMPRESS_OUTPUTIMAGE=xz PREFER_DOCKER=yes BUILD_MINIMAL=$BUILD_MINIMAL BOARD=${{ env.BOARD }} BRANCH=${{ env.BRANCH }} RELEASE=${{ env.RELEASE }} BUILD_DESKTOP=$BUILD_DESKTOP HOST=$HOST airwaves-os
+          echo "name=status::success" >> $GITHUB_OUTPUT
 
-        cp -ar ${GITHUB_WORKSPACE}/airwaves-os/armbian/armbian-userpatches/* ${GITHUB_WORKSPACE}/build/userpatches/
+      - name: Upload Armbian image
+        uses: actions/upload-artifact@master
+        if: steps.build.outputs.status == 'success'
+        with:
+          name: Airwaves_OS_${{ env.BOARD }}
+          path: "${{ github.workspace }}/build/output/images/${{ steps.build.outputs.armbian_image_version }}.img.xz"
+          if-no-files-found: error
 
-    - name: Compile Armbian
-      id: build
-      run: |
-        cd ${GITHUB_WORKSPACE}/build/
-        chmod +x compile.sh
-        ./compile.sh COMPRESS_OUTPUTIMAGE=xz PREFER_DOCKER=yes BUILD_MINIMAL=$BUILD_MINIMAL BOARD=${{ env.BOARD }} BRANCH=${{ env.BRANCH }} RELEASE=${{ env.RELEASE }} BUILD_DESKTOP=$BUILD_DESKTOP HOST=$HOST airwaves-os
-        echo "::set-output name=status::success"
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.prepare-release-outputs.outputs.image_release }}
+          release_name: ${{ steps.prepare-release-outputs.outputs.release_name }}
+          draft: false
+          prerelease: true
 
-    - name: Upload Armbian image
-      uses: actions/upload-artifact@master
-      if: steps.build.outputs.status == 'success'
-      with:
-        name: airwaves_OS_${{ env.BOARD }}
-        path: "${{ github.workspace }}/build/output/images/${{ steps.build.outputs.armbian_image_version }}.img.xz"
-        if-no-files-found: error
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: "${{ github.workspace }}/build/output/images/${{ steps.build.outputs.armbian_image_version }}.img.xz"
+          asset_name: Airwaves_OS_${{ env.BOARD }}.img.xz
+          asset_content_type: application/octet-stream
