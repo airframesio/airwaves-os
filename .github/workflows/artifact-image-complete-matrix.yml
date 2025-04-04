@@ -1,8 +1,7 @@
 
 # template file: 050.single_header.yaml
 
-#name: "Build All Artifacts/Images"
-name: "artifact-image-complete-matrix"
+name: Artifact Image (Complete Matrix)
 
 on:
   #  schedule:
