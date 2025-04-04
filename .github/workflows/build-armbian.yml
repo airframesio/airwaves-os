@@ -71,7 +71,7 @@ jobs:
       - name: Prepare release outputs
         id: prepare-release-outputs
         run: |
-          echo "release_name=\"Airwaves OS Release $(date +%y.%m.%d)-${{ github.run_number }}\"" >> $GITHUB_OUTPUT
+          echo "release_name=Airwaves OS Release $(date +%y.%m.%d)-${{ github.run_number }}" >> $GITHUB_OUTPUT
           echo "image_release=$(date +%y.%m.%d)-airwaves-${{ github.run_number }}" >> $GITHUB_OUTPUT
 
       - name: Initialization environment
@@ -124,5 +124,5 @@ jobs:
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: "${{ github.workspace }}/build/output/images/${{ steps.build.outputs.armbian_image_version }}.img.xz"
-          asset_name: Airwaves_OS_${{ env.BOARD }}.img.xz
+          asset_name: Airwaves_OS_${{ steps.prepare-release-outputs.outputs.image_release }}_${{ env.BOARD }}_${{ env.BRANCH }}_${{ env.RELEASE }}.img.xz
           asset_content_type: application/octet-stream
