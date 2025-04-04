@@ -71,7 +71,7 @@ jobs:
       - name: Prepare release outputs
         id: prepare-release-outputs
         run: |
-          echo "release_name=Airwaves OS Release $(date +%y.%m.%d)-${{ github.run_number }}" >> $GITHUB_OUTPUT
+          echo "release_name=Airwaves OS Image $(date +%y.%m.%d)-${{ github.run_number }}" >> $GITHUB_OUTPUT
           echo "image_release=$(date +%y.%m.%d)-airwaves-${{ github.run_number }}" >> $GITHUB_OUTPUT
 
       - name: Initialization environment
