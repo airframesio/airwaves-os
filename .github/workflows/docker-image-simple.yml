@@ -1,4 +1,5 @@
-name: docker-image-simple
+# trunk-ignore-all(checkov/CKV2_GHA_1)
+name: Docker Image (simple)
 
 on:
 #  schedule:
@@ -15,10 +16,10 @@ jobs:
       fail-fast: false # let other jobs try to complete if one fails
       matrix:
         include:
-          - os: "ubuntu"
-            release: "jammy"
-            cache-from: "type=gha" # all-automatic Github Actions caching
-            cache-to: "type=gha,mode=max" # all-automatic Github Actions caching, max mode
+          - os: ubuntu
+            release: jammy
+            cache-from: type=gha # all-automatic Github Actions caching
+            cache-to: type=gha,mode=max # all-automatic Github Actions caching, max mode
           #- os: "ubuntu"
           #  release: "kinetic"
           #- os: "debian"
@@ -27,12 +28,12 @@ jobs:
           #  cache-to: ""
           #- os: "debian"
           #  release: "sid"
-          - os: "debian"
-            release: "bookworm"
+          - os: debian
+            release: bookworm
             cache-from: ""
             cache-to: ""
-          - os: "debian"
-            release: "trixie"
+          - os: debian
+            release: trixie
             cache-from: ""
             cache-to: ""
           #- os: "ubuntu"
@@ -48,21 +49,21 @@ jobs:
     steps:
 
       - name: Checkout build repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: armbian/build
           ref: main
           clean: true # true is default. it *will* delete the hosts /dev if mounted inside.
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Docker Login to GitHub Container Registry
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }} # github username or org
@@ -84,7 +85,7 @@ jobs:
         id: docker_build_first
         continue-on-error: true
         timeout-minutes: 40
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
@@ -114,7 +115,7 @@ jobs:
         if: steps.docker_build_first.outcome == 'failure'
         continue-on-error: false # let the build break if the two tries fail
         timeout-minutes: 40
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
@@ -132,4 +133,3 @@ jobs:
           #cache-from: "${{ matrix.cache-from }}" # do NOT reload cache when retrying
           cache-to: "${{ matrix.cache-to }}" # but do save cache
           tags: ghcr.io/${{ github.repository }}:armbian-next-${{env.DOCKERFILE_OS}}-${{env.DOCKERFILE_RELEASE}}-latest
-
