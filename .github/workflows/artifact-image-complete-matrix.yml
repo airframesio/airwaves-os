@@ -37,7 +37,7 @@ on:
       targetsFilterInclude:
         description: 'TARGETS_FILTER_INCLUDE, example: "BOARD:odroidhc4,BOARD:odroidn2"'
         required: false
-        default: ''
+        default: BOARD:rockpi-4b,BOARD:rpi4b
         type: string
 
 env:
