@@ -26,17 +26,12 @@ impl DockerAdapter {
 
 impl DockerPort for DockerAdapter {
     async fn list_containers(&self) -> Result<Vec<ContainerInfo>, AppError> {
+        // List all containers (both airwaves-managed and others)
         let opts = ListContainersOptions::<String> {
             all: true,
-            filters: {
-                let mut f = HashMap::new();
-                f.insert("label".to_string(), vec!["managed-by=airwaves".to_string()]);
-                f
-            },
             ..Default::default()
         };
 
-        // Also get all containers if no airwaves-labeled ones found
         let containers = self.client.list_containers(Some(opts)).await?;
 
         let result: Vec<ContainerInfo> = containers
