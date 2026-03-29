@@ -31,6 +31,7 @@ fn api_router(state: AppState) -> Router {
         // System endpoints
         .route("/api/v1/system/info", axum::routing::get(handlers::system::get_info))
         .route("/api/v1/system/stats", axum::routing::get(handlers::system::get_stats))
+        .route("/api/v1/system/overview", axum::routing::get(handlers::system::get_overview))
         // Container endpoints
         .route("/api/v1/containers", axum::routing::get(handlers::containers::list))
         .route("/api/v1/containers/{id}/start", axum::routing::post(handlers::containers::start))
