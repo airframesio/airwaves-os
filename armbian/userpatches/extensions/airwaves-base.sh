@@ -48,6 +48,9 @@ function post_family_tweaks__airwaves_base_setup() {
 	display_alert "Installing configuration files" "${EXTENSION}" "info"
 	run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/templates/config.json.template "${SDCARD}"/etc/airwaves/config.json
 	run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/airwaves-release "${SDCARD}"/etc/airwaves-release
+	# Stamp build metadata
+	chroot_sdcard sed -i "s/^AIRWAVES_BUILD_DATE=.*/AIRWAVES_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)/" /etc/airwaves-release
+	chroot_sdcard sed -i "s/^AIRWAVES_BUILD_BOARD=.*/AIRWAVES_BUILD_BOARD=${BOARD}/" /etc/airwaves-release
 
 	# Install app catalog
 	display_alert "Installing app catalog" "${EXTENSION}" "info"

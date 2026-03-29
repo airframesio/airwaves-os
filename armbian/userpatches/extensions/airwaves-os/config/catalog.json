@@ -115,7 +115,7 @@
       {"container_port": 8081, "host_port": 8081, "protocol": "tcp"}
     ],
     "requires_sdr": true,
-    "sdr_types": ["rtl_sdr", "airspy", "hackrf"]
+    "sdr_types": ["rtl_sdr", "airspy", "hack_rf"]
   },
   {
     "id": "acarshub",
