@@ -2,9 +2,11 @@ use bollard::container::{
     Config, CreateContainerOptions, ListContainersOptions, LogOutput, LogsOptions,
     StartContainerOptions, StopContainerOptions, RemoveContainerOptions,
 };
+use bollard::system::EventsOptions;
 use bollard::Docker;
 use futures::StreamExt;
 use std::collections::HashMap;
+use std::pin::Pin;
 
 use crate::domain::*;
 use crate::error::AppError;
@@ -21,6 +23,24 @@ impl DockerAdapter {
         client.ping().await?;
         tracing::info!("Connected to Docker daemon");
         Ok(Self { client })
+    }
+}
+
+impl DockerAdapter {
+    /// Returns a stream of Docker daemon events (container start/stop/die/etc.)
+    pub async fn watch_events(
+        &self,
+    ) -> Pin<Box<dyn futures::Stream<Item = Result<bollard::models::EventMessage, bollard::errors::Error>> + Send + '_>>
+    {
+        let opts = EventsOptions::<String> {
+            filters: {
+                let mut f = HashMap::new();
+                f.insert("type".to_string(), vec!["container".to_string()]);
+                f
+            },
+            ..Default::default()
+        };
+        Box::pin(self.client.events(Some(opts)))
     }
 }
 

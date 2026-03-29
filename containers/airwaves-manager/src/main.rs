@@ -83,6 +83,10 @@ async fn main() -> anyhow::Result<()> {
         events_tx,
     };
 
+    // Spawn background event broadcasters
+    spawn_stats_broadcaster(state.system.clone(), state.events_tx.clone());
+    spawn_docker_event_watcher(state.docker.clone(), state.events_tx.clone());
+
     let app = api_router(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
@@ -102,4 +106,69 @@ async fn shutdown_signal() {
         .await
         .expect("failed to install Ctrl+C handler");
     tracing::info!("Shutdown signal received");
+}
+
+/// Broadcasts system stats to WebSocket clients every 5 seconds
+fn spawn_stats_broadcaster(
+    system: Arc<adapters::SystemAdapter>,
+    tx: broadcast::Sender<ws::Event>,
+) {
+    use crate::ports::SystemPort;
+
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            if tx.receiver_count() == 0 {
+                continue; // No clients connected, skip
+            }
+            if let Ok(stats) = system.get_stats() {
+                let _ = tx.send(ws::Event::SystemStats {
+                    cpu_usage: stats.cpu_usage,
+                    memory_percent: stats.memory_percent,
+                    disk_percent: stats.disk_percent,
+                    temperature: stats.temperature,
+                });
+            }
+        }
+    });
+}
+
+/// Watches Docker events and broadcasts container state changes
+fn spawn_docker_event_watcher(
+    docker: Arc<adapters::DockerAdapter>,
+    tx: broadcast::Sender<ws::Event>,
+) {
+    use futures::StreamExt;
+
+    tokio::spawn(async move {
+        loop {
+            let mut stream = docker.watch_events().await;
+            while let Some(event) = stream.next().await {
+                if let Ok(evt) = event {
+                    if let Some(action) = evt.action {
+                        let actor = evt.actor.unwrap_or_default();
+                        let id = actor.id.unwrap_or_default();
+                        let name = actor
+                            .attributes
+                            .as_ref()
+                            .and_then(|a| a.get("name").cloned())
+                            .unwrap_or_default();
+
+                        let status = action.to_string();
+                        tracing::debug!("Docker event: {} {} {}", name, status, id);
+
+                        let _ = tx.send(ws::Event::ContainerStatusChanged {
+                            id: id[..12.min(id.len())].to_string(),
+                            name,
+                            status,
+                        });
+                    }
+                }
+            }
+            // Stream ended (Docker daemon restarted?), retry after delay
+            tracing::warn!("Docker event stream ended, reconnecting in 5s...");
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+    });
 }
