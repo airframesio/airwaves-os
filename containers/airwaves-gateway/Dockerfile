@@ -1,14 +1,21 @@
-# Stage 1: Build the control app
+# Stage 1: Build the control app (if source is provided)
 FROM node:22-alpine AS app-builder
 
 WORKDIR /app
 
-# Copy control app source (mounted from airwaves-os-control repo)
-# In CI, this is cloned from github.com/airframesio/airwaves-os-control
-COPY control-app/ .
+# Copy control app source if it exists. If not, the build stage
+# produces nothing and the fallback landing page is used.
+COPY control-app* ./control-app-check/
 
-RUN npm ci
-RUN npm run build
+RUN if [ -f control-app-check/package.json ]; then \
+      cp -a control-app-check/. . && \
+      rm -rf control-app-check && \
+      npm ci && \
+      npm run build; \
+    else \
+      mkdir -p dist/public && \
+      echo "no control app" > dist/public/.skip; \
+    fi
 
 # Stage 2: Nginx gateway
 FROM nginx:1-alpine
@@ -16,21 +23,21 @@ FROM nginx:1-alpine
 LABEL org.opencontainers.image.source="https://github.com/airframesio/airwaves-os"
 LABEL org.opencontainers.image.description="Airwaves OS Gateway - Reverse proxy and web management app"
 
-# Install curl for healthcheck
 RUN apk add --no-cache curl
 
-# Remove default nginx config
 RUN rm /etc/nginx/conf.d/default.conf
 
-# Copy our configuration
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY default.conf /etc/nginx/conf.d/default.conf
 
-# Copy the built control app (SPA)
+# Copy the default landing page first
+COPY html/ /usr/share/nginx/html/
+
+# Overlay with built control app if it was compiled
 COPY --from=app-builder /app/dist/public/ /usr/share/nginx/html/
 
-# Fallback: if no control app was built, use default landing page
-COPY html/ /usr/share/nginx/html-fallback/
+# Remove the skip marker if it was the fallback
+RUN rm -f /usr/share/nginx/html/.skip
 
 EXPOSE 80 443
 
