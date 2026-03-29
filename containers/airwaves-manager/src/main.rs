@@ -49,6 +49,8 @@ fn api_router(state: AppState) -> Router {
         .route("/api/v1/apps/catalog", axum::routing::get(handlers::apps::list_catalog))
         .route("/api/v1/apps/install", axum::routing::post(handlers::apps::install_app))
         .route("/api/v1/apps/{id}", axum::routing::delete(handlers::apps::uninstall_app))
+        // Command execution (web terminal)
+        .route("/api/v1/system/exec", axum::routing::post(handlers::exec::exec_command))
         // WebSocket
         .route("/ws/events", axum::routing::get(handlers::ws_handler::ws_handler))
         // Health
