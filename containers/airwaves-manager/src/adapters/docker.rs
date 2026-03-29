@@ -42,6 +42,24 @@ impl DockerAdapter {
         };
         Box::pin(self.client.events(Some(opts)))
     }
+
+    /// Returns a stream of log lines from a container (for WebSocket streaming)
+    pub async fn stream_logs(
+        &self,
+        id: &str,
+        opts: LogsOptions<String>,
+    ) -> Pin<Box<dyn futures::Stream<Item = Result<String, bollard::errors::Error>> + Send + '_>>
+    {
+        let stream = self.client.logs(id, Some(opts));
+        Box::pin(stream.map(|result| {
+            result.map(|output| match output {
+                LogOutput::StdOut { message } | LogOutput::StdErr { message } => {
+                    String::from_utf8_lossy(&message).to_string()
+                }
+                _ => String::new(),
+            })
+        }))
+    }
 }
 
 impl DockerPort for DockerAdapter {

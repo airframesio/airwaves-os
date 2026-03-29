@@ -28,6 +28,8 @@ RUN apt-get update && apt-get install -y \
     libssl3 \
     curl \
     iproute2 \
+    avahi-utils \
+    usbutils \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /build/target/release/airwaves-manager /usr/local/bin/

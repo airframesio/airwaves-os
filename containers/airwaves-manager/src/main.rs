@@ -65,6 +65,7 @@ fn api_router(state: AppState) -> Router {
         .route("/api/v1/system/exec", axum::routing::post(handlers::exec::exec_command))
         // WebSocket
         .route("/ws/events", axum::routing::get(handlers::ws_handler::ws_handler))
+        .route("/ws/logs/{id}", axum::routing::get(handlers::ws_handler::ws_logs_handler))
         // Health
         .route("/health", axum::routing::get(handlers::health))
         .layer(CorsLayer::permissive())
