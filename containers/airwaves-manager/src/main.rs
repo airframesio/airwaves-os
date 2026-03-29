@@ -43,9 +43,18 @@ fn api_router(state: AppState) -> Router {
         .route("/api/v1/hardware/sdr", axum::routing::get(handlers::hardware::list_sdr))
         // Network endpoints
         .route("/api/v1/network/interfaces", axum::routing::get(handlers::network::list_interfaces))
+        // WiFi endpoints
+        .route("/api/v1/wifi/status", axum::routing::get(handlers::wifi::get_status))
+        .route("/api/v1/wifi/scan", axum::routing::get(handlers::wifi::scan_networks))
+        .route("/api/v1/wifi/connect", axum::routing::post(handlers::wifi::connect))
+        // App proxy management
+        .route("/api/v1/proxy/list", axum::routing::get(handlers::proxy::list_proxies))
+        .route("/api/v1/proxy/generate", axum::routing::post(handlers::proxy::generate_nginx_config))
         // Config endpoints
         .route("/api/v1/config", axum::routing::get(handlers::config::get_config))
         .route("/api/v1/config", axum::routing::put(handlers::config::update_config))
+        .route("/api/v1/config/backup", axum::routing::get(handlers::config::export_backup))
+        .route("/api/v1/config/restore", axum::routing::post(handlers::config::import_backup))
         // App catalog endpoints
         .route("/api/v1/apps/catalog", axum::routing::get(handlers::apps::list_catalog))
         .route("/api/v1/apps/install", axum::routing::post(handlers::apps::install_app))

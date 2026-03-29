@@ -6,8 +6,10 @@ pub mod feeds;
 pub mod fleet;
 pub mod hardware;
 pub mod network;
+pub mod proxy;
 pub mod system;
 pub mod tracking;
+pub mod wifi;
 pub mod ws_handler;
 
 use axum::Json;
