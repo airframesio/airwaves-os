@@ -2,8 +2,9 @@
 
 ARMBIAN_BUILD_TAG ?= v25.02
 CONTROL_APP_REPO ?= https://github.com/airframesio/airwaves-os-control
+CONTROL_APP_LOCAL ?= ../airwaves-os-control
 
-.PHONY: help build-image build-containers dev dev-up dev-down dev-logs clean
+.PHONY: help build-image build-containers dev dev-up dev-down dev-logs prod prod-up prod-down clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -31,18 +32,25 @@ build-opi5: ## Build for Orange Pi 5
 
 # ──── Container Builds ────
 
-build-gateway: ## Build the gateway container
-	cd containers/airwaves-gateway && ./build.sh
+build-gateway: ## Build gateway with control app bundled
+	@if [ -d "$(CONTROL_APP_LOCAL)" ]; then \
+		echo "==> Copying control app from $(CONTROL_APP_LOCAL)"; \
+		rm -rf containers/airwaves-gateway/control-app; \
+		cp -r "$(CONTROL_APP_LOCAL)" containers/airwaves-gateway/control-app; \
+	else \
+		echo "==> Control app not found locally, gateway will use landing page"; \
+	fi
+	docker build -t airwaves-gateway:latest containers/airwaves-gateway
+	@rm -rf containers/airwaves-gateway/control-app
 
 build-manager: ## Build the manager container
-	docker build -t airwaves-manager:latest containers/airwaves-manager
+	docker build -t airwaves-manager:dev containers/airwaves-manager
 
-build-containers: build-manager ## Build all containers
-	@echo "All containers built"
+build-containers: build-manager build-gateway ## Build all containers
 
-# ──── Development ────
+# ──── Development (manager only, control app via Vite) ────
 
-dev-up: ## Start the dev stack (manager container)
+dev-up: ## Start the dev stack (manager only at :8080)
 	@mkdir -p dev/config
 	@test -f dev/config/config.json || cp armbian/userpatches/extensions/airwaves-os/config/templates/config.json.template dev/config/config.json
 	@test -f dev/config/catalog.json || cp armbian/userpatches/extensions/airwaves-os/config/catalog.json dev/config/catalog.json
@@ -54,13 +62,29 @@ dev-down: ## Stop the dev stack
 dev-logs: ## Follow dev stack logs
 	docker compose -f docker-compose.dev.yml logs -f
 
-dev: dev-up ## Start dev stack and show logs
+dev: dev-up ## Start dev stack and show instructions
 	@echo ""
-	@echo "Manager API running at http://localhost:8080"
-	@echo "Run your control app with: cd ../airwaves-os-control && npm run dev"
-	@echo "The Vite proxy will forward /api/v1/* to the manager."
+	@echo "Manager API: http://localhost:8080"
+	@echo "Control app: cd $(CONTROL_APP_LOCAL) && npm run dev"
+	@echo "Vite proxy forwards /api/v1/* to manager automatically."
 	@echo ""
-	docker compose -f docker-compose.dev.yml logs -f
+
+# ──── Production (full stack: gateway + manager on :80) ────
+
+prod-up: build-containers ## Build and start full production stack at :80
+	@mkdir -p dev/config
+	@test -f dev/config/config.json || cp armbian/userpatches/extensions/airwaves-os/config/templates/config.json.template dev/config/config.json
+	@test -f dev/config/catalog.json || cp armbian/userpatches/extensions/airwaves-os/config/catalog.json dev/config/catalog.json
+	docker compose -f docker-compose.prod.yml up -d
+	@echo ""
+	@echo "Airwaves OS running at http://localhost"
+	@echo ""
+
+prod-down: ## Stop the production stack
+	docker compose -f docker-compose.prod.yml down
+
+prod-logs: ## Follow production stack logs
+	docker compose -f docker-compose.prod.yml logs -f
 
 # ──── Rust Manager Development ────
 
@@ -75,7 +99,9 @@ clippy: ## Run clippy lints on the manager
 
 # ──── Cleanup ────
 
-clean: ## Remove build artifacts
+clean: ## Remove build artifacts and stop containers
 	rm -rf .armbian-build
 	docker compose -f docker-compose.dev.yml down -v 2>/dev/null || true
+	docker compose -f docker-compose.prod.yml down -v 2>/dev/null || true
+	rm -rf containers/airwaves-gateway/control-app
 	@echo "Cleaned"
