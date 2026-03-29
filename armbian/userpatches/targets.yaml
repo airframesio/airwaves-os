@@ -1,0 +1,63 @@
+common-gha-configs:
+  airwaves-gha: &airwaves-gha
+    runners:
+      default: "ubuntu-latest"
+      by-name:
+        kernel: ["self-hosted", "Linux", "armbian", "artifact-kernel"]
+        uboot: ["self-hosted", "Linux", "armbian", "X64"]
+      by-name-and-arch:
+        rootfs-arm64: ["self-hosted", "Linux", "armbian", "rootfs-arm64"]
+        image-arm64: ["self-hosted", "Linux", "armbian", "image-arm64"]
+        rootfs-armhf: ["self-hosted", "Linux", "armbian", "rootfs-armhf"]
+        image-armhf: ["self-hosted", "Linux", "armbian", "image-armhf"]
+
+lists:
+
+  # Tier 1: Primary supported boards (Debian Bookworm)
+  tier1-boards: &tier1-boards
+    - { BOARD: rock-5b, BRANCH: current }
+    - { BOARD: orangepi5, BRANCH: current }
+    - { BOARD: uefi-x86, BRANCH: current }
+
+  # Tier 1: RPi boards (Ubuntu Noble - requires flash-kernel)
+  tier1-boards-rpi: &tier1-boards-rpi
+    - { BOARD: rpi4b, BRANCH: current, RELEASE: noble }
+    - { BOARD: rpi5b, BRANCH: current, RELEASE: noble }
+
+  # Tier 2: Extended board support (enable when Tier 1 is stable)
+  # tier2-boards: &tier2-boards
+  #   - { BOARD: rockpro64, BRANCH: current }
+  #   - { BOARD: odroidn2, BRANCH: current }
+  #   - { BOARD: odroidc4, BRANCH: current }
+  #   - { BOARD: orangepi3-lts, BRANCH: current }
+  #   - { BOARD: nanopi-r6s, BRANCH: current }
+  #   - { BOARD: khadas-vim3, BRANCH: current }
+  #   - { BOARD: uefi-arm64, BRANCH: current }
+
+targets:
+
+  # Primary: Debian Bookworm for ARM and x86 boards
+  cli-bookworm:
+    enabled: yes
+    configs: [airwaves]
+    pipeline:
+      gha: *airwaves-gha
+    vars:
+      RELEASE: bookworm
+      BUILD_MINIMAL: "yes"
+      CLOUD_IMAGE: "no"
+    items:
+      - *tier1-boards
+
+  # RPi: Ubuntu Noble (required for flash-kernel)
+  cli-noble:
+    enabled: yes
+    configs: [airwaves]
+    pipeline:
+      gha: *airwaves-gha
+    vars:
+      RELEASE: noble
+      BUILD_MINIMAL: "yes"
+      CLOUD_IMAGE: "no"
+    items:
+      - *tier1-boards-rpi

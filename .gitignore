@@ -1,2 +1,19 @@
+# Armbian build directory (cloned at build time)
+.armbian-build/
 armbian/armbian-build
-debs
+
+# Build outputs
+debs/
+output/
+
+# OS artifacts
+*.img
+*.img.xz
+
+# macOS
+.DS_Store
+
+# Editor
+*.swp
+*.swo
+*~

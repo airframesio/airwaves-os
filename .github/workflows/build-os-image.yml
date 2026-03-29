@@ -1,0 +1,291 @@
+name: Build OS Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      skipImages:
+        description: "Skip building images?"
+        required: true
+        options: ["no", "yes"]
+        type: choice
+      nightly:
+        description: "BETA/nightly build?"
+        required: true
+        options: ["no", "yes"]
+        type: choice
+      checkOci:
+        description: "Check OCI for existing artifacts?"
+        required: true
+        options: ["no", "yes"]
+        type: choice
+      extraParams:
+        description: "Extra params for all builds (e.g., DEBUG=yes)"
+        required: false
+        default: ""
+        type: string
+      targetsFilterInclude:
+        description: 'Filter boards (e.g., "BOARD:rock-5b,BOARD:rpi4b")'
+        required: false
+        default: ""
+        type: string
+
+env:
+  # Armbian build framework
+  BUILD_REPOSITORY: armbian/build
+  BUILD_REF: v25.02
+
+  # Our userpatches
+  USERPATCHES_REPOSITORY: airframesio/airwaves-os
+  USERPATCHES_REF: ${{ github.ref_name }}
+  USERPATCHES_DIR: armbian/userpatches
+
+  # Container registry
+  OCI_TARGET_BASE: "ghcr.io/${{ github.repository }}/"
+  DOCKER_ARMBIAN_BASE_COORDINATE_PREFIX: "ghcr.io/${{ github.repository }}:armbian-next-"
+  DOCKER_SKIP_UPDATE: "yes"
+
+  # Build params from inputs (safe: choice inputs are constrained)
+  INPUT_SKIP_IMAGES: ${{ github.event.inputs.skipImages || 'yes' }}
+  INPUT_NIGHTLY: ${{ github.event.inputs.nightly || 'yes' }}
+  INPUT_CHECK_OCI: ${{ github.event.inputs.checkOci || 'yes' }}
+  INPUT_EXTRA_PARAMS: ${{ github.event.inputs.extraParams || '' }}
+  INPUT_TARGETS_FILTER: ${{ github.event.inputs.targetsFilterInclude || '' }}
+
+jobs:
+
+  matrix_prep:
+    name: "Prepare build matrix"
+    if: ${{ github.repository_owner == 'airframesio' }}
+    runs-on: [self-hosted, Linux, armbian, matrix-prepare]
+    steps:
+
+      - name: Prepare release outputs
+        id: prepare-date-outputs
+        run: |
+          echo "images_release=$(date +%y.%m.%d)-airwaves-${{ github.run_number }}" >> $GITHUB_OUTPUT
+          echo "revision_release=$(date +%y.%m.%d)-airwaves-${{ github.run_number }}" >> $GITHUB_OUTPUT
+
+      - name: Cleanup userpatches repo
+        if: ${{ env.USERPATCHES_REPOSITORY != '' }}
+        run: rm -rf userpatches.repo
+
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BUILD_REPOSITORY }}
+          ref: ${{ env.BUILD_REF }}
+          fetch-depth: 0
+          clean: false
+
+      - name: Get build repo SHA
+        id: latest-commit
+        run: echo "sha1=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Checkout userpatches repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.USERPATCHES_REPOSITORY }}
+          ref: ${{ env.USERPATCHES_REF }}
+          fetch-depth: 0
+          clean: false
+          path: userpatches.repo
+
+      - name: Install userpatches
+        run: |
+          mkdir -pv userpatches
+          rsync -av userpatches.repo/${{ env.USERPATCHES_DIR }}/. userpatches/
+          rm -rf userpatches.repo
+
+      - name: GitHub cache
+        id: cache-restore
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache/memoize
+            cache/oci/positive
+          key: ${{ runner.os }}-matrix-cache-${{ github.sha }}-${{ steps.latest-commit.outputs.sha1 }}
+          restore-keys: |
+            ${{ runner.os }}-matrix-cache-
+
+      - name: Docker Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare matrices
+        id: prepare-matrix
+        env:
+          EXTRA_PARAMS: ${{ env.INPUT_EXTRA_PARAMS }}
+          TARGETS_FILTER: ${{ env.INPUT_TARGETS_FILTER }}
+        run: |
+          bash ./compile.sh gha-matrix airwaves SHARE_LOG=yes $EXTRA_PARAMS \
+            REVISION="${{ steps.prepare-date-outputs.outputs.revision_release }}" \
+            TARGETS_FILTER_INCLUDE="$TARGETS_FILTER" \
+            MATRIX_ARTIFACT_CHUNKS=1 \
+            MATRIX_IMAGE_CHUNKS=1 \
+            BETA=${{ env.INPUT_NIGHTLY }} \
+            CHECK_OCI=${{ env.INPUT_CHECK_OCI }} \
+            TARGETS_FILENAME=targets.yaml \
+            SKIP_IMAGES=${{ env.INPUT_SKIP_IMAGES }}
+
+      - name: "Build logs: ${{ steps.prepare-matrix.outputs.logs_url }}"
+        run: echo "Logs available at above URL"
+
+      - name: Fix cache ownership
+        run: sudo chown -R $USER:$USER cache/memoize cache/oci/positive
+
+      - name: Upload build info
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-info-json
+          path: output/info
+
+      - name: Create GH Release
+        uses: softprops/action-gh-release@v2
+        if: ${{ env.INPUT_SKIP_IMAGES == 'no' }}
+        with:
+          tag_name: ${{ steps.prepare-date-outputs.outputs.images_release }}
+          prerelease: true
+          name: "Airwaves OS ${{ steps.prepare-date-outputs.outputs.images_release }}"
+          generate_release_notes: false
+
+    outputs:
+      build-sha1: ${{ steps.latest-commit.outputs.sha1 }}
+      images_release: ${{ steps.prepare-date-outputs.outputs.images_release }}
+      revision_release: ${{ steps.prepare-date-outputs.outputs.revision_release }}
+      artifacts-chunk-json-1: ${{ steps.prepare-matrix.outputs.artifacts-chunk-json-1 }}
+      artifacts-chunk-not-empty-1: ${{ steps.prepare-matrix.outputs.artifacts-chunk-not-empty-1 }}
+      images-chunk-json-1: ${{ steps.prepare-matrix.outputs.images-chunk-json-1 }}
+      images-chunk-not-empty-1: ${{ steps.prepare-matrix.outputs.images-chunk-not-empty-1 }}
+
+  build-artifacts:
+    name: ${{ matrix.desc || 'Build artifact' }}
+    if: ${{ github.repository_owner == 'airframesio' && needs.matrix_prep.outputs.artifacts-chunk-not-empty-1 == 'yes' }}
+    needs: [matrix_prep]
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix_prep.outputs.artifacts-chunk-json-1) }}
+    runs-on: ${{ matrix.runs_on }}
+    steps:
+
+      - name: Docker Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup userpatches repo
+        if: ${{ env.USERPATCHES_REPOSITORY != '' }}
+        run: rm -rf userpatches.repo
+
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BUILD_REPOSITORY }}
+          ref: ${{ needs.matrix_prep.outputs.build-sha1 }}
+          fetch-depth: ${{ matrix.fdepth }}
+          clean: false
+
+      - name: Checkout userpatches repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.USERPATCHES_REPOSITORY }}
+          ref: ${{ env.USERPATCHES_REF }}
+          fetch-depth: ${{ matrix.fdepth }}
+          clean: false
+          path: userpatches.repo
+
+      - name: Install userpatches
+        env:
+          EXTRA_PARAMS: ${{ env.INPUT_EXTRA_PARAMS }}
+        run: |
+          mkdir -pv userpatches
+          rsync -av userpatches.repo/${{ env.USERPATCHES_DIR }}/. userpatches/
+          rm -rf userpatches.repo
+
+      - name: Build ${{ matrix.desc }}
+        id: build
+        env:
+          EXTRA_PARAMS: ${{ env.INPUT_EXTRA_PARAMS }}
+        run: |
+          bash ./compile.sh ${{ matrix.invocation }} SHARE_LOG=yes $EXTRA_PARAMS UPLOAD_TO_OCI_ONLY=yes
+
+      - name: "Build logs: ${{ steps.build.outputs.logs_url }}"
+        if: always()
+        run: echo "Logs available at above URL"
+
+  build-images:
+    name: ${{ matrix.desc || 'Build image' }}
+    needs: [matrix_prep, build-artifacts]
+    timeout-minutes: 60
+    if: ${{ !failure() && !cancelled() && github.repository_owner == 'airframesio' && needs.matrix_prep.outputs.images-chunk-not-empty-1 == 'yes' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix_prep.outputs.images-chunk-json-1) }}
+    runs-on: ${{ matrix.runs_on }}
+    steps:
+
+      - name: Docker Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup userpatches repo
+        if: ${{ env.USERPATCHES_REPOSITORY != '' }}
+        run: rm -rf userpatches.repo
+
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BUILD_REPOSITORY }}
+          ref: ${{ needs.matrix_prep.outputs.build-sha1 }}
+          fetch-depth: ${{ matrix.fdepth }}
+          clean: false
+
+      - name: Checkout userpatches repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.USERPATCHES_REPOSITORY }}
+          ref: ${{ env.USERPATCHES_REF }}
+          fetch-depth: ${{ matrix.fdepth }}
+          clean: false
+          path: userpatches.repo
+
+      - name: Install userpatches
+        run: |
+          mkdir -pv userpatches
+          rsync -av userpatches.repo/${{ env.USERPATCHES_DIR }}/. userpatches/
+          rm -rf userpatches.repo
+
+      - name: Cleanup leftover images
+        run: rm -rfv output/images userpatches/VERSION
+
+      - name: ${{ matrix.desc }}
+        id: build-one-image
+        env:
+          EXTRA_PARAMS: ${{ env.INPUT_EXTRA_PARAMS }}
+        run: |
+          bash ./compile.sh ${{ matrix.invocation }} \
+            'DONT_BUILD_ARTIFACTS=any' COMPRESS_OUTPUTIMAGE=xz SHOW_DEBIAN=yes \
+            SHARE_LOG=yes $EXTRA_PARAMS \
+            OUTPUT_IMAGES_ONLY=yes
+
+      - name: "Build logs: ${{ steps.build-one-image.outputs.logs_url }}"
+        if: always()
+        run: echo "Logs available at above URL"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.matrix_prep.outputs.images_release }}
+          files: output/images/*.xz
+
+      - name: Cleanup
+        if: always()
+        run: rm -rfv output/images userpatches/VERSION

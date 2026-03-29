@@ -1,0 +1,43 @@
+#!/bin/bash
+
+THIS_SCRIPT="help"
+MOTD_DISABLE=""
+
+HIDE_IP_PATTERN="^dummy0|^lo|^docker0|^br-|^veth"
+COLOR_GREEN="\e[0;92m"
+COLOR_END="\x1B[0m"
+HOSTNAME=$(hostname)
+
+[[ -f /etc/default/armbian-motd ]] && . /etc/default/armbian-motd
+
+for f in $MOTD_DISABLE; do
+	[[ $f == $THIS_SCRIPT ]] && exit 0
+done
+
+function get_primary_ip_address() {
+	local ips=()
+	for f in /sys/class/net/*; do
+		local intf=$(basename "$f")
+		if [[ $intf =~ $HIDE_IP_PATTERN ]]; then
+			continue
+		else
+			local tmp=$(ip -4 addr show dev "$intf" | grep -v "$intf:avahi" | awk '/inet/ {print $2}' | cut -d'/' -f1)
+			[[ -n $tmp ]] && ips+=("$tmp")
+		fi
+	done
+	echo "${ips[0]:-}"
+}
+
+primary_ip_address=$(get_primary_ip_address)
+
+toilet -t -f mini Get Started
+echo "Your Airwaves station is ready to be configured."
+echo
+if [[ -n "${primary_ip_address}" ]]; then
+	echo -e "  Open ${COLOR_GREEN}http://${HOSTNAME}.local${COLOR_END} or ${COLOR_GREEN}http://${primary_ip_address}${COLOR_END} in your browser"
+else
+	echo -e "  Open ${COLOR_GREEN}http://${HOSTNAME}.local${COLOR_END} in your browser"
+fi
+echo
+echo -e "  Default login:  airwaves / airwaves"
+echo

@@ -1,0 +1,23 @@
+networks:
+  airwaves-core:
+    driver: bridge
+  airwaves-apps:
+    driver: bridge
+
+services:
+  gateway:
+    image: ghcr.io/airframesio/airwaves-gateway:latest
+    container_name: airwaves-gateway
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - airwaves-core
+    volumes:
+      - /etc/airwaves:/etc/airwaves:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
