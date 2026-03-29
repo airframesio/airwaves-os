@@ -166,3 +166,50 @@ pub struct CatalogApp {
     pub requires_sdr: bool,
     pub sdr_types: Vec<SdrType>,
 }
+
+/// Decoded message from a decoder container, forwarded between nodes
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DecodedMessage {
+    pub id: String,
+    pub timestamp: String,
+    pub source_node: String,
+    pub decoder: String,
+    pub message_type: String,
+    pub frequency: Option<String>,
+    pub signal_level: Option<f64>,
+    pub raw: String,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+/// Forwarding configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ForwardingConfig {
+    pub enabled: bool,
+    pub target_ip: String,
+    pub target_port: u16,
+    pub mode: ForwardingMode,
+    pub decoders: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ForwardingMode {
+    /// Forward all decoded messages to the target
+    All,
+    /// Only forward specific decoder types
+    Selective,
+    /// Don't forward (standalone mode)
+    Disabled,
+}
+
+/// Forwarding stats
+#[derive(Debug, Serialize, Clone, Default)]
+pub struct ForwardingStats {
+    pub messages_forwarded: u64,
+    pub messages_received: u64,
+    pub messages_failed: u64,
+    pub last_forwarded: Option<String>,
+    pub last_received: Option<String>,
+    pub connected_peers: usize,
+}

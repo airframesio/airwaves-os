@@ -1,5 +1,6 @@
+use std::collections::VecDeque;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use axum::Router;
 use tokio::sync::broadcast;
@@ -10,6 +11,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod adapters;
 mod domain;
 mod error;
+mod forwarding;
 mod handlers;
 mod ports;
 mod ws;
@@ -24,6 +26,8 @@ pub struct AppState {
     pub hardware: Arc<adapters::HardwareAdapter>,
     pub config: Arc<adapters::ConfigAdapter>,
     pub events_tx: broadcast::Sender<ws::Event>,
+    pub forwarding_stats: Arc<Mutex<domain::ForwardingStats>>,
+    pub message_buffer: Arc<Mutex<VecDeque<domain::DecodedMessage>>>,
 }
 
 fn api_router(state: AppState) -> Router {
@@ -70,6 +74,12 @@ fn api_router(state: AppState) -> Router {
         .route("/api/v1/feeds", axum::routing::get(handlers::feeds::list_feeds))
         .route("/api/v1/feeds", axum::routing::post(handlers::feeds::upsert_feed))
         .route("/api/v1/feeds/{id}", axum::routing::delete(handlers::feeds::delete_feed))
+        // Message forwarding (multi-node)
+        .route("/api/v1/messages/ingest", axum::routing::post(handlers::forwarding::ingest_messages))
+        .route("/api/v1/messages", axum::routing::get(handlers::forwarding::get_messages))
+        .route("/api/v1/forwarding/config", axum::routing::get(handlers::forwarding::get_forwarding_config))
+        .route("/api/v1/forwarding/config", axum::routing::put(handlers::forwarding::set_forwarding_config))
+        .route("/api/v1/forwarding/stats", axum::routing::get(handlers::forwarding::get_forwarding_stats))
         // Command execution (web terminal)
         .route("/api/v1/system/exec", axum::routing::post(handlers::exec::exec_command))
         // WebSocket
@@ -99,6 +109,8 @@ async fn main() -> anyhow::Result<()> {
     let hardware = Arc::new(adapters::HardwareAdapter::new());
     let config = Arc::new(adapters::ConfigAdapter::new("/etc/airwaves/config.json"));
     let (events_tx, _) = broadcast::channel(256);
+    let forwarding_stats = Arc::new(Mutex::new(domain::ForwardingStats::default()));
+    let message_buffer = Arc::new(Mutex::new(VecDeque::with_capacity(1000)));
 
     let state = AppState {
         docker,
@@ -106,11 +118,21 @@ async fn main() -> anyhow::Result<()> {
         hardware,
         config,
         events_tx,
+        forwarding_stats,
+        message_buffer,
     };
 
     // Spawn background event broadcasters
     spawn_stats_broadcaster(state.system.clone(), state.events_tx.clone());
     spawn_docker_event_watcher(state.docker.clone(), state.events_tx.clone());
+
+    // Spawn message forwarding service
+    forwarding::spawn_forwarding_service(
+        state.docker.clone(),
+        state.config.clone(),
+        state.forwarding_stats.clone(),
+        state.message_buffer.clone(),
+    );
 
     let app = api_router(state);
 

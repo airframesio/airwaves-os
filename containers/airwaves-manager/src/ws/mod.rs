@@ -26,4 +26,10 @@ pub enum Event {
     AppUninstalled {
         app_id: String,
     },
+    MessageReceived {
+        source_node: String,
+        decoder: String,
+        message_type: String,
+    },
+    ForwardingConfigChanged,
 }

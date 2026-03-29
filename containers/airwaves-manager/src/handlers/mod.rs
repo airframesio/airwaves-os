@@ -4,6 +4,7 @@ pub mod containers;
 pub mod exec;
 pub mod feeds;
 pub mod fleet;
+pub mod forwarding;
 pub mod hardware;
 pub mod network;
 pub mod proxy;
