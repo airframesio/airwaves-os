@@ -1,0 +1,33 @@
+# Development stack for Airwaves OS
+# Runs the manager container locally for testing with the control app.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up -d
+#
+# The manager API will be available at http://localhost:8080
+# Configure your control app's Vite proxy to forward /api/ to this.
+
+networks:
+  airwaves-core:
+    driver: bridge
+  airwaves-apps:
+    driver: bridge
+
+services:
+  manager:
+    build:
+      context: containers/airwaves-manager
+    container_name: airwaves-manager-dev
+    ports:
+      - "8080:8080"
+    privileged: true
+    networks:
+      - airwaves-core
+      - airwaves-apps
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./dev/config:/etc/airwaves
+      - /sys:/host/sys:ro
+      - /proc:/host/proc:ro
+    environment:
+      - RUST_LOG=airwaves_manager=debug,tower_http=debug

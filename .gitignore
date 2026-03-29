@@ -10,6 +10,9 @@ output/
 *.img
 *.img.xz
 
+# Dev environment
+dev/config/
+
 # macOS
 .DS_Store
 
