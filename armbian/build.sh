@@ -7,7 +7,6 @@ set -euo pipefail
 ARMBIAN_BUILD_TAG="${ARMBIAN_BUILD_TAG:-v25.02}"
 ARMBIAN_BUILD_DIR="${ARMBIAN_BUILD_DIR:-.armbian-build}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 echo "==> Airwaves OS Build System"
 echo "    Armbian build tag: ${ARMBIAN_BUILD_TAG}"

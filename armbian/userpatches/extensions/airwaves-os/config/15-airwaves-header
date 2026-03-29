@@ -10,7 +10,7 @@ MOTD_DISABLE=""
 [[ -f /etc/airwaves-release ]] && . /etc/airwaves-release
 
 for f in $MOTD_DISABLE; do
-	[[ $f == $THIS_SCRIPT ]] && exit 0
+	[[ "$f" == "$THIS_SCRIPT" ]] && exit 0
 done
 
 KERNELID=$(uname -r)

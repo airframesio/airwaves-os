@@ -77,6 +77,7 @@ fn api_router(state: AppState) -> Router {
         .route("/ws/logs/{id}", axum::routing::get(handlers::ws_handler::ws_logs_handler))
         // Health
         .route("/health", axum::routing::get(handlers::health))
+        .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024)) // 1MB max request body
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)

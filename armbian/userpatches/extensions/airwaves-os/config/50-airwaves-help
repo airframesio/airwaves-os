@@ -11,17 +11,19 @@ HOSTNAME=$(hostname)
 [[ -f /etc/default/armbian-motd ]] && . /etc/default/armbian-motd
 
 for f in $MOTD_DISABLE; do
-	[[ $f == $THIS_SCRIPT ]] && exit 0
+	[[ "$f" == "$THIS_SCRIPT" ]] && exit 0
 done
 
 function get_primary_ip_address() {
 	local ips=()
 	for f in /sys/class/net/*; do
-		local intf=$(basename "$f")
+		local intf
+		intf=$(basename "$f")
 		if [[ $intf =~ $HIDE_IP_PATTERN ]]; then
 			continue
 		else
-			local tmp=$(ip -4 addr show dev "$intf" | grep -v "$intf:avahi" | awk '/inet/ {print $2}' | cut -d'/' -f1)
+			local tmp
+			tmp=$(ip -4 addr show dev "$intf" | grep -v "$intf:avahi" | awk '/inet/ {print $2}' | cut -d'/' -f1)
 			[[ -n $tmp ]] && ips+=("$tmp")
 		fi
 	done
