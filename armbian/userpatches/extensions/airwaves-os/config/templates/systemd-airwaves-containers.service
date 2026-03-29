@@ -1,0 +1,17 @@
+[Unit]
+Description=Airwaves OS Container Stack
+Documentation=https://airwavesos.com
+After=docker.service airwaves-init.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/etc/airwaves
+ExecStart=/usr/bin/docker compose -f /etc/airwaves/docker-compose.yml up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -f /etc/airwaves/docker-compose.yml down
+TimeoutStartSec=3min
+StandardOutput=journal+console
+
+[Install]
+WantedBy=multi-user.target

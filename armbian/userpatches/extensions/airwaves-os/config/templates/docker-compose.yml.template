@@ -1,0 +1,48 @@
+networks:
+  airwaves-core:
+    driver: bridge
+  airwaves-apps:
+    driver: bridge
+
+services:
+  gateway:
+    image: ghcr.io/airframesio/airwaves-gateway:latest
+    container_name: airwaves-gateway
+    restart: always
+    ports:
+      - "80:80"
+    networks:
+      - airwaves-core
+    volumes:
+      - /etc/airwaves:/etc/airwaves:ro
+    depends_on:
+      manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  manager:
+    image: ghcr.io/airframesio/airwaves-manager:latest
+    container_name: airwaves-manager
+    restart: always
+    privileged: true
+    networks:
+      - airwaves-core
+      - airwaves-apps
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/airwaves:/etc/airwaves
+      - /sys:/host/sys:ro
+      - /proc:/host/proc:ro
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    environment:
+      - RUST_LOG=airwaves_manager=info
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

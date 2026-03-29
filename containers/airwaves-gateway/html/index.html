@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Airwaves OS</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+            background: #0a0a0a;
+            color: #e5e5e5;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            text-align: center;
+            max-width: 480px;
+            padding: 2rem;
+        }
+        h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.02em;
+        }
+        .version {
+            color: #737373;
+            font-size: 0.875rem;
+            font-family: 'JetBrains Mono', 'SF Mono', monospace;
+            margin-bottom: 2rem;
+        }
+        .status {
+            background: #171717;
+            border: 1px solid #262626;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+        }
+        .status-row:not(:last-child) {
+            border-bottom: 1px solid #262626;
+        }
+        .status-label { color: #a3a3a3; font-size: 0.875rem; }
+        .status-value {
+            font-family: 'JetBrains Mono', 'SF Mono', monospace;
+            font-size: 0.875rem;
+        }
+        .dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #22c55e;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
+        .note {
+            color: #737373;
+            font-size: 0.8125rem;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Airwaves OS</h1>
+        <p class="version">v1.0.0-alpha</p>
+        <div class="status">
+            <div class="status-row">
+                <span class="status-label">Gateway</span>
+                <span class="status-value"><span class="dot"></span>Running</span>
+            </div>
+            <div class="status-row">
+                <span class="status-label">System</span>
+                <span class="status-value">Initializing</span>
+            </div>
+        </div>
+        <p class="note">
+            The web management interface will be available here once configured.
+            This is the default landing page for a fresh Airwaves OS installation.
+        </p>
+    </div>
+</body>
+</html>

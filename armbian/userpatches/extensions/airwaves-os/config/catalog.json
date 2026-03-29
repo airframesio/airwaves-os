@@ -1,0 +1,162 @@
+[
+  {
+    "id": "readsb",
+    "name": "readsb",
+    "description": "ADS-B Mode S/Mode AC decoder and feed server. Receives 1090 MHz signals from aircraft transponders and provides Beast, SBS, and JSON output for visualization and feeding.",
+    "version": "3.14",
+    "category": "decoder",
+    "image": "ghcr.io/sdr-enthusiasts/docker-readsb-protobuf:latest",
+    "icon": null,
+    "ports": [
+      {"container_port": 8080, "host_port": 8080, "protocol": "tcp"},
+      {"container_port": 30003, "host_port": 30003, "protocol": "tcp"},
+      {"container_port": 30005, "host_port": 30005, "protocol": "tcp"}
+    ],
+    "requires_sdr": true,
+    "sdr_types": ["rtl_sdr"]
+  },
+  {
+    "id": "acarsdec",
+    "name": "acarsdec",
+    "description": "Multi-channel ACARS decoder. Receives VHF ACARS messages on frequencies around 130-136 MHz and outputs decoded text messages from aircraft.",
+    "version": "3.7",
+    "category": "decoder",
+    "image": "ghcr.io/airframesio/acarsdec:latest",
+    "icon": null,
+    "ports": [],
+    "requires_sdr": true,
+    "sdr_types": ["rtl_sdr", "airspy"]
+  },
+  {
+    "id": "dumpvdl2",
+    "name": "dumpvdl2",
+    "description": "VDL Mode 2 decoder. Receives VHF Data Link Mode 2 messages used for ACARS-over-AVLC digital datalink communications between aircraft and ground stations.",
+    "version": "2.3",
+    "category": "decoder",
+    "image": "ghcr.io/airframesio/dumpvdl2:latest",
+    "icon": null,
+    "ports": [],
+    "requires_sdr": true,
+    "sdr_types": ["rtl_sdr", "airspy"]
+  },
+  {
+    "id": "dumphfdl",
+    "name": "dumphfdl",
+    "description": "HFDL decoder. Receives High Frequency Data Link messages used for long-range oceanic aircraft communications on HF bands (2-22 MHz).",
+    "version": "1.4",
+    "category": "decoder",
+    "image": "ghcr.io/airframesio/dumphfdl:latest",
+    "icon": null,
+    "ports": [],
+    "requires_sdr": true,
+    "sdr_types": ["rtl_sdr", "airspy", "airspy_hf"]
+  },
+  {
+    "id": "vdlm2dec",
+    "name": "vdlm2dec",
+    "description": "Alternative VDL Mode 2 decoder. Lightweight VDL2 decoder that can monitor multiple frequencies simultaneously.",
+    "version": "2.2",
+    "category": "decoder",
+    "image": "ghcr.io/airframesio/vdlm2dec:latest",
+    "icon": null,
+    "ports": [],
+    "requires_sdr": true,
+    "sdr_types": ["rtl_sdr"]
+  },
+  {
+    "id": "ais-catcher",
+    "name": "AIS-Catcher",
+    "description": "AIS receiver and decoder. Captures Automatic Identification System signals from ships and maritime vessels on 161.975 and 162.025 MHz.",
+    "version": "0.60",
+    "category": "decoder",
+    "image": "ghcr.io/jvde-github/ais-catcher:latest",
+    "icon": null,
+    "ports": [
+      {"container_port": 8100, "host_port": 8100, "protocol": "tcp"}
+    ],
+    "requires_sdr": true,
+    "sdr_types": ["rtl_sdr", "airspy"]
+  },
+  {
+    "id": "rtl-airband",
+    "name": "rtl_airband",
+    "description": "Multi-channel AM/FM demodulator for airband frequencies. Streams audio from aviation voice channels including Tower, Ground, Approach, and Departure.",
+    "version": "4.0",
+    "category": "decoder",
+    "image": "ghcr.io/airframesio/rtl-airband:latest",
+    "icon": null,
+    "ports": [
+      {"container_port": 8000, "host_port": 8000, "protocol": "tcp"}
+    ],
+    "requires_sdr": true,
+    "sdr_types": ["rtl_sdr"]
+  },
+  {
+    "id": "rtl-433",
+    "name": "rtl_433",
+    "description": "Generic data receiver for ISM band devices. Decodes weather stations, tire pressure sensors, doorbells, and hundreds of other 433/868/915 MHz devices.",
+    "version": "24.10",
+    "category": "decoder",
+    "image": "ghcr.io/hertzg/rtl_433:latest",
+    "icon": null,
+    "ports": [],
+    "requires_sdr": true,
+    "sdr_types": ["rtl_sdr"]
+  },
+  {
+    "id": "satdump",
+    "name": "SatDump",
+    "description": "Satellite data processing suite. Decodes weather satellite imagery and data from NOAA, Meteor-M, GOES, Himawari, and other satellites.",
+    "version": "1.2",
+    "category": "decoder",
+    "image": "ghcr.io/airframesio/satdump:latest",
+    "icon": null,
+    "ports": [
+      {"container_port": 8081, "host_port": 8081, "protocol": "tcp"}
+    ],
+    "requires_sdr": true,
+    "sdr_types": ["rtl_sdr", "airspy", "hack_rf"]
+  },
+  {
+    "id": "acarshub",
+    "name": "ACARS Hub",
+    "description": "Web-based ACARS message viewer and aggregator. Displays decoded ACARS, VDL2, and HFDL messages in a searchable web interface with statistics.",
+    "version": "3.0",
+    "category": "visualization",
+    "image": "ghcr.io/sdr-enthusiasts/docker-acarshub:latest",
+    "icon": null,
+    "ports": [
+      {"container_port": 80, "host_port": 8900, "protocol": "tcp"}
+    ],
+    "requires_sdr": false,
+    "sdr_types": []
+  },
+  {
+    "id": "tar1090",
+    "name": "tar1090",
+    "description": "Web-based aircraft tracking map. Displays real-time aircraft positions from ADS-B data on an interactive map with history trails.",
+    "version": "latest",
+    "category": "visualization",
+    "image": "ghcr.io/sdr-enthusiasts/docker-tar1090:latest",
+    "icon": null,
+    "ports": [
+      {"container_port": 80, "host_port": 8082, "protocol": "tcp"}
+    ],
+    "requires_sdr": false,
+    "sdr_types": []
+  },
+  {
+    "id": "graphs1090",
+    "name": "graphs1090",
+    "description": "ADS-B performance graphs and statistics. Provides long-term tracking of aircraft count, message rate, signal levels, and coverage metrics.",
+    "version": "latest",
+    "category": "visualization",
+    "image": "ghcr.io/sdr-enthusiasts/docker-graphs1090:latest",
+    "icon": null,
+    "ports": [
+      {"container_port": 80, "host_port": 8083, "protocol": "tcp"}
+    ],
+    "requires_sdr": false,
+    "sdr_types": []
+  }
+]

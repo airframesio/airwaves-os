@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-
-. /opt/airwaves/build.config
-
-if [ ! -f "$AROS_STATION_CONFIG" ]; then
-  echo "Airwaves config must exist at $AIRWAVES_STATION_CONFIG in order to apply it."
-  exit 1
-fi

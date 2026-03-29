@@ -1,0 +1,16 @@
+[Unit]
+Description=Airwaves OS Initialization
+Documentation=https://airwavesos.com
+After=local-fs.target
+Before=docker.service airwaves-containers.service
+ConditionPathExists=/opt/airwaves/.needs-first-run
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/airwaves/scripts/airwaves-init
+TimeoutStartSec=5min
+StandardOutput=journal+console
+
+[Install]
+WantedBy=multi-user.target

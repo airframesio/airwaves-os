@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Airwaves OS Initialization Script
+# Runs on first boot to configure the system and load pre-baked containers.
+# Subsequent boots are handled by airwaves-containers.service directly.
+
+AIRWAVES_CONFIG="/etc/airwaves/config.json"
+AIRWAVES_IMAGES_DIR="/opt/airwaves/images"
+AIRWAVES_MARKER="/opt/airwaves/.needs-first-run"
+AIRWAVES_INITIALIZED="/opt/airwaves/.initialized"
+
+log() {
+    echo "[airwaves-init] $*"
+    logger -t airwaves-init "$*"
+}
+
+generate_device_id() {
+    log "Generating device ID..."
+    local uuid
+    uuid=$(cat /proc/sys/kernel/random/uuid)
+    jq --arg id "$uuid" '.device.id = $id' "$AIRWAVES_CONFIG" > /tmp/config.json.tmp
+    mv /tmp/config.json.tmp "$AIRWAVES_CONFIG"
+    log "Device ID: $uuid"
+}
+
+set_hostname() {
+    log "Setting hostname from MAC address..."
+
+    # Find the primary network interface MAC
+    local mac_suffix=""
+    for iface in eth0 end0 enp0s3 ens3; do
+        if [ -f "/sys/class/net/${iface}/address" ]; then
+            mac_suffix=$(cat "/sys/class/net/${iface}/address" | awk -F: '{print $4$5$6}')
+            break
+        fi
+    done
+
+    # Fallback: use first non-loopback interface
+    if [ -z "$mac_suffix" ]; then
+        local first_iface
+        first_iface=$(ip -o link show | awk -F': ' '{print $2}' | grep -v lo | head -1)
+        if [ -n "$first_iface" ] && [ -f "/sys/class/net/${first_iface}/address" ]; then
+            mac_suffix=$(cat "/sys/class/net/${first_iface}/address" | awk -F: '{print $4$5$6}')
+        fi
+    fi
+
+    # Final fallback: random suffix
+    if [ -z "$mac_suffix" ]; then
+        mac_suffix=$(head -c 3 /dev/urandom | xxd -p)
+    fi
+
+    local new_hostname="airwaves-${mac_suffix}"
+    log "Setting hostname: ${new_hostname}"
+
+    hostnamectl set-hostname "${new_hostname}"
+    echo "${new_hostname}" > /etc/hostname
+
+    # Update config
+    jq --arg hostname "$new_hostname" '.device.hostname = $hostname' "$AIRWAVES_CONFIG" > /tmp/config.json.tmp
+    mv /tmp/config.json.tmp "$AIRWAVES_CONFIG"
+
+    # Restart avahi to pick up new hostname
+    systemctl restart avahi-daemon 2>/dev/null || true
+}
+
+load_prebaked_containers() {
+    log "Loading pre-baked container images..."
+
+    if [ ! -d "$AIRWAVES_IMAGES_DIR" ] || [ -z "$(ls -A "$AIRWAVES_IMAGES_DIR"/*.tar 2>/dev/null)" ]; then
+        log "No pre-baked images found in $AIRWAVES_IMAGES_DIR"
+        log "Containers will be pulled from registry on first start"
+        return 0
+    fi
+
+    for image_tar in "$AIRWAVES_IMAGES_DIR"/*.tar; do
+        local image_name
+        image_name=$(basename "$image_tar" .tar)
+        log "Loading image: ${image_name}..."
+        if docker load < "$image_tar"; then
+            log "Loaded: ${image_name}"
+            # Remove tarball to reclaim disk space
+            rm -f "$image_tar"
+        else
+            log "WARNING: Failed to load ${image_name}, will pull from registry"
+        fi
+    done
+
+    log "Pre-baked container loading complete"
+}
+
+setup_docker_networks() {
+    log "Ensuring Docker networks exist..."
+
+    docker network inspect airwaves-core >/dev/null 2>&1 || \
+        docker network create airwaves-core
+    docker network inspect airwaves-apps >/dev/null 2>&1 || \
+        docker network create airwaves-apps
+
+    log "Docker networks ready"
+}
+
+finalize() {
+    log "Marking initialization as complete"
+    rm -f "$AIRWAVES_MARKER"
+    touch "$AIRWAVES_INITIALIZED"
+    date -u +"%Y-%m-%dT%H:%M:%SZ" > "$AIRWAVES_INITIALIZED"
+    log "Airwaves OS initialization complete"
+}
+
+# Main
+log "Starting Airwaves OS first-boot initialization..."
+
+generate_device_id
+set_hostname
+setup_docker_networks
+load_prebaked_containers
+finalize
+
+log "First-boot initialization finished successfully"
