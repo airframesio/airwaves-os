@@ -136,6 +136,22 @@ pub struct ServiceState {
     pub enabled: bool,
 }
 
+/// Data feed / aggregator configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FeedConfig {
+    pub id: String,
+    pub name: String,
+    pub feed_type: String,
+    pub protocol: String,
+    pub host: String,
+    pub port: u16,
+    pub enabled: bool,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub app_id: Option<String>,
+}
+
 /// App catalog entry
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CatalogApp {

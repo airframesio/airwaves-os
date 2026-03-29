@@ -49,6 +49,10 @@ fn api_router(state: AppState) -> Router {
         .route("/api/v1/apps/catalog", axum::routing::get(handlers::apps::list_catalog))
         .route("/api/v1/apps/install", axum::routing::post(handlers::apps::install_app))
         .route("/api/v1/apps/{id}", axum::routing::delete(handlers::apps::uninstall_app))
+        // Feed management endpoints
+        .route("/api/v1/feeds", axum::routing::get(handlers::feeds::list_feeds))
+        .route("/api/v1/feeds", axum::routing::post(handlers::feeds::upsert_feed))
+        .route("/api/v1/feeds/{id}", axum::routing::delete(handlers::feeds::delete_feed))
         // Command execution (web terminal)
         .route("/api/v1/system/exec", axum::routing::post(handlers::exec::exec_command))
         // WebSocket

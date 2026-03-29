@@ -2,6 +2,7 @@ pub mod apps;
 pub mod config;
 pub mod containers;
 pub mod exec;
+pub mod feeds;
 pub mod hardware;
 pub mod network;
 pub mod system;
