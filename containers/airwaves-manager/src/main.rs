@@ -54,6 +54,7 @@ fn api_router(state: AppState) -> Router {
         .route("/api/v1/tracking/vehicles", axum::routing::get(handlers::tracking::get_vehicles))
         // Fleet management (multi-node)
         .route("/api/v1/fleet", axum::routing::get(handlers::fleet::get_fleet))
+        .route("/api/v1/fleet/discover", axum::routing::get(handlers::fleet::discover_nodes))
         .route("/api/v1/fleet/pair", axum::routing::post(handlers::fleet::pair_node))
         .route("/api/v1/fleet/{id}", axum::routing::delete(handlers::fleet::unpair_node))
         // Feed management endpoints

@@ -170,6 +170,66 @@ pub async fn unpair_node(
     Ok(Json(serde_json::json!({"status": "unpaired", "id": id})))
 }
 
+/// Discovered node from mDNS scan
+#[derive(Debug, Serialize)]
+pub struct DiscoveredNode {
+    pub hostname: String,
+    pub ip: String,
+    pub port: u16,
+    pub already_paired: bool,
+}
+
+/// Scan local network for other Airwaves OS nodes via mDNS
+pub async fn discover_nodes(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<DiscoveredNode>>, AppError> {
+    let config = state.config.read_config().await?;
+    let existing_peers: Vec<FleetNode> = config
+        .apps
+        .get("fleet_peers")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+    let existing_ips: std::collections::HashSet<String> =
+        existing_peers.iter().map(|p| p.ip.clone()).collect();
+
+    let local_ip = get_primary_ip();
+    let mut discovered = Vec::new();
+
+    // Use avahi-browse to find _http._tcp services named "Airwaves OS"
+    if let Ok(output) = std::process::Command::new("avahi-browse")
+        .args(["-t", "-r", "-p", "_http._tcp"])
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let fields: Vec<&str> = line.split(';').collect();
+            // avahi-browse -p format: +;iface;proto;name;type;domain
+            // resolve format: =;iface;proto;name;type;domain;hostname;address;port;txt
+            if fields.len() >= 9 && fields[0] == "=" {
+                let name = fields[3];
+                let ip = fields[7];
+                let port: u16 = fields[8].parse().unwrap_or(80);
+
+                // Only include Airwaves OS nodes
+                if name.contains("Airwaves OS") && ip != local_ip {
+                    discovered.push(DiscoveredNode {
+                        hostname: fields[6].trim_end_matches('.').to_string(),
+                        ip: ip.to_string(),
+                        port,
+                        already_paired: existing_ips.contains(ip),
+                    });
+                }
+            }
+        }
+    }
+
+    // Deduplicate by IP
+    discovered.sort_by(|a, b| a.ip.cmp(&b.ip));
+    discovered.dedup_by(|a, b| a.ip == b.ip);
+
+    Ok(Json(discovered))
+}
+
 // ---- Helpers ----
 
 fn get_primary_ip() -> String {
