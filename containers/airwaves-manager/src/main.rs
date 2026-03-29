@@ -49,6 +49,12 @@ fn api_router(state: AppState) -> Router {
         .route("/api/v1/apps/catalog", axum::routing::get(handlers::apps::list_catalog))
         .route("/api/v1/apps/install", axum::routing::post(handlers::apps::install_app))
         .route("/api/v1/apps/{id}", axum::routing::delete(handlers::apps::uninstall_app))
+        // Tracking (aircraft/ship positions from decoder containers)
+        .route("/api/v1/tracking/vehicles", axum::routing::get(handlers::tracking::get_vehicles))
+        // Fleet management (multi-node)
+        .route("/api/v1/fleet", axum::routing::get(handlers::fleet::get_fleet))
+        .route("/api/v1/fleet/pair", axum::routing::post(handlers::fleet::pair_node))
+        .route("/api/v1/fleet/{id}", axum::routing::delete(handlers::fleet::unpair_node))
         // Feed management endpoints
         .route("/api/v1/feeds", axum::routing::get(handlers::feeds::list_feeds))
         .route("/api/v1/feeds", axum::routing::post(handlers::feeds::upsert_feed))

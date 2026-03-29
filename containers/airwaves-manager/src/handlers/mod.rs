@@ -3,9 +3,11 @@ pub mod config;
 pub mod containers;
 pub mod exec;
 pub mod feeds;
+pub mod fleet;
 pub mod hardware;
 pub mod network;
 pub mod system;
+pub mod tracking;
 pub mod ws_handler;
 
 use axum::Json;
