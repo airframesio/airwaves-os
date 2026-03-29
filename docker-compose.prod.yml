@@ -1,0 +1,62 @@
+# Production-like stack for local testing.
+# Mirrors the real Airwaves OS deployment with gateway + manager.
+#
+# Usage:
+#   # First, build the control app into the gateway:
+#   cd containers/airwaves-gateway && ./build.sh
+#   # Then start the stack:
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Access at http://localhost (port 80)
+
+networks:
+  airwaves-core:
+    driver: bridge
+  airwaves-apps:
+    driver: bridge
+
+services:
+  gateway:
+    image: airwaves-gateway:latest
+    container_name: airwaves-gateway
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    networks:
+      - airwaves-core
+    volumes:
+      - ./dev/config:/etc/airwaves:ro
+      - nginx-dynamic:/etc/airwaves/nginx
+    depends_on:
+      manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  manager:
+    image: airwaves-manager:dev
+    container_name: airwaves-manager
+    restart: unless-stopped
+    privileged: true
+    networks:
+      - airwaves-core
+      - airwaves-apps
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./dev/config:/etc/airwaves
+      - nginx-dynamic:/etc/airwaves/nginx
+      - /sys:/host/sys:ro
+      - /proc:/host/proc:ro
+    environment:
+      - RUST_LOG=airwaves_manager=info
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  nginx-dynamic:
