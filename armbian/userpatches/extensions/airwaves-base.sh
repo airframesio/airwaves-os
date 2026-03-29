@@ -49,6 +49,10 @@ function post_family_tweaks__airwaves_base_setup() {
 	run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/templates/config.json.template "${SDCARD}"/etc/airwaves/config.json
 	run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/airwaves-release "${SDCARD}"/etc/airwaves-release
 
+	# Install app catalog
+	display_alert "Installing app catalog" "${EXTENSION}" "info"
+	run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/catalog.json "${SDCARD}"/etc/airwaves/catalog.json
+
 	# Mark as needing first run
 	run_host_command_logged touch "${SDCARD}"/opt/airwaves/.needs-first-run
 

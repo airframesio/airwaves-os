@@ -1,5 +1,5 @@
 use std::sync::Mutex;
-use sysinfo::System;
+use sysinfo::{Components, Disks, System};
 
 use crate::domain::*;
 use crate::error::AppError;
@@ -25,7 +25,11 @@ impl SystemPort for SystemAdapter {
             System::name().unwrap_or_else(|| "Linux".to_string()),
             System::os_version().unwrap_or_default()
         );
-        let arch = System::cpu_arch().unwrap_or_else(|| "unknown".to_string());
+        // cpu_arch returns a String directly in sysinfo 0.33
+        let arch = {
+            let a = System::cpu_arch();
+            if a.is_empty() { "unknown".to_string() } else { a }
+        };
         let kernel = System::kernel_version().unwrap_or_else(|| "unknown".to_string());
         let uptime = System::uptime();
 
@@ -63,7 +67,9 @@ impl SystemPort for SystemAdapter {
             0.0
         };
 
-        let (disk_total, disk_used) = sys.disks().iter().fold((0u64, 0u64), |(total, used), d| {
+        // Disks and Components are separate structs in sysinfo 0.33
+        let disks = Disks::new_with_refreshed_list();
+        let (disk_total, disk_used) = disks.iter().fold((0u64, 0u64), |(total, used), d| {
             (total + d.total_space(), used + (d.total_space() - d.available_space()))
         });
         let disk_percent = if disk_total > 0 {
@@ -73,9 +79,13 @@ impl SystemPort for SystemAdapter {
         };
 
         // Temperature from thermal zones
-        let temperature = sys.components().iter()
-            .find(|c| c.label().contains("CPU") || c.label().contains("cpu") || c.label().contains("SoC"))
-            .map(|c| c.temperature());
+        let components = Components::new_with_refreshed_list();
+        let temperature = components.iter()
+            .find(|c| {
+                let label = c.label();
+                label.contains("CPU") || label.contains("cpu") || label.contains("SoC")
+            })
+            .and_then(|c| c.temperature());
 
         let load_avg = System::load_average();
 

@@ -3,7 +3,6 @@ use axum::extract::State;
 use axum::response::IntoResponse;
 use futures::{SinkExt, StreamExt};
 
-use crate::ws::Event;
 use crate::AppState;
 
 pub async fn ws_handler(
