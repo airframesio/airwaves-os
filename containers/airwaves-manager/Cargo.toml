@@ -36,6 +36,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # HTTP client (for proxying to decoder containers)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
+# Random (for simulation)
+rand = "0.9"
+
 # Utilities
 uuid = { version = "1.0", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }

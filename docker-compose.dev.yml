@@ -31,3 +31,4 @@ services:
       - /proc:/host/proc:ro
     environment:
       - RUST_LOG=airwaves_manager=debug,tower_http=debug
+      - SIMULATE_HARDWARE=true

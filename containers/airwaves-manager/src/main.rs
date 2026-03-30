@@ -80,6 +80,7 @@ fn api_router(state: AppState) -> Router {
         .route("/api/v1/forwarding/config", axum::routing::get(handlers::forwarding::get_forwarding_config))
         .route("/api/v1/forwarding/config", axum::routing::put(handlers::forwarding::set_forwarding_config))
         .route("/api/v1/forwarding/stats", axum::routing::get(handlers::forwarding::get_forwarding_stats))
+        .route("/api/v1/messages/simulate", axum::routing::post(handlers::forwarding::simulate_messages))
         // Command execution (web terminal)
         .route("/api/v1/system/exec", axum::routing::post(handlers::exec::exec_command))
         // WebSocket

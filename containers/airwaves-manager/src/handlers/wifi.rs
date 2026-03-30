@@ -22,8 +22,21 @@ pub struct WifiStatus {
 }
 
 /// Get current WiFi status
+fn is_simulated() -> bool {
+    std::env::var("SIMULATE_HARDWARE").map(|v| v == "true" || v == "1").unwrap_or(false)
+}
+
 pub async fn get_status() -> Result<Json<WifiStatus>, AppError> {
-    // Check if a wireless interface exists
+    if is_simulated() {
+        return Ok(Json(WifiStatus {
+            enabled: true,
+            connected: false,
+            ssid: None,
+            ip: None,
+            interface: "wlan0".to_string(),
+        }));
+    }
+
     let iface = find_wifi_interface();
 
     if iface.is_none() {
@@ -53,6 +66,15 @@ pub async fn get_status() -> Result<Json<WifiStatus>, AppError> {
 
 /// Scan for available WiFi networks
 pub async fn scan_networks() -> Result<Json<Vec<WifiNetwork>>, AppError> {
+    if is_simulated() {
+        return Ok(Json(vec![
+            WifiNetwork { ssid: "AirwavesNet".to_string(), signal: -35, security: "WPA2".to_string(), frequency: "2.4 GHz".to_string(), connected: false },
+            WifiNetwork { ssid: "HomeWiFi-5G".to_string(), signal: -52, security: "WPA2".to_string(), frequency: "5 GHz".to_string(), connected: false },
+            WifiNetwork { ssid: "Neighbor_Guest".to_string(), signal: -68, security: "WPA2".to_string(), frequency: "2.4 GHz".to_string(), connected: false },
+            WifiNetwork { ssid: "CoffeeShop".to_string(), signal: -75, security: "Open".to_string(), frequency: "2.4 GHz".to_string(), connected: false },
+        ]));
+    }
+
     let iface = find_wifi_interface()
         .ok_or_else(|| AppError::NotFound("No WiFi interface found".to_string()))?;
 

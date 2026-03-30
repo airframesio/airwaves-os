@@ -22,11 +22,80 @@ const KNOWN_SDR_DEVICES: &[(u16, u16, &str, &str)] = &[
     (0x04d8, 0xfb56, "Funcube Dongle Pro+", "funcube_dongle"),
 ];
 
-pub struct HardwareAdapter;
+pub struct HardwareAdapter {
+    simulate: bool,
+}
 
 impl HardwareAdapter {
     pub fn new() -> Self {
-        Self
+        let simulate = std::env::var("SIMULATE_HARDWARE")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+        if simulate {
+            tracing::info!("Hardware simulation enabled (SIMULATE_HARDWARE=true)");
+        }
+        Self { simulate }
+    }
+
+    fn simulated_sdr_devices() -> Vec<SdrDevice> {
+        vec![
+            SdrDevice {
+                id: "0bda:2838-00000101".to_string(),
+                name: "RTL-SDR Blog V4".to_string(),
+                device_type: SdrType::RtlSdr,
+                vendor_id: 0x0bda,
+                product_id: 0x2838,
+                serial: Some("00000101".to_string()),
+                status: "available".to_string(),
+                assigned_to: None,
+            },
+            SdrDevice {
+                id: "0bda:2838-00000102".to_string(),
+                name: "RTL-SDR Blog V3".to_string(),
+                device_type: SdrType::RtlSdr,
+                vendor_id: 0x0bda,
+                product_id: 0x2838,
+                serial: Some("00000102".to_string()),
+                status: "available".to_string(),
+                assigned_to: None,
+            },
+            SdrDevice {
+                id: "1d50:60a1-AIRSPY-MINI".to_string(),
+                name: "Airspy Mini".to_string(),
+                device_type: SdrType::Airspy,
+                vendor_id: 0x1d50,
+                product_id: 0x60a1,
+                serial: Some("AIRSPY-MINI".to_string()),
+                status: "available".to_string(),
+                assigned_to: None,
+            },
+        ]
+    }
+
+    fn simulated_usb_devices() -> Vec<UsbDevice> {
+        vec![
+            UsbDevice {
+                vendor_id: 0x0bda, product_id: 0x2838,
+                vendor_name: Some("Realtek Semiconductor Corp.".to_string()),
+                product_name: Some("RTL2838 DVB-T".to_string()),
+                serial: Some("00000101".to_string()),
+                bus: 1, address: 4,
+            },
+            UsbDevice {
+                vendor_id: 0x0bda, product_id: 0x2838,
+                vendor_name: Some("Realtek Semiconductor Corp.".to_string()),
+                product_name: Some("RTL2838 DVB-T".to_string()),
+                serial: Some("00000102".to_string()),
+                bus: 1, address: 5,
+            },
+            UsbDevice {
+                vendor_id: 0x1d50, product_id: 0x60a1,
+                vendor_name: Some("OpenMoko, Inc.".to_string()),
+                product_name: Some("Airspy Mini".to_string()),
+                serial: Some("AIRSPY-MINI".to_string()),
+                bus: 2, address: 3,
+            },
+        ]
     }
 
     fn classify_sdr(vendor_id: u16, product_id: u16) -> Option<(&'static str, SdrType)> {
@@ -50,8 +119,10 @@ impl HardwareAdapter {
 
 impl HardwarePort for HardwareAdapter {
     fn list_usb_devices(&self) -> Result<Vec<UsbDevice>, AppError> {
-        // Read from /sys/bus/usb/devices/ for basic enumeration
-        // This works inside containers with /sys mounted
+        if self.simulate {
+            return Ok(Self::simulated_usb_devices());
+        }
+
         let mut devices = Vec::new();
 
         let sys_usb = std::path::Path::new("/sys/bus/usb/devices");
@@ -111,6 +182,10 @@ impl HardwarePort for HardwareAdapter {
     }
 
     fn list_sdr_devices(&self) -> Result<Vec<SdrDevice>, AppError> {
+        if self.simulate {
+            return Ok(Self::simulated_sdr_devices());
+        }
+
         let usb_devices = self.list_usb_devices()?;
 
         let sdr_devices: Vec<SdrDevice> = usb_devices
