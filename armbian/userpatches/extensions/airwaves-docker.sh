@@ -6,8 +6,7 @@
 
 function extension_prepare_config__airwaves_docker() {
 	display_alert "Preparing Airwaves OS Docker configuration" "${EXTENSION}" "info"
-	# Enable the docker-ce extension as a dependency
-	enable_extension "docker-ce"
+	# docker-ce extension is enabled in common-airwaves.conf (must be before this extension)
 }
 
 function user_config__airwaves_docker_packages() {
