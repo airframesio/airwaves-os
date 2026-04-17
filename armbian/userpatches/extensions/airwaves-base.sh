@@ -35,7 +35,8 @@ function post_family_tweaks__airwaves_base_setup() {
 	# Create airwaves user (docker group added later by airwaves-docker extension)
 	display_alert "Creating airwaves user" "${EXTENSION}" "info"
 	chroot_sdcard useradd -m -s /bin/bash -G sudo,plugdev airwaves
-	chroot_sdcard bash -c "echo 'airwaves:airwaves' | chpasswd"
+	# Set password using chpasswd via heredoc (avoids pipe parsing issues in chroot)
+	echo "airwaves:airwaves" | chroot "${SDCARD}" /usr/sbin/chpasswd
 
 	# Install MOTD
 	display_alert "Installing MOTD" "${EXTENSION}" "info"
