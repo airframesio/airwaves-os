@@ -40,6 +40,9 @@ function post_family_tweaks__airwaves_docker_setup() {
 	chroot_sdcard systemctl --no-reload enable docker.service
 	chroot_sdcard systemctl --no-reload enable containerd.service
 
+	# Add airwaves user to docker group (group created by Docker install)
+	chroot_sdcard usermod -aG docker airwaves || true
+
 	display_alert "Setting up Airwaves OS Docker infrastructure" "${EXTENSION}" "info"
 
 	# Install docker-compose configuration

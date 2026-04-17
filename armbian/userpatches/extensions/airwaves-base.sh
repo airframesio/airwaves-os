@@ -32,9 +32,9 @@ function pre_install_kernel_debs__copy_airwaves_files() {
 function post_family_tweaks__airwaves_base_setup() {
 	display_alert "Installing Airwaves OS base system" "${EXTENSION}" "info"
 
-	# Create airwaves user
+	# Create airwaves user (docker group added later by airwaves-docker extension)
 	display_alert "Creating airwaves user" "${EXTENSION}" "info"
-	chroot_sdcard useradd -m -s /bin/bash -G sudo,plugdev,docker airwaves
+	chroot_sdcard useradd -m -s /bin/bash -G sudo,plugdev airwaves
 	chroot_sdcard bash -c "echo 'airwaves:airwaves' | chpasswd"
 
 	# Install MOTD
