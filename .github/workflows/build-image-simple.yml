@@ -1,0 +1,78 @@
+name: Build OS Image (Simple)
+
+on:
+  workflow_dispatch:
+    inputs:
+      board:
+        description: "Board to build for"
+        required: true
+        type: choice
+        options:
+          - rpi4b
+          - rpi5b
+          - rock-5b
+          - orangepi5
+          - uefi-x86
+      release:
+        description: "Release"
+        required: true
+        type: choice
+        options:
+          - noble
+          - bookworm
+      branch:
+        description: "Kernel branch"
+        required: true
+        default: "current"
+        type: choice
+        options:
+          - current
+          - edge
+
+env:
+  ARMBIAN_BUILD_TAG: v25.02
+
+jobs:
+  build:
+    name: Build ${{ github.event.inputs.board }} (${{ github.event.inputs.release }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo apt-get clean
+          df -h /
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static binfmt-support
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        env:
+          BOARD: ${{ github.event.inputs.board }}
+          RELEASE: ${{ github.event.inputs.release }}
+          BRANCH: ${{ github.event.inputs.branch }}
+        run: |
+          sudo ./armbian/build.sh airwaves BOARD="$BOARD" BRANCH="$BRANCH" RELEASE="$RELEASE"
+
+      - name: List output
+        run: ls -lh .armbian-build/output/images/ 2>/dev/null || echo "No images found"
+
+      - name: Upload image
+        uses: actions/upload-artifact@v4
+        with:
+          name: airwaves-os-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}
+          path: .armbian-build/output/images/*.img.xz
+          retention-days: 30
+
+      - name: Upload to release
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: .armbian-build/output/images/*.img.xz
