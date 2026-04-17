@@ -10,7 +10,9 @@ function extension_prepare_config__airwaves_hardware() {
 
 function user_config__airwaves_hardware_packages() {
 	display_alert "Adding hardware support packages" "${EXTENSION}" "info"
-	add_packages_to_rootfs libusb-1.0-0 librtlsdr0 rtl-sdr usbutils pciutils
+	# librtlsdr0 is named librtlsdr2 in newer Ubuntu (Noble+)
+	# Use rtl-sdr which pulls the correct versioned library automatically
+	add_packages_to_rootfs libusb-1.0-0 rtl-sdr usbutils pciutils
 }
 
 function post_family_tweaks__airwaves_hardware_setup() {
