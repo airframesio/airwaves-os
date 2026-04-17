@@ -21,6 +21,7 @@ dependencies = [
  "chrono",
  "futures",
  "nusb",
+ "rand",
  "reqwest",
  "serde",
  "serde_json",
