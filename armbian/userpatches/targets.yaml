@@ -22,7 +22,8 @@ lists:
   # Tier 1: RPi boards (Ubuntu Noble - requires flash-kernel)
   tier1-boards-rpi: &tier1-boards-rpi
     - { BOARD: rpi4b, BRANCH: current, RELEASE: noble }
-    - { BOARD: rpi5b, BRANCH: current, RELEASE: noble }
+    # rpi5b not available in Armbian v25.02 - enable when upgrading build tag
+    # - { BOARD: rpi5b, BRANCH: current, RELEASE: noble }
 
   # Tier 2: Extended board support (enable when Tier 1 is stable)
   # tier2-boards: &tier2-boards

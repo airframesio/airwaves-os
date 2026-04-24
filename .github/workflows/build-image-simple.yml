@@ -9,7 +9,6 @@ on:
         type: choice
         options:
           - rpi4b
-          - rpi5b
           - rock-5b
           - orangepi5
           - uefi-x86
