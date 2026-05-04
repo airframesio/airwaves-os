@@ -65,28 +65,51 @@ set_hostname() {
 }
 
 load_prebaked_containers() {
-    log "Loading pre-baked container images..."
+    log "Loading container images..."
 
-    if [ ! -d "$AIRWAVES_IMAGES_DIR" ] || [ -z "$(ls -A "$AIRWAVES_IMAGES_DIR"/*.tar 2>/dev/null)" ]; then
-        log "No pre-baked images found in $AIRWAVES_IMAGES_DIR"
-        log "Containers will be pulled from registry on first start"
+    # Try loading from pre-baked tarballs first
+    if [ -d "$AIRWAVES_IMAGES_DIR" ] && [ -n "$(ls -A "$AIRWAVES_IMAGES_DIR"/*.tar 2>/dev/null)" ]; then
+        for image_tar in "$AIRWAVES_IMAGES_DIR"/*.tar; do
+            local image_name
+            image_name=$(basename "$image_tar" .tar)
+            log "Loading image from tarball: ${image_name}..."
+            if docker load < "$image_tar"; then
+                log "Loaded: ${image_name}"
+                rm -f "$image_tar"
+            else
+                log "WARNING: Failed to load ${image_name}"
+            fi
+        done
+        log "Pre-baked container loading complete"
         return 0
     fi
 
-    for image_tar in "$AIRWAVES_IMAGES_DIR"/*.tar; do
-        local image_name
-        image_name=$(basename "$image_tar" .tar)
-        log "Loading image: ${image_name}..."
-        if docker load < "$image_tar"; then
-            log "Loaded: ${image_name}"
-            # Remove tarball to reclaim disk space
-            rm -f "$image_tar"
+    # No tarballs - pull from GHCR registry
+    log "No pre-baked images found, pulling from registry..."
+    local registry="ghcr.io/airframesio"
+
+    for image in airwaves-gateway airwaves-manager; do
+        log "Pulling ${registry}/${image}:latest..."
+        if docker pull "${registry}/${image}:latest"; then
+            log "Pulled: ${image}"
         else
-            log "WARNING: Failed to load ${image_name}, will pull from registry"
+            log "WARNING: Failed to pull ${image} - will retry on next boot"
         fi
     done
 
-    log "Pre-baked container loading complete"
+    log "Container pull complete"
+}
+
+start_containers() {
+    log "Starting Airwaves OS containers..."
+
+    if [ -f /etc/airwaves/docker-compose.yml ]; then
+        cd /etc/airwaves
+        docker compose up -d --remove-orphans 2>&1 | while read -r line; do log "  $line"; done
+        log "Containers started"
+    else
+        log "WARNING: No docker-compose.yml found at /etc/airwaves/"
+    fi
 }
 
 setup_docker_networks() {
@@ -115,6 +138,7 @@ generate_device_id
 set_hostname
 setup_docker_networks
 load_prebaked_containers
+start_containers
 finalize
 
 log "First-boot initialization finished successfully"
