@@ -17,7 +17,7 @@ networks:
 
 services:
   gateway:
-    image: airwaves-gateway:latest
+    image: ghcr.io/airframesio/airwaves-gateway:latest
     container_name: airwaves-gateway
     restart: unless-stopped
     ports:
@@ -37,7 +37,7 @@ services:
       retries: 3
 
   manager:
-    image: airwaves-manager:dev
+    image: ghcr.io/airframesio/airwaves-manager:latest
     container_name: airwaves-manager
     restart: unless-stopped
     privileged: true
