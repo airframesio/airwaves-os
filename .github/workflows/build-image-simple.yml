@@ -17,8 +17,9 @@ on:
         required: true
         type: choice
         options:
-          - noble
+          - trixie
           - bookworm
+          - noble
       branch:
         description: "Kernel branch"
         required: true
@@ -29,7 +30,7 @@ on:
           - edge
 
 env:
-  ARMBIAN_BUILD_TAG: v25.02
+  ARMBIAN_BUILD_TAG: v26.2.1
 
 jobs:
   build:

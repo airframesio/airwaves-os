@@ -4,7 +4,7 @@ set -euo pipefail
 # Airwaves OS Build Script
 # Clones armbian/build at a pinned tag and runs compile with our userpatches.
 
-ARMBIAN_BUILD_TAG="${ARMBIAN_BUILD_TAG:-v25.02}"
+ARMBIAN_BUILD_TAG="${ARMBIAN_BUILD_TAG:-v26.2.1}"
 ARMBIAN_BUILD_DIR="${ARMBIAN_BUILD_DIR:-.armbian-build}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

@@ -13,7 +13,7 @@ common-gha-configs:
 
 lists:
 
-  # Tier 1: Primary supported boards (Debian Bookworm)
+  # Tier 1: Primary supported boards (Debian Trixie)
   tier1-boards: &tier1-boards
     - { BOARD: rock-5b, BRANCH: current }
     - { BOARD: orangepi5, BRANCH: current }
@@ -22,8 +22,12 @@ lists:
   # Tier 1: RPi boards (Ubuntu Noble - requires flash-kernel)
   tier1-boards-rpi: &tier1-boards-rpi
     - { BOARD: rpi4b, BRANCH: current, RELEASE: noble }
-    # rpi5b not available in Armbian v25.02 - enable when upgrading build tag
-    # - { BOARD: rpi5b, BRANCH: current, RELEASE: noble }
+
+  # Tier 1: Bookworm (legacy, for users who need Debian stable)
+  tier1-boards-bookworm: &tier1-boards-bookworm
+    - { BOARD: rock-5b, BRANCH: current }
+    - { BOARD: orangepi5, BRANCH: current }
+    - { BOARD: uefi-x86, BRANCH: current }
 
   # Tier 2: Extended board support (enable when Tier 1 is stable)
   # tier2-boards: &tier2-boards
@@ -37,7 +41,20 @@ lists:
 
 targets:
 
-  # Primary: Debian Bookworm for ARM and x86 boards
+  # Primary: Debian Trixie for ARM and x86 boards
+  cli-trixie:
+    enabled: yes
+    configs: [airwaves]
+    pipeline:
+      gha: *airwaves-gha
+    vars:
+      RELEASE: trixie
+      BUILD_MINIMAL: "yes"
+      CLOUD_IMAGE: "no"
+    items:
+      - *tier1-boards
+
+  # Legacy: Debian Bookworm (community support in Armbian v26.2)
   cli-bookworm:
     enabled: yes
     configs: [airwaves]
@@ -48,7 +65,7 @@ targets:
       BUILD_MINIMAL: "yes"
       CLOUD_IMAGE: "no"
     items:
-      - *tier1-boards
+      - *tier1-boards-bookworm
 
   # RPi: Ubuntu Noble (required for flash-kernel)
   cli-noble:

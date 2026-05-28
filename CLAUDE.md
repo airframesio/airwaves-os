@@ -52,9 +52,9 @@ Rust project with hexagonal architecture:
 ## Conventions
 
 - **Naming**: `airwaves` prefix everywhere. Config: `/etc/airwaves/`. Containers: `airwaves-*`.
-- **Releases**: Bookworm (primary) + Noble (RPi boards requiring flash-kernel)
-- **Tier 1 boards**: RPi 4B, RPi 5, Rock 5B, Orange Pi 5, x86 UEFI
-- **Armbian build tag**: pinned in `armbian/build.sh` (currently v25.02)
+- **Releases**: Trixie (primary) + Bookworm (legacy) + Noble (RPi boards requiring flash-kernel)
+- **Tier 1 boards**: RPi 4B, Rock 5B, Orange Pi 5, x86 UEFI
+- **Armbian build tag**: pinned in `armbian/build.sh` (currently v26.2.1)
 - **All user software runs in containers** - host OS is minimal
 
 ## Development
