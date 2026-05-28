@@ -225,3 +225,188 @@ pub struct ForwardingStats {
     pub last_received: Option<String>,
     pub connected_peers: usize,
 }
+
+// ----------------------------------------------------------------------------
+// System updater
+// ----------------------------------------------------------------------------
+
+/// How important an available update is.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "kebab-case")]
+pub enum Severity {
+    /// Optional, quality-of-life improvement.
+    NiceToHave,
+    /// Preferred; should be applied soon.
+    Recommended,
+    /// Necessary (security/compatibility); strongly urged.
+    Required,
+}
+
+impl Default for Severity {
+    fn default() -> Self {
+        Severity::NiceToHave
+    }
+}
+
+/// A single component entry inside the remote release manifest.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ManifestComponent {
+    pub version: String,
+    #[serde(default)]
+    pub severity: Severity,
+    /// Container image (manager/gateway).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+    /// Control-app version bundled in the gateway image.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_app_version: Option<String>,
+    /// Download URL for file components (compose/catalog), pinned to a tag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Expected sha256 of the downloaded file (lowercase hex).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+}
+
+/// Optional base-OS section of the manifest.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ManifestOs {
+    /// Present when an in-place major Debian upgrade is offered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub major_upgrade: Option<MajorUpgrade>,
+    #[serde(default)]
+    pub reboot_expected: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MajorUpgrade {
+    pub from: String,
+    pub to: String,
+    #[serde(default)]
+    pub severity: Severity,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guide_url: Option<String>,
+}
+
+/// The remote release manifest (releases/<channel>.json).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UpdateManifest {
+    #[serde(default = "default_schema")]
+    pub schema: u32,
+    pub channel: String,
+    pub os_version: String,
+    #[serde(default)]
+    pub codename: String,
+    #[serde(default)]
+    pub released: String,
+    #[serde(default)]
+    pub severity: Severity,
+    #[serde(default)]
+    pub min_os_version: String,
+    #[serde(default)]
+    pub summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes_url: Option<String>,
+    pub components: std::collections::HashMap<String, ManifestComponent>,
+    #[serde(default)]
+    pub os: ManifestOs,
+}
+
+fn default_schema() -> u32 {
+    1
+}
+
+/// Per-component comparison of installed vs available.
+#[derive(Debug, Serialize, Clone)]
+pub struct ComponentUpdate {
+    /// Component key: manager | gateway | control-app | compose | catalog.
+    pub name: String,
+    pub installed: String,
+    pub available: String,
+    pub update_available: bool,
+    pub severity: Severity,
+    /// "image" | "file" | "os".
+    pub kind: String,
+}
+
+/// Snapshot of what is installed right now.
+#[derive(Debug, Serialize, Clone, Default)]
+pub struct InstalledVersions {
+    pub os_version: String,
+    pub os_codename: String,
+    pub manager: String,
+    pub control_app: String,
+    pub compose: u32,
+    pub catalog: u32,
+    pub channel: String,
+}
+
+/// Result of an update check: installed state + available components.
+#[derive(Debug, Serialize, Clone)]
+pub struct UpdateStatus {
+    pub installed: InstalledVersions,
+    /// Target release version, if the manifest was reachable.
+    pub available_os_version: Option<String>,
+    pub components: Vec<ComponentUpdate>,
+    /// Highest severity among available updates.
+    pub highest_severity: Option<Severity>,
+    pub update_available: bool,
+    /// Count of upgradable apt packages on the host (None if not checked).
+    pub os_packages_upgradable: Option<u32>,
+    /// Offered major OS upgrade, if any.
+    pub major_upgrade: Option<MajorUpgrade>,
+    /// RFC3339 timestamp of when this check ran.
+    pub last_checked: Option<String>,
+    /// Populated when the manifest could not be fetched.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// What the manager asks the host updater to do (written to request.json).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UpdateRequest {
+    /// RFC3339 timestamp.
+    pub requested_at: String,
+    /// Components to apply: manager,gateway,compose,catalog,os_packages,os_major.
+    pub components: Vec<String>,
+    /// Resolved download details for file components.
+    #[serde(default)]
+    pub compose_url: Option<String>,
+    #[serde(default)]
+    pub compose_sha256: Option<String>,
+    #[serde(default)]
+    pub compose_version: Option<u32>,
+    #[serde(default)]
+    pub catalog_url: Option<String>,
+    #[serde(default)]
+    pub catalog_sha256: Option<String>,
+    #[serde(default)]
+    pub catalog_version: Option<u32>,
+    /// Target codename for a major OS upgrade.
+    #[serde(default)]
+    pub os_major_to: Option<String>,
+}
+
+/// Progress written by the host updater (status.json).
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct UpdateProgress {
+    /// idle | running | success | failed | rolled_back.
+    pub state: String,
+    /// Current phase label.
+    pub phase: String,
+    /// 0-100 best-effort.
+    #[serde(default)]
+    pub percent: u8,
+    #[serde(default)]
+    pub log: Vec<String>,
+    #[serde(default)]
+    pub reboot_required: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<String>,
+}

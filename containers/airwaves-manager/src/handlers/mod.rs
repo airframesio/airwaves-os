@@ -11,6 +11,7 @@ pub mod network;
 pub mod proxy;
 pub mod system;
 pub mod tracking;
+pub mod update;
 pub mod wifi;
 pub mod ws_handler;
 

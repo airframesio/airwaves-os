@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "airwaves-manager"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -24,6 +24,7 @@ dependencies = [
  "nusb",
  "rand",
  "reqwest",
+ "semver",
  "serde",
  "serde_json",
  "sysinfo",

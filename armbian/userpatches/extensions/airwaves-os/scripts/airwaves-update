@@ -1,0 +1,315 @@
+#!/usr/bin/env bash
+#
+# Airwaves OS host-side updater.
+#
+# Runs as root on the HOST (via airwaves-update.service), triggered by the
+# manager which writes a job spec to /etc/airwaves/update/request.json. Because
+# this runs outside the container stack, it can safely recreate the manager and
+# gateway containers. Progress is written to /etc/airwaves/update/status.json,
+# which the manager serves back to the control app (it survives the manager
+# being recreated mid-update).
+#
+# Honors AIRWAVES_UPDATE_DRYRUN=1 to log actions without mutating anything.
+
+set -uo pipefail
+
+AIRWAVES_DIR="/etc/airwaves"
+COMPOSE="${AIRWAVES_DIR}/docker-compose.yml"
+CATALOG="${AIRWAVES_DIR}/catalog.json"
+VERSIONS="${AIRWAVES_DIR}/.versions.json"
+UPDATE_DIR="${AIRWAVES_DIR}/update"
+REQUEST="${UPDATE_DIR}/request.json"
+STATUS="${UPDATE_DIR}/status.json"
+BACKUP_DIR="${UPDATE_DIR}/backup"
+LOGFILE="/var/log/airwaves-update.log"
+HEALTH_TIMEOUT="${AIRWAVES_HEALTH_TIMEOUT:-120}"
+DRYRUN="${AIRWAVES_UPDATE_DRYRUN:-0}"
+
+mkdir -p "${UPDATE_DIR}" "${BACKUP_DIR}"
+: > "${UPDATE_DIR}/.log.tmp" 2>/dev/null || true
+LOG_TMP="${UPDATE_DIR}/.log.tmp"
+
+STATE="running"
+PHASE="starting"
+PERCENT=0
+REBOOT_REQUIRED="false"
+ERROR=""
+STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# ---- helpers ---------------------------------------------------------------
+
+log() {
+    local line
+    line="[$(date -u +%H:%M:%S)] $*"
+    echo "${line}" | tee -a "${LOGFILE}" >&2
+    echo "${line}" >> "${LOG_TMP}"
+}
+
+write_status() {
+    local finished="${1:-}"
+    local finished_field="null"
+    if [ -n "${finished}" ]; then
+        finished_field="\"${finished}\""
+    fi
+    local err_field="null"
+    if [ -n "${ERROR}" ]; then
+        err_field="$(jq -Rn --arg e "${ERROR}" '$e')"
+    fi
+    jq -Rn \
+        --arg state "${STATE}" \
+        --arg phase "${PHASE}" \
+        --argjson percent "${PERCENT}" \
+        --argjson reboot "${REBOOT_REQUIRED}" \
+        --arg started "${STARTED_AT}" \
+        --slurpfile loglines <(jq -R . "${LOG_TMP}" 2>/dev/null) \
+        "{
+            state: \$state,
+            phase: \$phase,
+            percent: \$percent,
+            reboot_required: \$reboot,
+            error: ${err_field},
+            started_at: \$started,
+            finished_at: ${finished_field},
+            log: \$loglines
+        }" > "${STATUS}.tmp" 2>/dev/null && mv "${STATUS}.tmp" "${STATUS}"
+}
+
+phase() {
+    PHASE="$1"
+    PERCENT="${2:-$PERCENT}"
+    log "==> ${PHASE}"
+    write_status
+}
+
+fail() {
+    STATE="failed"
+    ERROR="$1"
+    log "ERROR: ${ERROR}"
+    write_status "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+
+run() {
+    if [ "${DRYRUN}" = "1" ]; then
+        log "[dry-run] $*"
+        return 0
+    fi
+    log "\$ $*"
+    "$@" >>"${LOGFILE}" 2>&1
+}
+
+want() {
+    # True if component "$1" (or "all") is in the request component list.
+    echo "${COMPONENTS}" | jq -e --arg c "$1" 'index($c) != null or index("all") != null' >/dev/null 2>&1
+}
+
+verify_sha256() {
+    local file="$1" expected="$2"
+    [ -z "${expected}" ] && return 0
+    local actual
+    actual="$(sha256sum "${file}" | awk '{print $1}')"
+    [ "${actual}" = "${expected}" ]
+}
+
+container_healthy() {
+    # Returns 0 if the container reports healthy (or running with no healthcheck).
+    local name="$1" health status
+    health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${name}" 2>/dev/null)" || return 1
+    status="$(docker inspect -f '{{.State.Status}}' "${name}" 2>/dev/null)" || return 1
+    case "${health}" in
+        healthy) return 0 ;;
+        none) [ "${status}" = "running" ] && return 0 || return 1 ;;
+        *) return 1 ;;
+    esac
+}
+
+wait_healthy() {
+    local deadline=$(( $(date +%s) + HEALTH_TIMEOUT ))
+    log "Waiting up to ${HEALTH_TIMEOUT}s for containers to become healthy..."
+    while [ "$(date +%s)" -lt "${deadline}" ]; do
+        if container_healthy airwaves-manager && container_healthy airwaves-gateway; then
+            log "Containers healthy."
+            return 0
+        fi
+        sleep 3
+    done
+    return 1
+}
+
+compose() {
+    docker compose -f "${COMPOSE}" "$@"
+}
+
+download() {
+    # download <url> <dest> <sha256>
+    local url="$1" dest="$2" sha="$3"
+    log "Downloading ${url}"
+    if [ "${DRYRUN}" = "1" ]; then
+        log "[dry-run] skip download"
+        return 0
+    fi
+    if ! curl -fsSL "${url}" -o "${dest}.new"; then
+        return 1
+    fi
+    if ! verify_sha256 "${dest}.new" "${sha}"; then
+        log "Checksum mismatch for ${dest}"
+        rm -f "${dest}.new"
+        return 1
+    fi
+    mv "${dest}.new" "${dest}"
+    return 0
+}
+
+# ---- main ------------------------------------------------------------------
+
+main() {
+    write_status
+
+    if [ ! -f "${REQUEST}" ]; then
+        fail "No update request found at ${REQUEST}"
+        return 1
+    fi
+
+    COMPONENTS="$(jq -c '.components // []' "${REQUEST}")"
+    log "Requested components: ${COMPONENTS}"
+
+    phase "backing-up" 5
+    # Snapshot config + current image digests for rollback.
+    [ -f "${COMPOSE}" ] && cp -f "${COMPOSE}" "${BACKUP_DIR}/docker-compose.yml"
+    [ -f "${CATALOG}" ] && cp -f "${CATALOG}" "${BACKUP_DIR}/catalog.json"
+    [ -f "${VERSIONS}" ] && cp -f "${VERSIONS}" "${BACKUP_DIR}/.versions.json"
+    docker inspect -f '{{index .Config.Image}} {{.Image}}' airwaves-manager airwaves-gateway \
+        > "${BACKUP_DIR}/digests.txt" 2>/dev/null || true
+
+    # ---- compose + catalog config -----------------------------------------
+    if want compose; then
+        local url sha ver
+        url="$(jq -r '.compose_url // empty' "${REQUEST}")"
+        sha="$(jq -r '.compose_sha256 // empty' "${REQUEST}")"
+        ver="$(jq -r '.compose_version // empty' "${REQUEST}")"
+        if [ -n "${url}" ]; then
+            phase "downloading-compose" 15
+            if ! download "${url}" "${COMPOSE}" "${sha}"; then
+                fail "Failed to download/verify docker-compose.yml"
+                rollback_config
+                return 1
+            fi
+            [ -n "${ver}" ] && update_version_marker compose "${ver}"
+        fi
+    fi
+
+    if want catalog; then
+        local url sha ver
+        url="$(jq -r '.catalog_url // empty' "${REQUEST}")"
+        sha="$(jq -r '.catalog_sha256 // empty' "${REQUEST}")"
+        ver="$(jq -r '.catalog_version // empty' "${REQUEST}")"
+        if [ -n "${url}" ]; then
+            phase "downloading-catalog" 25
+            if ! download "${url}" "${CATALOG}" "${sha}"; then
+                fail "Failed to download/verify catalog.json"
+                rollback_config
+                return 1
+            fi
+            [ -n "${ver}" ] && update_version_marker catalog "${ver}"
+        fi
+    fi
+
+    # ---- container images --------------------------------------------------
+    if want manager || want gateway || want compose; then
+        phase "pulling-images" 40
+        if ! run compose pull; then
+            fail "docker compose pull failed"
+            rollback_config
+            return 1
+        fi
+
+        phase "recreating-containers" 60
+        # This may recreate the manager (this script keeps running on the host).
+        if ! run compose up -d --remove-orphans; then
+            fail "docker compose up failed"
+            rollback_full
+            return 1
+        fi
+
+        phase "health-check" 75
+        if [ "${DRYRUN}" != "1" ] && ! wait_healthy; then
+            fail "Containers did not become healthy; rolling back"
+            rollback_full
+            return 1
+        fi
+    fi
+
+    # ---- base OS packages --------------------------------------------------
+    if want os_packages; then
+        phase "updating-os-packages" 85
+        run apt-get update
+        local kernel_before kernel_after
+        kernel_before="$(dpkg -l 'linux-image*' 2>/dev/null | grep -c '^ii' || true)"
+        if ! run env DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confold upgrade; then
+            fail "apt-get upgrade failed"
+            return 1
+        fi
+        kernel_after="$(dpkg -l 'linux-image*' 2>/dev/null | grep -c '^ii' || true)"
+        if [ "${kernel_before}" != "${kernel_after}" ]; then
+            REBOOT_REQUIRED="true"
+        fi
+    fi
+
+    # ---- major OS upgrade (in-place) ---------------------------------------
+    if want os_major; then
+        local target
+        target="$(jq -r '.os_major_to // empty' "${REQUEST}")"
+        if [ -n "${target}" ]; then
+            phase "os-major-upgrade" 90
+            log "In-place major upgrade to ${target} (this can take a while)"
+            # Repoint apt sources at the new release codename, then full-upgrade.
+            run sed -i.airwaves-bak -E "s/(bookworm|trixie|bullseye)/${target}/g" /etc/apt/sources.list
+            if [ -d /etc/apt/sources.list.d ]; then
+                for f in /etc/apt/sources.list.d/*.list; do
+                    [ -e "${f}" ] || continue
+                    case "${f}" in
+                        *docker*) continue ;;  # docker repo handled separately
+                    esac
+                    run sed -i.airwaves-bak -E "s/(bookworm|trixie|bullseye)/${target}/g" "${f}"
+                done
+            fi
+            run apt-get update
+            if ! run env DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confold full-upgrade; then
+                fail "Major upgrade full-upgrade failed; manual intervention may be required"
+                return 1
+            fi
+            REBOOT_REQUIRED="true"
+        fi
+    fi
+
+    STATE="success"
+    phase "done" 100
+    write_status "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    log "Update completed successfully (reboot_required=${REBOOT_REQUIRED})"
+    return 0
+}
+
+rollback_config() {
+    log "Rolling back config files from backup"
+    [ -f "${BACKUP_DIR}/docker-compose.yml" ] && cp -f "${BACKUP_DIR}/docker-compose.yml" "${COMPOSE}"
+    [ -f "${BACKUP_DIR}/catalog.json" ] && cp -f "${BACKUP_DIR}/catalog.json" "${CATALOG}"
+    [ -f "${BACKUP_DIR}/.versions.json" ] && cp -f "${BACKUP_DIR}/.versions.json" "${VERSIONS}"
+    STATE="rolled_back"
+    write_status "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+
+rollback_full() {
+    rollback_config
+    log "Re-applying previous stack"
+    run compose up -d --remove-orphans || true
+}
+
+update_version_marker() {
+    # update_version_marker <key> <value>
+    local key="$1" val="$2"
+    [ -f "${VERSIONS}" ] || echo '{}' > "${VERSIONS}"
+    jq --arg k "${key}" --argjson v "${val}" '.[$k] = $v' "${VERSIONS}" > "${VERSIONS}.tmp" \
+        && mv "${VERSIONS}.tmp" "${VERSIONS}"
+}
+
+main "$@"
+exit $?

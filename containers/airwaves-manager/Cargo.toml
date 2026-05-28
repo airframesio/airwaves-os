@@ -1,6 +1,6 @@
 [package]
 name = "airwaves-manager"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 description = "Airwaves OS system management API"
 license = "MIT"
@@ -20,6 +20,9 @@ sysinfo = "0.33"
 
 # statvfs for host disk usage
 libc = "0.2"
+
+# Semantic version comparison for the updater
+semver = "1"
 
 # USB device enumeration
 nusb = "0.1"

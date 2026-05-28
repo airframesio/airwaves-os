@@ -32,4 +32,9 @@ pub enum Event {
         message_type: String,
     },
     ForwardingConfigChanged,
+    /// A system update is available; severity is the highest among components.
+    UpdateAvailable {
+        severity: String,
+        os_version: Option<String>,
+    },
 }

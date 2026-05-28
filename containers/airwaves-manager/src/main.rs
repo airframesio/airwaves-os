@@ -26,6 +26,7 @@ pub struct AppState {
     pub hardware: Arc<adapters::HardwareAdapter>,
     pub config: Arc<adapters::ConfigAdapter>,
     pub host: Arc<adapters::HostAdapter>,
+    pub updater: Arc<adapters::UpdaterAdapter>,
     pub events_tx: broadcast::Sender<ws::Event>,
     pub forwarding_stats: Arc<Mutex<domain::ForwardingStats>>,
     pub message_buffer: Arc<Mutex<VecDeque<domain::DecodedMessage>>>,
@@ -43,6 +44,11 @@ fn api_router(state: AppState) -> Router {
         .route("/api/v1/system/shutdown", axum::routing::post(handlers::host::shutdown))
         .route("/api/v1/system/timezone", axum::routing::post(handlers::host::set_timezone))
         .route("/api/v1/system/service/restart", axum::routing::post(handlers::host::restart_service))
+        // System updater
+        .route("/api/v1/system/update/status", axum::routing::get(handlers::update::get_status))
+        .route("/api/v1/system/update/check", axum::routing::post(handlers::update::check))
+        .route("/api/v1/system/update/apply", axum::routing::post(handlers::update::apply))
+        .route("/api/v1/system/update/progress", axum::routing::get(handlers::update::progress))
         // Container endpoints
         .route("/api/v1/containers", axum::routing::get(handlers::containers::list))
         .route("/api/v1/containers/{id}/start", axum::routing::post(handlers::containers::start))
@@ -117,6 +123,7 @@ async fn main() -> anyhow::Result<()> {
     let hardware = Arc::new(adapters::HardwareAdapter::new());
     let config = Arc::new(adapters::ConfigAdapter::new("/etc/airwaves/config.json"));
     let host = Arc::new(adapters::HostAdapter::new());
+    let updater = Arc::new(adapters::UpdaterAdapter::new(host.clone()));
     let (events_tx, _) = broadcast::channel(256);
     let forwarding_stats = Arc::new(Mutex::new(domain::ForwardingStats::default()));
     let message_buffer = Arc::new(Mutex::new(VecDeque::with_capacity(1000)));
@@ -127,6 +134,7 @@ async fn main() -> anyhow::Result<()> {
         hardware,
         config,
         host,
+        updater,
         events_tx,
         forwarding_stats,
         message_buffer,
@@ -135,6 +143,7 @@ async fn main() -> anyhow::Result<()> {
     // Spawn background event broadcasters
     spawn_stats_broadcaster(state.system.clone(), state.events_tx.clone());
     spawn_docker_event_watcher(state.docker.clone(), state.events_tx.clone());
+    spawn_update_checker(state.updater.clone(), state.events_tx.clone());
 
     // Spawn message forwarding service
     forwarding::spawn_forwarding_service(
@@ -186,6 +195,36 @@ fn spawn_stats_broadcaster(
                     disk_percent: stats.disk_percent,
                     temperature: stats.temperature,
                 });
+            }
+        }
+    });
+}
+
+/// Periodically checks for system updates and broadcasts when one is available.
+fn spawn_update_checker(
+    updater: Arc<adapters::UpdaterAdapter>,
+    tx: broadcast::Sender<ws::Event>,
+) {
+    use crate::ports::UpdatePort;
+
+    tokio::spawn(async move {
+        // Small startup delay so the gateway is reachable first.
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(12 * 60 * 60));
+        loop {
+            interval.tick().await;
+            let status = updater.check().await;
+            if status.update_available {
+                if let Some(sev) = status.highest_severity {
+                    let severity = serde_json::to_value(sev)
+                        .ok()
+                        .and_then(|v| v.as_str().map(String::from))
+                        .unwrap_or_else(|| "nice-to-have".to_string());
+                    let _ = tx.send(ws::Event::UpdateAvailable {
+                        severity,
+                        os_version: status.available_os_version.clone(),
+                    });
+                }
             }
         }
     });

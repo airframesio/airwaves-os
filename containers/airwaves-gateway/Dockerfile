@@ -20,8 +20,14 @@ RUN if [ -f control-app-check/package.json ]; then \
 # Stage 2: Nginx gateway
 FROM nginx:1-alpine
 
+# Control-app version, passed by CI from the cloned control-app package.json.
+# Surfaced at /version.json so the manager can report the deployed control-app
+# version and detect updates.
+ARG CONTROL_APP_VERSION=unknown
+
 LABEL org.opencontainers.image.source="https://github.com/airframesio/airwaves-os"
 LABEL org.opencontainers.image.description="Airwaves OS Gateway - Reverse proxy and web management app"
+LABEL io.airwaves.control-app-version="${CONTROL_APP_VERSION}"
 
 RUN apk add --no-cache curl
 
@@ -38,6 +44,10 @@ COPY --from=app-builder /app/dist/public/ /usr/share/nginx/html/
 
 # Remove the skip marker if it was the fallback
 RUN rm -f /usr/share/nginx/html/.skip
+
+# Stamp the deployed control-app version for the manager to read.
+RUN printf '{"name":"airwaves-os-control","version":"%s"}\n' "${CONTROL_APP_VERSION}" \
+    > /usr/share/nginx/html/version.json
 
 EXPOSE 80 443
 

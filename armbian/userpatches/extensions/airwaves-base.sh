@@ -57,6 +57,17 @@ function post_family_tweaks__airwaves_base_setup() {
 	display_alert "Installing app catalog" "${EXTENSION}" "info"
 	run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/catalog.json "${SDCARD}"/etc/airwaves/catalog.json
 
+	# Seed config-version markers + updater state directory. These track the
+	# installed compose/catalog revision so the updater can detect changes.
+	display_alert "Seeding updater state" "${EXTENSION}" "info"
+	run_host_command_logged mkdir -p "${SDCARD}"/etc/airwaves/update
+	echo '{"compose": 1, "catalog": 1, "channel": "stable"}' > "${SDCARD}"/etc/airwaves/.versions.json
+
+	# Install system updater service (triggered on demand by the manager,
+	# not enabled at boot).
+	display_alert "Installing airwaves-update service" "${EXTENSION}" "info"
+	run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/templates/systemd-airwaves-update.service "${SDCARD}"/etc/systemd/system/airwaves-update.service
+
 	# Mark as needing first run
 	run_host_command_logged touch "${SDCARD}"/opt/airwaves/.needs-first-run
 

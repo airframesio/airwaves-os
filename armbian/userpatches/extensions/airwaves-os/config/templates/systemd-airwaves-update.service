@@ -1,0 +1,14 @@
+[Unit]
+Description=Airwaves OS System Updater
+Documentation=https://airwavesos.com
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/etc/airwaves
+ExecStart=/opt/airwaves/scripts/airwaves-update
+# Updates can take a long time (image pulls, apt full-upgrade).
+TimeoutStartSec=30min
+StandardOutput=journal+console
+StandardError=journal+console

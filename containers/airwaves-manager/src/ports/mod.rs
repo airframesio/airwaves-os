@@ -32,6 +32,21 @@ pub trait ConfigPort {
     async fn write_config(&self, config: &AirwavesConfig) -> Result<(), AppError>;
 }
 
+/// Port for the system updater.
+#[allow(async_fn_in_trait)]
+pub trait UpdatePort {
+    /// Fetch + parse the remote release manifest for the configured channel.
+    async fn fetch_manifest(&self) -> Result<UpdateManifest, AppError>;
+    /// Detect what is currently installed.
+    async fn installed_versions(&self) -> InstalledVersions;
+    /// Compare installed vs manifest and build a full status.
+    async fn check(&self) -> UpdateStatus;
+    /// Hand an apply request to the host updater; returns immediately.
+    async fn apply(&self, components: Vec<String>) -> Result<(), AppError>;
+    /// Read the host updater's current progress.
+    async fn progress(&self) -> UpdateProgress;
+}
+
 /// Port for privileged host operations (executed in the host's namespaces).
 #[allow(async_fn_in_trait)]
 pub trait HostPort {

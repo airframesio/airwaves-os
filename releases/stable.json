@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "channel": "stable",
+  "os_version": "1.0.0",
+  "codename": "Sideband",
+  "released": "2026-05-28",
+  "severity": "recommended",
+  "min_os_version": "1.0.0",
+  "summary": "Airwaves OS 1.0.0 — host management (hostname/reboot/services), accurate host system details, and the in-app system updater.",
+  "notes_url": "https://github.com/airframesio/airwaves-os/releases/tag/v1.0.0",
+  "components": {
+    "manager": {
+      "version": "1.0.0",
+      "severity": "recommended",
+      "image": "ghcr.io/airframesio/airwaves-manager",
+      "tag": "latest"
+    },
+    "gateway": {
+      "version": "1.0.0",
+      "control_app_version": "1.0.0",
+      "severity": "recommended",
+      "image": "ghcr.io/airframesio/airwaves-gateway",
+      "tag": "latest"
+    },
+    "compose": {
+      "version": "1",
+      "severity": "required",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/main/armbian/userpatches/extensions/airwaves-os/config/templates/docker-compose.yml.template",
+      "sha256": "3610e27c32a2090a3bb8474b160a75e316ff4d55bb891ad3685dd7f2ea5d48c3"
+    },
+    "catalog": {
+      "version": "1",
+      "severity": "nice-to-have",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/main/armbian/userpatches/extensions/airwaves-os/config/catalog.json",
+      "sha256": "0b687a6c169251157886b9e1b47b1276e6476e78ae2397d8d38ad05979bd95aa"
+    }
+  },
+  "os": {
+    "major_upgrade": null,
+    "reboot_expected": false
+  }
+}

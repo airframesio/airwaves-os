@@ -69,6 +69,62 @@ impl HostAdapter {
         .map_err(|e| AppError::Internal(format!("Task join error: {e}")))?
     }
 
+    /// Run a host command and capture stdout (best-effort; None on failure).
+    async fn run_capture(&self, args: Vec<String>) -> Option<String> {
+        let via_nsenter = self.via_nsenter;
+        tokio::task::spawn_blocking(move || {
+            let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+            let mut cmd = if via_nsenter {
+                let mut c = Command::new("nsenter");
+                c.args(["-t", "1", "-m", "-u", "-i", "-n", "-p", "--"]);
+                c.args(&arg_refs);
+                c
+            } else {
+                let mut c = Command::new(arg_refs[0]);
+                c.args(&arg_refs[1..]);
+                c
+            };
+            cmd.output().ok().and_then(|o| {
+                if o.status.success() {
+                    Some(String::from_utf8_lossy(&o.stdout).to_string())
+                } else {
+                    None
+                }
+            })
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+
+    /// Count upgradable apt packages on the host (best-effort, uses cached
+    /// package lists — does not run `apt-get update`).
+    pub async fn upgradable_packages(&self) -> Option<u32> {
+        let out = self
+            .run_capture(vec![
+                "apt-get".into(),
+                "-s".into(),
+                "-o".into(),
+                "Debug::NoLocking=true".into(),
+                "upgrade".into(),
+            ])
+            .await?;
+        // Lines like "Inst <pkg> ..." indicate a package to be installed/upgraded.
+        let count = out.lines().filter(|l| l.starts_with("Inst ")).count();
+        Some(count as u32)
+    }
+
+    /// Start the host-side updater oneshot service.
+    pub async fn start_update_service(&self) -> Result<(), AppError> {
+        self.run(vec![
+            "systemctl".into(),
+            "start".into(),
+            "--no-block".into(),
+            "airwaves-update.service".into(),
+        ])
+        .await
+    }
+
     /// Run a command after a short delay, detached, so the HTTP response can be
     /// sent before the host action takes effect (used for reboot/shutdown).
     fn run_detached_delayed(&self, args: Vec<String>) {
