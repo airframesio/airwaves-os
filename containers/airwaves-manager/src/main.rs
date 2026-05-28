@@ -25,6 +25,7 @@ pub struct AppState {
     pub system: Arc<adapters::SystemAdapter>,
     pub hardware: Arc<adapters::HardwareAdapter>,
     pub config: Arc<adapters::ConfigAdapter>,
+    pub host: Arc<adapters::HostAdapter>,
     pub events_tx: broadcast::Sender<ws::Event>,
     pub forwarding_stats: Arc<Mutex<domain::ForwardingStats>>,
     pub message_buffer: Arc<Mutex<VecDeque<domain::DecodedMessage>>>,
@@ -36,6 +37,12 @@ fn api_router(state: AppState) -> Router {
         .route("/api/v1/system/info", axum::routing::get(handlers::system::get_info))
         .route("/api/v1/system/stats", axum::routing::get(handlers::system::get_stats))
         .route("/api/v1/system/overview", axum::routing::get(handlers::system::get_overview))
+        // Host control (privileged operations on the host)
+        .route("/api/v1/system/hostname", axum::routing::post(handlers::host::set_hostname))
+        .route("/api/v1/system/reboot", axum::routing::post(handlers::host::reboot))
+        .route("/api/v1/system/shutdown", axum::routing::post(handlers::host::shutdown))
+        .route("/api/v1/system/timezone", axum::routing::post(handlers::host::set_timezone))
+        .route("/api/v1/system/service/restart", axum::routing::post(handlers::host::restart_service))
         // Container endpoints
         .route("/api/v1/containers", axum::routing::get(handlers::containers::list))
         .route("/api/v1/containers/{id}/start", axum::routing::post(handlers::containers::start))
@@ -109,6 +116,7 @@ async fn main() -> anyhow::Result<()> {
     let system = Arc::new(adapters::SystemAdapter::new());
     let hardware = Arc::new(adapters::HardwareAdapter::new());
     let config = Arc::new(adapters::ConfigAdapter::new("/etc/airwaves/config.json"));
+    let host = Arc::new(adapters::HostAdapter::new());
     let (events_tx, _) = broadcast::channel(256);
     let forwarding_stats = Arc::new(Mutex::new(domain::ForwardingStats::default()));
     let message_buffer = Arc::new(Mutex::new(VecDeque::with_capacity(1000)));
@@ -118,6 +126,7 @@ async fn main() -> anyhow::Result<()> {
         system,
         hardware,
         config,
+        host,
         events_tx,
         forwarding_stats,
         message_buffer,

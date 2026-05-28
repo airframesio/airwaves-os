@@ -31,3 +31,18 @@ pub trait ConfigPort {
     async fn read_config(&self) -> Result<AirwavesConfig, AppError>;
     async fn write_config(&self, config: &AirwavesConfig) -> Result<(), AppError>;
 }
+
+/// Port for privileged host operations (executed in the host's namespaces).
+#[allow(async_fn_in_trait)]
+pub trait HostPort {
+    /// Set the system hostname (persistent, via the host's hostnamed).
+    async fn set_hostname(&self, hostname: &str) -> Result<(), AppError>;
+    /// Reboot the host.
+    async fn reboot(&self) -> Result<(), AppError>;
+    /// Power off the host.
+    async fn shutdown(&self) -> Result<(), AppError>;
+    /// Restart a systemd service on the host (allowlisted names only).
+    async fn restart_service(&self, service: &str) -> Result<(), AppError>;
+    /// Set the system timezone (via the host's timedated).
+    async fn set_timezone(&self, timezone: &str) -> Result<(), AppError>;
+}

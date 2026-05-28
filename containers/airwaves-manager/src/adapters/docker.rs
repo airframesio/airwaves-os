@@ -178,18 +178,58 @@ impl DockerPort for DockerAdapter {
         labels.insert("managed-by".to_string(), "airwaves".to_string());
         labels.insert("airwaves-app-id".to_string(), app.id.clone());
 
+        // Publish catalog-declared ports on the host.
+        let mut port_bindings: HashMap<String, Option<Vec<bollard::models::PortBinding>>> =
+            HashMap::new();
+        let mut exposed_ports: HashMap<String, HashMap<(), ()>> = HashMap::new();
+        for p in &app.ports {
+            let key = format!("{}/{}", p.container_port, p.protocol);
+            exposed_ports.insert(key.clone(), HashMap::new());
+            if let Some(host_port) = p.host_port {
+                port_bindings.insert(
+                    key,
+                    Some(vec![bollard::models::PortBinding {
+                        host_ip: Some("0.0.0.0".to_string()),
+                        host_port: Some(host_port.to_string()),
+                    }]),
+                );
+            }
+        }
+
+        // SDR apps need access to USB devices on the host.
+        let devices = if app.requires_sdr {
+            Some(vec![bollard::models::DeviceMapping {
+                path_on_host: Some("/dev/bus/usb".to_string()),
+                path_in_container: Some("/dev/bus/usb".to_string()),
+                cgroup_permissions: Some("rwm".to_string()),
+            }])
+        } else {
+            None
+        };
+
         let host_config = bollard::models::HostConfig {
             restart_policy: Some(bollard::models::RestartPolicy {
                 name: Some(bollard::models::RestartPolicyNameEnum::UNLESS_STOPPED),
                 ..Default::default()
             }),
             network_mode: Some("airwaves-apps".to_string()),
+            port_bindings: if port_bindings.is_empty() {
+                None
+            } else {
+                Some(port_bindings)
+            },
+            devices,
             ..Default::default()
         };
 
         let config = Config {
             image: Some(app.image.clone()),
             labels: Some(labels),
+            exposed_ports: if exposed_ports.is_empty() {
+                None
+            } else {
+                Some(exposed_ports)
+            },
             host_config: Some(host_config),
             ..Default::default()
         };

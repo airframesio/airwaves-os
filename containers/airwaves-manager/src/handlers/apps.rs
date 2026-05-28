@@ -6,19 +6,22 @@ use crate::domain::CatalogApp;
 use crate::ports::DockerPort;
 use crate::{AppError, AppState};
 
-/// Returns the app catalog from the catalog directory
-pub async fn list_catalog() -> Result<Json<Vec<CatalogApp>>, AppError> {
-    // Read catalog from /etc/airwaves/catalog/ or embedded defaults
+/// Load the full app catalog: prefer /etc/airwaves/catalog.json, fall back to
+/// the built-in default set.
+async fn load_catalog() -> Vec<CatalogApp> {
     let catalog_path = std::path::Path::new("/etc/airwaves/catalog.json");
-
-    if catalog_path.exists() {
-        let content = tokio::fs::read_to_string(catalog_path).await?;
-        let catalog: Vec<CatalogApp> = serde_json::from_str(&content)?;
-        Ok(Json(catalog))
-    } else {
-        // Return built-in default catalog
-        Ok(Json(default_catalog()))
+    if let Ok(content) = tokio::fs::read_to_string(catalog_path).await {
+        if let Ok(catalog) = serde_json::from_str::<Vec<CatalogApp>>(&content) {
+            return catalog;
+        }
+        tracing::warn!("catalog.json present but failed to parse; using default catalog");
     }
+    default_catalog()
+}
+
+/// Returns the app catalog.
+pub async fn list_catalog() -> Result<Json<Vec<CatalogApp>>, AppError> {
+    Ok(Json(load_catalog().await))
 }
 
 #[derive(Deserialize)]
@@ -30,7 +33,7 @@ pub async fn install_app(
     State(state): State<AppState>,
     Json(req): Json<InstallRequest>,
 ) -> Result<Json<crate::domain::ContainerInfo>, AppError> {
-    let catalog = default_catalog();
+    let catalog = load_catalog().await;
     let app = catalog
         .iter()
         .find(|a| a.id == req.app_id)

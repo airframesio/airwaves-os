@@ -41,6 +41,9 @@ services:
     container_name: airwaves-manager
     restart: unless-stopped
     privileged: true
+    # Share the host PID namespace so the manager can nsenter into the host's
+    # namespaces to run privileged operations (hostname, reboot, services).
+    pid: host
     networks:
       - airwaves-core
       - airwaves-apps
@@ -54,6 +57,7 @@ services:
     environment:
       - RUST_LOG=airwaves_manager=info
       - HOST_ROOT=/host
+      - HOST_VIA_NSENTER=1
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
