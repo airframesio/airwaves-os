@@ -102,6 +102,16 @@ want() {
     echo "${COMPONENTS}" | jq -e --arg c "$1" 'index($c) != null or index("all") != null' >/dev/null 2>&1
 }
 
+# Last lines of the log, flattened — used to surface the real cause of a failure.
+log_tail() {
+    tail -n 15 "${LOGFILE}" 2>/dev/null | tr '\n' ' ' | sed 's/  */ /g'
+}
+
+# Free space on the root filesystem, in MB.
+free_mb() {
+    df -Pk / | awk 'NR==2 {print int($4 / 1024)}'
+}
+
 verify_sha256() {
     local file="$1" expected="$2"
     [ -z "${expected}" ] && return 0
@@ -241,11 +251,26 @@ main() {
     # ---- base OS packages --------------------------------------------------
     if want os_packages; then
         phase "updating-os-packages" 85
-        run apt-get update
+        # Reclaim cache space and recover any interrupted dpkg state first.
+        run apt-get clean
+        run dpkg --configure -a
+        run apt-get -y -f install
+
+        local avail
+        avail="$(free_mb)"
+        if [ "${avail:-0}" -lt 800 ]; then
+            fail "Not enough free disk space for OS updates (${avail} MB free; need ~800 MB). Free up space or expand the disk, then try again."
+            return 1
+        fi
+
+        if ! run apt-get update; then
+            fail "apt-get update failed: $(log_tail)"
+            return 1
+        fi
         local kernel_before kernel_after
         kernel_before="$(dpkg -l 'linux-image*' 2>/dev/null | grep -c '^ii' || true)"
         if ! run env DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confold upgrade; then
-            fail "apt-get upgrade failed"
+            fail "apt-get upgrade failed: $(log_tail)"
             return 1
         fi
         kernel_after="$(dpkg -l 'linux-image*' 2>/dev/null | grep -c '^ii' || true)"
@@ -261,6 +286,17 @@ main() {
         if [ -n "${target}" ]; then
             phase "os-major-upgrade" 90
             log "In-place major upgrade to ${target} (this can take a while)"
+            run apt-get clean
+            run dpkg --configure -a
+
+            # Major upgrades need substantial headroom (downloads + unpack).
+            local avail
+            avail="$(free_mb)"
+            if [ "${avail:-0}" -lt 3000 ]; then
+                fail "Not enough free disk space for a major OS upgrade (${avail} MB free; need ~3000 MB). Expand the disk, then try again."
+                return 1
+            fi
+
             # Repoint apt sources at the new release codename, then full-upgrade.
             run sed -i.airwaves-bak -E "s/(bookworm|trixie|bullseye)/${target}/g" /etc/apt/sources.list
             if [ -d /etc/apt/sources.list.d ]; then
@@ -272,9 +308,12 @@ main() {
                     run sed -i.airwaves-bak -E "s/(bookworm|trixie|bullseye)/${target}/g" "${f}"
                 done
             fi
-            run apt-get update
+            if ! run apt-get update; then
+                fail "apt-get update failed after repointing sources: $(log_tail)"
+                return 1
+            fi
             if ! run env DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confold full-upgrade; then
-                fail "Major upgrade full-upgrade failed; manual intervention may be required"
+                fail "Major upgrade failed: $(log_tail)"
                 return 1
             fi
             REBOOT_REQUIRED="true"
