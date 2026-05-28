@@ -35,12 +35,14 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/airwaves:/etc/airwaves
-      - /sys:/host/sys:ro
-      - /proc:/host/proc:ro
+      # Host root, read-only, so the manager reports the host's identity
+      # (hostname, OS, model, disk) instead of the container's.
+      - /:/host:ro
     devices:
       - /dev/bus/usb:/dev/bus/usb
     environment:
       - RUST_LOG=airwaves_manager=info
+      - HOST_ROOT=/host
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s

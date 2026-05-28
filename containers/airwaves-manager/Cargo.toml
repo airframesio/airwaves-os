@@ -18,6 +18,9 @@ bollard = "0.18"
 # System information
 sysinfo = "0.33"
 
+# statvfs for host disk usage
+libc = "0.2"
+
 # USB device enumeration
 nusb = "0.1"
 

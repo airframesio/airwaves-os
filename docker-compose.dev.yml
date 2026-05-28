@@ -27,8 +27,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./dev/config:/etc/airwaves
-      - /sys:/host/sys:ro
-      - /proc:/host/proc:ro
+      # Host root, read-only, so the manager reports the host's identity
+      # (hostname, OS, model, disk) instead of the container's.
+      - /:/host:ro
     environment:
       - RUST_LOG=airwaves_manager=debug,tower_http=debug
       - SIMULATE_HARDWARE=true
+      - HOST_ROOT=/host

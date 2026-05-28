@@ -23,11 +23,23 @@ pub struct PortBinding {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemInfo {
     pub hostname: String,
+    /// Full OS name, e.g. "Debian GNU/Linux 13 (trixie)"
     pub os: String,
+    /// OS codename, e.g. "trixie"
+    pub os_codename: String,
     pub architecture: String,
     pub kernel: String,
     pub uptime: u64,
+    /// Hardware model, e.g. "Raspberry Pi 4 Model B" or "QEMU Standard PC"
+    pub model: String,
+    /// CPU brand string, e.g. "Intel(R) Core(TM) i5"
+    pub cpu_model: String,
+    /// Number of logical CPU cores
+    pub cpu_cores: usize,
     pub airwaves_version: String,
+    pub airwaves_codename: String,
+    pub airwaves_build_date: String,
+    pub airwaves_board: String,
 }
 
 /// System resource stats

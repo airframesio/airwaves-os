@@ -20,6 +20,7 @@ dependencies = [
  "bollard",
  "chrono",
  "futures",
+ "libc",
  "nusb",
  "rand",
  "reqwest",
