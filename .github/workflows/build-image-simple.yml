@@ -36,8 +36,8 @@ env:
 jobs:
   build:
     name: Build ${{ github.event.inputs.board }} (${{ github.event.inputs.release }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 180
+    runs-on: ubuntu-latest-4-cores
+    timeout-minutes: 120
     steps:
 
       - name: Free disk space
