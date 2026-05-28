@@ -27,6 +27,7 @@ on:
         type: choice
         options:
           - current
+          - legacy
           - edge
 
 env:
@@ -36,7 +37,7 @@ jobs:
   build:
     name: Build ${{ github.event.inputs.board }} (${{ github.event.inputs.release }})
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
 
       - name: Free disk space
