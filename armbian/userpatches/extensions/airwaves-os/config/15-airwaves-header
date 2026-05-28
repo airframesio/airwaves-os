@@ -1,6 +1,8 @@
 #!/bin/bash
 
-THIS_SCRIPT="header"
+# Unique key so this header is NOT disabled when we disable Armbian's own
+# "header" module (10-armbian-header) via MOTD_DISABLE.
+THIS_SCRIPT="airwaves-header"
 MOTD_DISABLE=""
 
 [[ -f /etc/armbian-release ]] && . /etc/armbian-release

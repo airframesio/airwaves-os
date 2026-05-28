@@ -38,12 +38,27 @@ function post_family_tweaks__airwaves_base_setup() {
 	# Set password using chpasswd via heredoc (avoids pipe parsing issues in chroot)
 	echo "airwaves:airwaves" | chroot "${SDCARD}" /usr/sbin/chpasswd
 
+	# Disable Armbian's interactive first-login wizard. The airwaves user is
+	# already fully provisioned at build time (password + sudo/plugdev/docker),
+	# and root has ROOTPWD, so first boot is unattended. (post_family_tweaks
+	# runs after Armbian touches /root/.not_logged_in_yet.)
+	display_alert "Disabling first-login wizard" "${EXTENSION}" "info"
+	run_host_command_logged rm -f "${SDCARD}/root/.not_logged_in_yet"
+
 	# Install MOTD
 	display_alert "Installing MOTD" "${EXTENSION}" "info"
 	run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/15-airwaves-header "${SDCARD}"/etc/update-motd.d/
 	run_host_command_logged chmod +x "${SDCARD}"/etc/update-motd.d/15-airwaves-header
 	run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/50-airwaves-help "${SDCARD}"/etc/update-motd.d/
 	run_host_command_logged chmod +x "${SDCARD}"/etc/update-motd.d/50-airwaves-help
+
+	# Disable Armbian's own header banner so only the Airwaves OS header shows
+	# (our 15-airwaves-header uses a distinct MOTD key, so it stays enabled).
+	if [ -f "${SDCARD}/etc/default/armbian-motd" ]; then
+		run_host_command_logged sed -i 's/^MOTD_DISABLE=.*/MOTD_DISABLE="clear header"/' "${SDCARD}/etc/default/armbian-motd"
+	else
+		echo 'MOTD_DISABLE="clear header"' > "${SDCARD}/etc/default/armbian-motd"
+	fi
 
 	# Install configuration
 	display_alert "Installing configuration files" "${EXTENSION}" "info"
