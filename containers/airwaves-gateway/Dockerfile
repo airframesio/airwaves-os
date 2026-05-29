@@ -1,5 +1,8 @@
-# Stage 1: Build the control app (if source is provided)
-FROM node:22-alpine AS app-builder
+# Stage 1: Build the control app (if source is provided).
+# Pin to the native BUILDPLATFORM so npm/Node never runs under QEMU emulation
+# (emulated V8 crashes with "illegal instruction"). The build output is static
+# HTML/CSS/JS — architecture-independent — so it's reused for every target arch.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS app-builder
 
 WORKDIR /app
 
