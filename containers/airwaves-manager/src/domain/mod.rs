@@ -339,16 +339,20 @@ pub struct UpdateManifest {
 /// A file delivered to the host filesystem as part of an update.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct HostFile {
-    /// Download URL (pinned to the release tag for stable; main for dev/beta).
+    /// Download URL. MUST be pinned to an immutable ref (a release tag), never
+    /// a branch like `main`, so a single branch commit cannot push arbitrary
+    /// root-owned code to deployed devices.
     pub url: String,
-    /// Absolute destination path on the host.
+    /// Absolute destination path on the host. The host updater additionally
+    /// rejects traversal and confines this to an allow-list of roots.
     pub dest: String,
     /// Optional octal mode string (e.g. "0755"); applied after write.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
-    /// Optional sha256 (lowercase hex) for verification.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sha256: Option<String>,
+    /// Mandatory sha256 (lowercase hex). These files land as host root, so
+    /// integrity verification is required — a manifest entry without one fails
+    /// to deserialize rather than silently shipping unverified content.
+    pub sha256: String,
 }
 
 fn default_schema() -> u32 {

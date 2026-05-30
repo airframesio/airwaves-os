@@ -247,11 +247,30 @@ main() {
             hf_mode="$(jq -r ".host_files[$i].mode // empty" "${REQUEST}")"
             hf_sha="$(jq -r ".host_files[$i].sha256 // empty" "${REQUEST}")"
             if [ -z "${hf_url}" ] || [ -z "${hf_dest}" ]; then continue; fi
-            # Refuse anything outside known-safe host roots.
+            # These files are written as host root, so the destination must be
+            # locked down. Reject relative paths and any traversal/double-slash
+            # BEFORE canonicalizing, then verify the canonical path still falls
+            # inside an allow-listed root (defends against e.g.
+            # /opt/airwaves/../../etc/sudoers slipping past a prefix match).
             case "${hf_dest}" in
+                *..*|*//*) log "Refusing host file with unsafe dest: ${hf_dest}"; continue ;;
+            esac
+            if [ "${hf_dest#/}" = "${hf_dest}" ]; then
+                log "Refusing relative host-file dest: ${hf_dest}"; continue
+            fi
+            local hf_dest_canon
+            hf_dest_canon="$(realpath -m "${hf_dest}")"
+            case "${hf_dest_canon}" in
                 /opt/airwaves/*|/etc/airwaves/*|/etc/systemd/system/*|/etc/update-motd.d/*|/etc/udev/rules.d/*) ;;
                 *) log "Refusing host file with disallowed dest: ${hf_dest}"; continue ;;
             esac
+            hf_dest="${hf_dest_canon}"
+            # Integrity is mandatory: a host file with no sha256 could let a
+            # tampered/served-wrong file land as root. Skip (don't fail the
+            # whole update) and log loudly.
+            if [ -z "${hf_sha}" ]; then
+                log "Refusing host file without sha256: ${hf_dest}"; continue
+            fi
             if [ "${DRYRUN}" = "1" ]; then
                 log "[dry-run] would sync ${hf_url} -> ${hf_dest}"
                 continue
