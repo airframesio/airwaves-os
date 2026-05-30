@@ -8,12 +8,26 @@
     "image": "ghcr.io/sdr-enthusiasts/docker-adsb-ultrafeeder:latest",
     "icon": null,
     "ports": [
-      {"container_port": 80, "host_port": 8080, "protocol": "tcp"},
-      {"container_port": 30003, "host_port": 30003, "protocol": "tcp"},
-      {"container_port": 30005, "host_port": 30005, "protocol": "tcp"}
+      {
+        "container_port": 80,
+        "host_port": 8080,
+        "protocol": "tcp"
+      },
+      {
+        "container_port": 30003,
+        "host_port": 30003,
+        "protocol": "tcp"
+      },
+      {
+        "container_port": 30005,
+        "host_port": 30005,
+        "protocol": "tcp"
+      }
     ],
     "requires_sdr": true,
-    "sdr_types": ["rtl_sdr"],
+    "sdr_types": [
+      "rtl_sdr"
+    ],
     "env": {
       "READSB_DEVICE_TYPE": "rtlsdr",
       "READSB_GAIN": "autogain",
@@ -32,12 +46,26 @@
     "image": "ghcr.io/sdr-enthusiasts/docker-readsb-protobuf:latest",
     "icon": null,
     "ports": [
-      {"container_port": 8080, "host_port": 8078, "protocol": "tcp"},
-      {"container_port": 30003, "host_port": 30003, "protocol": "tcp"},
-      {"container_port": 30005, "host_port": 30005, "protocol": "tcp"}
+      {
+        "container_port": 8080,
+        "host_port": 8078,
+        "protocol": "tcp"
+      },
+      {
+        "container_port": 30003,
+        "host_port": 30003,
+        "protocol": "tcp"
+      },
+      {
+        "container_port": 30005,
+        "host_port": 30005,
+        "protocol": "tcp"
+      }
     ],
     "requires_sdr": true,
-    "sdr_types": ["rtl_sdr"],
+    "sdr_types": [
+      "rtl_sdr"
+    ],
     "env": {
       "READSB_DEVICE_TYPE": "rtlsdr",
       "READSB_GAIN": "autogain",
@@ -56,13 +84,57 @@
     "icon": null,
     "ports": [],
     "requires_sdr": true,
-    "sdr_types": ["rtl_sdr", "airspy"],
+    "sdr_types": [
+      "rtl_sdr",
+      "airspy"
+    ],
     "env": {
       "SOAPYSDR": "driver=rtlsdr",
       "FREQUENCIES": "130.025;130.450;131.125;131.550",
       "FEED_ID": "",
       "TZ": "UTC"
-    }
+    },
+    "config_fields": [
+      {
+        "key": "SOAPYSDR",
+        "label": "SDR device",
+        "help": "Select which connected SDR acarsdec should use.",
+        "kind": "sdr",
+        "default": "driver=rtlsdr",
+        "required": true
+      },
+      {
+        "key": "FREQUENCIES",
+        "label": "Frequencies (MHz)",
+        "help": "Semicolon-separated VHF ACARS frequencies, e.g. 130.025;130.450;131.125;131.550",
+        "kind": "text",
+        "default": "130.025;130.450;131.125;131.550",
+        "required": true
+      },
+      {
+        "key": "FEED_ID",
+        "label": "Feed ID",
+        "help": "Optional station/feed identifier sent with messages.",
+        "kind": "text",
+        "default": "",
+        "required": false
+      },
+      {
+        "key": "GAIN",
+        "label": "Gain (dB)",
+        "help": "Receiver gain. Leave default for automatic.",
+        "kind": "text",
+        "default": "auto",
+        "required": false
+      },
+      {
+        "key": "TZ",
+        "label": "Timezone",
+        "kind": "text",
+        "default": "UTC",
+        "required": false
+      }
+    ]
   },
   {
     "id": "dumpvdl2",
@@ -74,7 +146,10 @@
     "icon": null,
     "ports": [],
     "requires_sdr": true,
-    "sdr_types": ["rtl_sdr", "airspy"],
+    "sdr_types": [
+      "rtl_sdr",
+      "airspy"
+    ],
     "env": {
       "SOAPYSDR": "driver=rtlsdr",
       "FREQUENCIES": "136.650;136.800;136.975",
@@ -93,7 +168,11 @@
     "icon": null,
     "ports": [],
     "requires_sdr": true,
-    "sdr_types": ["rtl_sdr", "airspy", "airspy_hf"],
+    "sdr_types": [
+      "rtl_sdr",
+      "airspy",
+      "airspy_hf"
+    ],
     "env": {
       "SOAPYSDR": "driver=rtlsdr",
       "TZ": "UTC"
@@ -108,8 +187,16 @@
     "image": "ghcr.io/sdr-enthusiasts/acars_router:latest",
     "icon": null,
     "ports": [
-      {"container_port": 15550, "host_port": 15550, "protocol": "tcp"},
-      {"container_port": 15555, "host_port": 15555, "protocol": "tcp"}
+      {
+        "container_port": 15550,
+        "host_port": 15550,
+        "protocol": "tcp"
+      },
+      {
+        "container_port": 15555,
+        "host_port": 15555,
+        "protocol": "tcp"
+      }
     ],
     "requires_sdr": false,
     "sdr_types": [],
@@ -129,10 +216,17 @@
     "image": "ghcr.io/jvde-github/ais-catcher:latest",
     "icon": null,
     "ports": [
-      {"container_port": 8100, "host_port": 8100, "protocol": "tcp"}
+      {
+        "container_port": 8100,
+        "host_port": 8100,
+        "protocol": "tcp"
+      }
     ],
     "requires_sdr": true,
-    "sdr_types": ["rtl_sdr", "airspy"],
+    "sdr_types": [
+      "rtl_sdr",
+      "airspy"
+    ],
     "env": {
       "TZ": "UTC"
     }
@@ -146,10 +240,16 @@
     "image": "ghcr.io/sdr-enthusiasts/docker-rtlsdrairband:latest",
     "icon": null,
     "ports": [
-      {"container_port": 8000, "host_port": 8000, "protocol": "tcp"}
+      {
+        "container_port": 8000,
+        "host_port": 8000,
+        "protocol": "tcp"
+      }
     ],
     "requires_sdr": true,
-    "sdr_types": ["rtl_sdr"],
+    "sdr_types": [
+      "rtl_sdr"
+    ],
     "env": {
       "TZ": "UTC"
     }
@@ -164,7 +264,9 @@
     "icon": null,
     "ports": [],
     "requires_sdr": true,
-    "sdr_types": ["rtl_sdr"],
+    "sdr_types": [
+      "rtl_sdr"
+    ],
     "env": {}
   },
   {
@@ -176,10 +278,18 @@
     "image": "ghcr.io/rpatel3001/docker-satdump:latest",
     "icon": null,
     "ports": [
-      {"container_port": 8081, "host_port": 8081, "protocol": "tcp"}
+      {
+        "container_port": 8081,
+        "host_port": 8081,
+        "protocol": "tcp"
+      }
     ],
     "requires_sdr": true,
-    "sdr_types": ["rtl_sdr", "airspy", "hack_rf"],
+    "sdr_types": [
+      "rtl_sdr",
+      "airspy",
+      "hack_rf"
+    ],
     "env": {
       "TZ": "UTC"
     }
@@ -193,10 +303,16 @@
     "image": "ghcr.io/sdr-enthusiasts/docker-dump978:latest",
     "icon": null,
     "ports": [
-      {"container_port": 30978, "host_port": 30978, "protocol": "tcp"}
+      {
+        "container_port": 30978,
+        "host_port": 30978,
+        "protocol": "tcp"
+      }
     ],
     "requires_sdr": true,
-    "sdr_types": ["rtl_sdr"],
+    "sdr_types": [
+      "rtl_sdr"
+    ],
     "env": {
       "TZ": "UTC",
       "DUMP978_DEVICE_TYPE": "rtlsdr"
@@ -211,7 +327,11 @@
     "image": "ghcr.io/sdr-enthusiasts/docker-acarshub:latest",
     "icon": null,
     "ports": [
-      {"container_port": 80, "host_port": 8900, "protocol": "tcp"}
+      {
+        "container_port": 80,
+        "host_port": 8900,
+        "protocol": "tcp"
+      }
     ],
     "requires_sdr": false,
     "sdr_types": [],
@@ -230,7 +350,11 @@
     "image": "ghcr.io/sdr-enthusiasts/docker-tar1090:latest",
     "icon": null,
     "ports": [
-      {"container_port": 80, "host_port": 8082, "protocol": "tcp"}
+      {
+        "container_port": 80,
+        "host_port": 8082,
+        "protocol": "tcp"
+      }
     ],
     "requires_sdr": false,
     "sdr_types": [],

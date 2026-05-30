@@ -120,6 +120,7 @@ fn default_catalog() -> Vec<CatalogApp> {
             ports: vec![crate::domain::PortBinding { container_port: 80, host_port: Some(8080), protocol: "tcp".to_string() }],
             requires_sdr: true,
             sdr_types: vec![crate::domain::SdrType::RtlSdr],
+            ..Default::default()
         },
         CatalogApp {
             id: "acarsdec".to_string(),
@@ -132,6 +133,7 @@ fn default_catalog() -> Vec<CatalogApp> {
             ports: vec![],
             requires_sdr: true,
             sdr_types: vec![crate::domain::SdrType::RtlSdr, crate::domain::SdrType::Airspy],
+            ..Default::default()
         },
         CatalogApp {
             id: "dumpvdl2".to_string(),
@@ -144,6 +146,7 @@ fn default_catalog() -> Vec<CatalogApp> {
             ports: vec![],
             requires_sdr: true,
             sdr_types: vec![crate::domain::SdrType::RtlSdr, crate::domain::SdrType::Airspy],
+            ..Default::default()
         },
         CatalogApp {
             id: "dumphfdl".to_string(),
@@ -156,6 +159,7 @@ fn default_catalog() -> Vec<CatalogApp> {
             ports: vec![],
             requires_sdr: true,
             sdr_types: vec![crate::domain::SdrType::RtlSdr, crate::domain::SdrType::Airspy, crate::domain::SdrType::AirspyHf],
+            ..Default::default()
         },
         CatalogApp {
             id: "acarshub".to_string(),
@@ -168,6 +172,7 @@ fn default_catalog() -> Vec<CatalogApp> {
             ports: vec![crate::domain::PortBinding { container_port: 80, host_port: Some(8900), protocol: "tcp".to_string() }],
             requires_sdr: false,
             sdr_types: vec![],
+            ..Default::default()
         },
         CatalogApp {
             id: "ais-catcher".to_string(),
@@ -180,6 +185,7 @@ fn default_catalog() -> Vec<CatalogApp> {
             ports: vec![crate::domain::PortBinding { container_port: 8100, host_port: Some(8100), protocol: "tcp".to_string() }],
             requires_sdr: true,
             sdr_types: vec![crate::domain::SdrType::RtlSdr, crate::domain::SdrType::Airspy],
+            ..Default::default()
         },
     ]
 }

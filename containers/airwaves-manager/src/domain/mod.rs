@@ -182,7 +182,7 @@ pub struct FeedConfig {
 }
 
 /// App catalog entry
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct CatalogApp {
     pub id: String,
     pub name: String,
@@ -194,6 +194,42 @@ pub struct CatalogApp {
     pub ports: Vec<PortBinding>,
     pub requires_sdr: bool,
     pub sdr_types: Vec<SdrType>,
+    /// Default environment variables passed to the container at install. User
+    /// overrides from the install wizard are merged on top of these.
+    #[serde(default)]
+    pub env: std::collections::HashMap<String, String>,
+    /// Optional wizard schema: fields the install dialog should prompt for.
+    /// Each maps to an environment variable (or the special SDR assignment).
+    #[serde(default)]
+    pub config_fields: Vec<ConfigField>,
+}
+
+/// One configurable field shown in the pre-install wizard.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConfigField {
+    /// Environment variable this field sets (ignored when kind == "sdr").
+    pub key: String,
+    /// Human label shown in the form.
+    pub label: String,
+    /// Optional helper text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
+    /// Field kind: "text" | "number" | "select" | "sdr".
+    #[serde(default = "default_field_kind")]
+    pub kind: String,
+    /// Default value (prefilled in the form).
+    #[serde(default)]
+    pub default: String,
+    /// Options for kind == "select".
+    #[serde(default)]
+    pub options: Vec<String>,
+    /// Whether the field must be non-empty to proceed.
+    #[serde(default)]
+    pub required: bool,
+}
+
+fn default_field_kind() -> String {
+    "text".to_string()
 }
 
 /// Decoded message from a decoder container, forwarded between nodes
