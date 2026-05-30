@@ -27,6 +27,33 @@ impl DockerAdapter {
 }
 
 impl DockerAdapter {
+    /// Create a bridge network if it doesn't already exist (idempotent).
+    async fn ensure_network(&self, name: &str) -> Result<(), AppError> {
+        if self.client.inspect_network::<String>(name, None).await.is_ok() {
+            return Ok(());
+        }
+        match self
+            .client
+            .create_network(bollard::network::CreateNetworkOptions {
+                name: name.to_string(),
+                driver: "bridge".to_string(),
+                ..Default::default()
+            })
+            .await
+        {
+            Ok(_) => {
+                tracing::info!("Created Docker network: {}", name);
+                Ok(())
+            }
+            // Race: another caller created it between inspect and create.
+            Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 409,
+                ..
+            }) => Ok(()),
+            Err(e) => Err(AppError::Docker(e)),
+        }
+    }
+
     /// Returns a stream of Docker daemon events (container start/stop/die/etc.)
     pub async fn watch_events(
         &self,
@@ -241,8 +268,26 @@ impl DockerPort for DockerAdapter {
             }
         }
 
+        // Ensure the apps network exists (self-healing: devices provisioned via
+        // bootstrap, or where the network was pruned, won't have it otherwise).
+        self.ensure_network("airwaves-apps").await?;
+
         // Create container
         let container_name = format!("airwaves-{}", app.id);
+
+        // Make install idempotent: remove any pre-existing container with the
+        // same name (e.g. a stale/failed prior attempt) so retries succeed.
+        let _ = self
+            .client
+            .remove_container(
+                &container_name,
+                Some(RemoveContainerOptions {
+                    force: true,
+                    ..Default::default()
+                }),
+            )
+            .await;
+
         let mut labels = HashMap::new();
         labels.insert("managed-by".to_string(), "airwaves".to_string());
         labels.insert("airwaves-app-id".to_string(), app.id.clone());
@@ -309,9 +354,27 @@ impl DockerPort for DockerAdapter {
         };
 
         self.client.create_container(Some(opts), config).await?;
-        self.client
+
+        // If start fails (e.g. networking error), remove the created container
+        // so a failed install doesn't leave a stopped container that the UI
+        // would show as "installed". Keeps install atomic.
+        if let Err(e) = self
+            .client
             .start_container(&container_name, None::<StartContainerOptions<String>>)
-            .await?;
+            .await
+        {
+            let _ = self
+                .client
+                .remove_container(
+                    &container_name,
+                    Some(RemoveContainerOptions {
+                        force: true,
+                        ..Default::default()
+                    }),
+                )
+                .await;
+            return Err(AppError::Docker(e));
+        }
 
         // Return info about the created container
         Ok(ContainerInfo {
