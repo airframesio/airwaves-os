@@ -187,15 +187,15 @@ over `:latest`.
 
 ### Publishing per channel
 
-- **dev**: merge to `main`. CI republishes the `dev` image tag. To make dev
-  devices *see* an update, bump the prerelease version (e.g. `1.0.4-dev.1`) in
-  `Cargo.toml`/`package.json` and `releases/dev.json` — version drives update
-  detection (semver), the tag drives what's pulled.
-- **beta**: push the `beta` branch; bump a `-beta.N` prerelease version and
-  update `releases/beta.json`.
+- **dev**: merge to `main`. CI builds, publishes `<version>-dev.<run#>`, and the
+  `pin-manifest` job auto-updates `releases/dev.json` to that concrete tag — no
+  manual manifest edit. The unique `<run#>` makes each dev build a distinct
+  concrete tag, so dev devices detect and pull the exact new image.
+- **beta**: push the `beta` branch. Same flow → `<version>-beta.<run#>`, manifest
+  pinned automatically.
 - **stable**: push a `v<version>` tag (builds `stable` + `latest` + version);
-  bump versions and `releases/stable.json` to the immutable version tag, and
-  recompute the compose/catalog `sha256`.
+  bump versions and `releases/stable.json` to the version tag, and recompute the
+  compose/catalog `sha256`. (Stable is human-maintained, not auto-pinned.)
 
 All `releases/*.json` are read from `main`, so update the channel manifest on
 `main` even when the images came from another branch.

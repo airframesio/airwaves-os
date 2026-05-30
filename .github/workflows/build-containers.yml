@@ -1,12 +1,20 @@
 name: Build Containers
 
 # Channel model:
-#   - push to main          -> "dev" channel    (image tag: dev)
-#   - push to beta branch   -> "beta" channel   (image tag: beta)
-#   - push tag v*           -> "stable" channel (image tags: stable + latest)
-#   - workflow_dispatch     -> choose channel (auto = infer from branch)
-# Every build also publishes an immutable version tag (from Cargo.toml /
-# control-app package.json) and a sha- tag, so updates can pin exact versions.
+#   - push to main        -> dev channel
+#   - push to beta branch -> beta channel
+#   - push tag v*         -> stable channel
+#   - workflow_dispatch   -> pick channel (auto = infer from ref)
+#
+# Tags published per build:
+#   - sha-<sha>                              (every build)
+#   - <version>                              (every build; from Cargo.toml / package.json)
+#   - <version>-<channel>.<run#>             (dev/beta only; concrete, immutable, identifiable)
+#   - <channel>  (dev|beta)                  (dev/beta only; convenience moving alias)
+#   - stable, latest                         (stable only)
+#
+# For dev/beta, the pin-manifest job writes the concrete <version>-<channel>.<run#>
+# tag back into releases/<channel>.json so devices pull a specific image.
 
 on:
   push:
@@ -27,7 +35,7 @@ on:
           - airwaves-gateway
           - airwaves-manager
       channel:
-        description: "Channel to publish (auto = infer from branch)"
+        description: "Channel to publish (auto = infer from ref)"
         required: true
         default: "auto"
         type: choice
@@ -137,7 +145,9 @@ jobs:
           tags: |
             type=sha
             type=raw,value=${{ steps.ctrlver.outputs.version }},enable=${{ steps.ctrlver.outputs.version != 'unknown' }}
-            type=raw,value=${{ needs.setup.outputs.channel }}
+            type=raw,value=${{ steps.ctrlver.outputs.version }}-${{ needs.setup.outputs.channel }}.${{ github.run_number }},enable=${{ needs.setup.outputs.is_stable != 'true' && steps.ctrlver.outputs.version != 'unknown' }}
+            type=raw,value=${{ needs.setup.outputs.channel }},enable=${{ needs.setup.outputs.is_stable != 'true' }}
+            type=raw,value=stable,enable=${{ needs.setup.outputs.is_stable == 'true' }}
             type=raw,value=latest,enable=${{ needs.setup.outputs.is_stable == 'true' }}
 
       - name: Build and push
@@ -193,7 +203,9 @@ jobs:
           tags: |
             type=sha
             type=raw,value=${{ steps.mgrver.outputs.version }},enable=${{ steps.mgrver.outputs.version != 'unknown' }}
-            type=raw,value=${{ needs.setup.outputs.channel }}
+            type=raw,value=${{ steps.mgrver.outputs.version }}-${{ needs.setup.outputs.channel }}.${{ github.run_number }},enable=${{ needs.setup.outputs.is_stable != 'true' && steps.mgrver.outputs.version != 'unknown' }}
+            type=raw,value=${{ needs.setup.outputs.channel }},enable=${{ needs.setup.outputs.is_stable != 'true' }}
+            type=raw,value=stable,enable=${{ needs.setup.outputs.is_stable == 'true' }}
             type=raw,value=latest,enable=${{ needs.setup.outputs.is_stable == 'true' }}
 
       - name: Build and push
@@ -229,12 +241,55 @@ jobs:
           CHANNEL: ${{ needs.setup.outputs.channel }}
         run: |
           for image in airwaves-gateway airwaves-manager; do
-            docker pull --platform "linux/${{ matrix.arch }}" "${{ env.IMAGE_PREFIX }}/${image}:${CHANNEL}" || true
-            docker save "${{ env.IMAGE_PREFIX }}/${image}:${CHANNEL}" -o "${image}-${{ matrix.arch }}.tar" || true
+            docker pull --platform "linux/${{ matrix.arch }}" "${{ env.IMAGE_PREFIX }}/${image}:${CHANNEL}" || \
+              docker pull --platform "linux/${{ matrix.arch }}" "${{ env.IMAGE_PREFIX }}/${image}:latest" || true
+            docker save "${{ env.IMAGE_PREFIX }}/${image}:${CHANNEL}" -o "${image}-${{ matrix.arch }}.tar" 2>/dev/null || \
+              docker save "${{ env.IMAGE_PREFIX }}/${image}:latest" -o "${image}-${{ matrix.arch }}.tar" 2>/dev/null || true
           done
+
       - name: Upload tarballs
         uses: actions/upload-artifact@v4
         with:
           name: container-images-${{ matrix.arch }}-${{ needs.setup.outputs.channel }}
           path: "*.tar"
           retention-days: 30
+
+  # Non-stable channels: pin the channel manifest to the concrete, immutable
+  # image tag just built and commit it back to main, so dev/beta devices pull a
+  # specific, identifiable image (never a moving "dev"/"beta" tag).
+  pin-manifest:
+    name: Pin ${{ needs.setup.outputs.channel }} manifest to concrete tag
+    needs: [setup, build-gateway, build-manager]
+    if: ${{ !failure() && !cancelled() && needs.setup.outputs.is_stable != 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pin concrete image tag in channel manifest
+        env:
+          CHANNEL: ${{ needs.setup.outputs.channel }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          f="releases/${CHANNEL}.json"
+          if [ ! -f "$f" ]; then echo "No manifest $f; skipping"; exit 0; fi
+          mgr_ver="$(jq -r '.components.manager.version' "$f")"
+          gw_ver="$(jq -r '.components.gateway.version' "$f")"
+          mgr_tag="${mgr_ver}-${CHANNEL}.${RUN_NUMBER}"
+          gw_tag="${gw_ver}-${CHANNEL}.${RUN_NUMBER}"
+          tmp="$(mktemp)"
+          jq --arg m "$mgr_tag" --arg g "$gw_tag" \
+            '.components.manager.tag=$m | .components.gateway.tag=$g' "$f" > "$tmp"
+          mv "$tmp" "$f"
+          echo "Pinned ${CHANNEL}: manager -> ${mgr_tag}, gateway -> ${gw_tag}"
+          if git diff --quiet -- "$f"; then echo "No change"; exit 0; fi
+          git config user.name "airwaves-ci"
+          git config user.email "ci@airframes.io"
+          git add "$f"
+          git commit -m "ci: pin ${CHANNEL} channel to concrete tags [skip ci]"
+          git push origin main
