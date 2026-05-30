@@ -97,6 +97,9 @@ jobs:
   build-gateway:
     name: Build airwaves-gateway
     needs: [setup]
+    outputs:
+      version: ${{ steps.ctrlver.outputs.version }}
+      tag: ${{ steps.ctrlver.outputs.version }}-${{ needs.setup.outputs.channel }}.${{ github.run_number }}
     # Build on every push/tag (NOT gated by paths): the dev/beta channels pin
     # BOTH images to a concrete <version>-<channel>.<run#> tag, so both images
     # must exist for every run or the updater pins a phantom gateway tag and
@@ -171,6 +174,9 @@ jobs:
   build-manager:
     name: Build airwaves-manager
     needs: [setup]
+    outputs:
+      version: ${{ steps.mgrver.outputs.version }}
+      tag: ${{ steps.mgrver.outputs.version }}-${{ needs.setup.outputs.channel }}.${{ github.run_number }}
     # Build on every push/tag (see build-gateway note): both images must exist
     # for every dev/beta run so concrete channel tags never point at a phantom.
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.container == 'all' || github.event.inputs.container == 'airwaves-manager' }}
@@ -280,20 +286,34 @@ jobs:
       - name: Pin concrete image tag in channel manifest
         env:
           CHANNEL: ${{ needs.setup.outputs.channel }}
-          RUN_NUMBER: ${{ github.run_number }}
+          # Use the tags the build jobs ACTUALLY produced (derived from the
+          # source versions in Cargo.toml / package.json at build time), not a
+          # tag reconstructed from the manifest's version field. Those two can
+          # drift (manifest bumped ahead of source), which previously pinned a
+          # tag that was never pushed -> compose pull fails -> rollback.
+          MGR_TAG: ${{ needs.build-manager.outputs.tag }}
+          GW_TAG: ${{ needs.build-gateway.outputs.tag }}
+          MGR_VER: ${{ needs.build-manager.outputs.version }}
+          GW_VER: ${{ needs.build-gateway.outputs.version }}
         run: |
           set -euo pipefail
           f="releases/${CHANNEL}.json"
           if [ ! -f "$f" ]; then echo "No manifest $f; skipping"; exit 0; fi
-          mgr_ver="$(jq -r '.components.manager.version' "$f")"
-          gw_ver="$(jq -r '.components.gateway.version' "$f")"
-          mgr_tag="${mgr_ver}-${CHANNEL}.${RUN_NUMBER}"
-          gw_tag="${gw_ver}-${CHANNEL}.${RUN_NUMBER}"
+          if [ -z "${MGR_TAG}" ] || [ -z "${GW_TAG}" ] \
+             || [ "${MGR_VER}" = "unknown" ] || [ "${GW_VER}" = "unknown" ]; then
+            echo "Build outputs missing/unknown (mgr='${MGR_TAG}' gw='${GW_TAG}'); not pinning."
+            exit 0
+          fi
+          # Keep the advertised base version in lockstep with the built images,
+          # and pin both image tags to the exact tags just pushed.
           tmp="$(mktemp)"
-          jq --arg m "$mgr_tag" --arg g "$gw_tag" \
-            '.components.manager.tag=$m | .components.gateway.tag=$g' "$f" > "$tmp"
+          jq --arg m "$MGR_TAG" --arg g "$GW_TAG" \
+             --arg mv "$MGR_VER" --arg gv "$GW_VER" \
+            '.components.manager.tag=$m | .components.gateway.tag=$g
+             | .components.manager.version=$mv | .components.gateway.version=$gv
+             | .components.gateway.control_app_version=$gv' "$f" > "$tmp"
           mv "$tmp" "$f"
-          echo "Pinned ${CHANNEL}: manager -> ${mgr_tag}, gateway -> ${gw_tag}"
+          echo "Pinned ${CHANNEL}: manager -> ${MGR_TAG}, gateway -> ${GW_TAG}"
           if git diff --quiet -- "$f"; then echo "No change"; exit 0; fi
           git config user.name "airwaves-ci"
           git config user.email "ci@airframes.io"
