@@ -329,7 +329,30 @@ impl UpdatePort for UpdaterAdapter {
             catalog_sha256: None,
             catalog_version: None,
             os_major_to: None,
+            manager_image: None,
+            manager_tag: None,
+            gateway_image: None,
+            gateway_tag: None,
         };
+
+        // Pin container image tags from the manifest so the host updater pulls
+        // immutable version tags rather than :latest.
+        if want("manager") {
+            if let Some(c) = comp("manager") {
+                request.manager_image = c.image.clone();
+                request.manager_tag = c.tag.clone().or_else(|| Some(c.version.clone()));
+            }
+        }
+        if want("gateway") {
+            if let Some(c) = comp("gateway") {
+                request.gateway_image = c.image.clone();
+                request.gateway_tag = c
+                    .tag
+                    .clone()
+                    .or_else(|| c.control_app_version.clone())
+                    .or_else(|| Some(c.version.clone()));
+            }
+        }
 
         if want("compose") {
             if let Some(c) = comp("compose") {

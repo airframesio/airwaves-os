@@ -12,6 +12,14 @@ pub async fn list(
     Ok(Json(containers))
 }
 
+/// Live CPU/memory usage for all running containers.
+pub async fn stats(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::domain::ContainerStats>>, AppError> {
+    let stats = state.docker.container_stats().await?;
+    Ok(Json(stats))
+}
+
 pub async fn start(
     State(state): State<AppState>,
     Path(id): Path<String>,

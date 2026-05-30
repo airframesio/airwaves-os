@@ -149,6 +149,22 @@ compose() {
     docker compose -f "${COMPOSE}" "$@"
 }
 
+# Rewrite the tag of a specific image in docker-compose.yml so the next pull
+# fetches an immutable version tag instead of :latest. Idempotent.
+pin_image_tag() {
+    local image="$1" tag="$2"
+    [ -f "${COMPOSE}" ] || return 0
+    # Escape regex metacharacters in the image path (dots, slashes).
+    local esc
+    esc="$(printf '%s' "${image}" | sed -e 's/[.[\*^$()+?{|]/\\&/g' -e 's#/#\\/#g')"
+    if [ "${DRYRUN}" = "1" ]; then
+        log "[dry-run] pin ${image} -> :${tag}"
+        return 0
+    fi
+    sed -i -E "s#(${esc}):[^\"'[:space:]]+#\\1:${tag}#g" "${COMPOSE}"
+    log "Pinned ${image} -> :${tag}"
+}
+
 download() {
     # download <url> <dest> <sha256>
     local url="$1" dest="$2" sha="$3"
@@ -240,6 +256,22 @@ main() {
             rollback_config
             return 1
         fi
+
+        # Pin compose image tags to the manifest's immutable version tags so the
+        # pull fetches a specific version (not whatever :latest currently is).
+        if want manager; then
+            local mgr_img mgr_tag
+            mgr_img="$(jq -r '.manager_image // empty' "${REQUEST}")"
+            mgr_tag="$(jq -r '.manager_tag // empty' "${REQUEST}")"
+            [ -n "${mgr_img}" ] && [ -n "${mgr_tag}" ] && pin_image_tag "${mgr_img}" "${mgr_tag}"
+        fi
+        if want gateway; then
+            local gw_img gw_tag
+            gw_img="$(jq -r '.gateway_image // empty' "${REQUEST}")"
+            gw_tag="$(jq -r '.gateway_tag // empty' "${REQUEST}")"
+            [ -n "${gw_img}" ] && [ -n "${gw_tag}" ] && pin_image_tag "${gw_img}" "${gw_tag}"
+        fi
+
         if ! run compose pull; then
             fail "docker compose pull failed: $(log_tail)"
             rollback_config
@@ -259,6 +291,23 @@ main() {
             fail "Containers did not become healthy; rolling back"
             rollback_full
             return 1
+        fi
+
+        # Digest gate: warn if a requested container's image didn't actually
+        # change (e.g. :latest pointed at the same image we already had).
+        if [ "${DRYRUN}" != "1" ] && [ -f "${BACKUP_DIR}/digests.txt" ]; then
+            for cname in airwaves-manager airwaves-gateway; do
+                case "${cname}" in
+                    airwaves-manager) want manager || continue ;;
+                    airwaves-gateway) want gateway || continue ;;
+                esac
+                local before after
+                before="$(awk -v n="${cname}" '$1==n{print $2}' "${BACKUP_DIR}/digests.txt" 2>/dev/null)"
+                after="$(docker inspect -f '{{.Image}}' "${cname}" 2>/dev/null)"
+                if [ -n "${before}" ] && [ "${before}" = "${after}" ]; then
+                    log "WARNING: ${cname} image did not change (${after}); the pulled tag may already be current."
+                fi
+            done
         fi
     fi
 

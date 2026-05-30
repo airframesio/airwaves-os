@@ -1,6 +1,6 @@
 use bollard::container::{
     Config, CreateContainerOptions, ListContainersOptions, LogOutput, LogsOptions,
-    StartContainerOptions, StopContainerOptions, RemoveContainerOptions,
+    StartContainerOptions, StatsOptions, StopContainerOptions, RemoveContainerOptions,
 };
 use bollard::system::EventsOptions;
 use bollard::Docker;
@@ -148,6 +148,73 @@ impl DockerPort for DockerAdapter {
         }
 
         Ok(output)
+    }
+
+    async fn container_stats(&self) -> Result<Vec<ContainerStats>, AppError> {
+        // List running containers, then sample one non-streaming stats point each.
+        let opts = ListContainersOptions::<String> {
+            all: false,
+            ..Default::default()
+        };
+        let containers = self.client.list_containers(Some(opts)).await?;
+
+        let mut results = Vec::new();
+        for c in containers {
+            let id = match c.id {
+                Some(id) => id,
+                None => continue,
+            };
+            let name = c
+                .names
+                .as_ref()
+                .and_then(|n| n.first())
+                .map(|n| n.trim_start_matches('/').to_string())
+                .unwrap_or_default();
+
+            let mut stream = self.client.stats(
+                &id,
+                Some(StatsOptions { stream: false }),
+            );
+
+            if let Some(Ok(s)) = stream.next().await {
+                // CPU%: delta of container CPU vs system CPU, scaled by online CPUs.
+                let cpu_delta = s.cpu_stats.cpu_usage.total_usage as f64
+                    - s.precpu_stats.cpu_usage.total_usage as f64;
+                let sys_delta = s
+                    .cpu_stats
+                    .system_cpu_usage
+                    .unwrap_or(0)
+                    .saturating_sub(s.precpu_stats.system_cpu_usage.unwrap_or(0))
+                    as f64;
+                let online = s.cpu_stats.online_cpus.unwrap_or_else(|| {
+                    s.cpu_stats
+                        .cpu_usage
+                        .percpu_usage
+                        .as_ref()
+                        .map(|v| v.len() as u64)
+                        .unwrap_or(1)
+                }) as f64;
+                let cpu_percent = if sys_delta > 0.0 && cpu_delta > 0.0 {
+                    (cpu_delta / sys_delta) * online * 100.0
+                } else {
+                    0.0
+                };
+
+                // Memory usage vs limit (bytes).
+                let memory_used = s.memory_stats.usage.unwrap_or(0);
+                let memory_limit = s.memory_stats.limit.unwrap_or(0);
+
+                results.push(ContainerStats {
+                    id: id[..12.min(id.len())].to_string(),
+                    name,
+                    cpu_percent: (cpu_percent * 10.0).round() / 10.0,
+                    memory_used,
+                    memory_limit,
+                });
+            }
+        }
+
+        Ok(results)
     }
 
     async fn install_app(&self, app: &CatalogApp) -> Result<ContainerInfo, AppError> {

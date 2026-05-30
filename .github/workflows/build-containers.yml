@@ -92,6 +92,7 @@ jobs:
           tags: |
             type=sha
             type=ref,event=branch
+            type=raw,value=${{ steps.ctrlver.outputs.version }},enable=${{ steps.ctrlver.outputs.version != 'unknown' }}
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
@@ -119,6 +120,13 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      - name: Read manager version
+        id: mgrver
+        run: |
+          VERSION="$(grep -m1 '^version' containers/airwaves-manager/Cargo.toml | cut -d'"' -f2)"
+          echo "version=${VERSION:-unknown}" >> "$GITHUB_OUTPUT"
+          echo "Manager version: ${VERSION}"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -140,6 +148,7 @@ jobs:
           tags: |
             type=sha
             type=ref,event=branch
+            type=raw,value=${{ steps.mgrver.outputs.version }},enable=${{ steps.mgrver.outputs.version != 'unknown' }}
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push

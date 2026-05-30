@@ -52,6 +52,7 @@ fn api_router(state: AppState) -> Router {
         .route("/api/v1/system/update/channel", axum::routing::post(handlers::update::set_channel))
         // Container endpoints
         .route("/api/v1/containers", axum::routing::get(handlers::containers::list))
+        .route("/api/v1/containers/stats", axum::routing::get(handlers::containers::stats))
         .route("/api/v1/containers/{id}/start", axum::routing::post(handlers::containers::start))
         .route("/api/v1/containers/{id}/stop", axum::routing::post(handlers::containers::stop))
         .route("/api/v1/containers/{id}/restart", axum::routing::post(handlers::containers::restart))

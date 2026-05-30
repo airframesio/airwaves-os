@@ -9,6 +9,8 @@ pub trait DockerPort {
     async fn stop_container(&self, id: &str) -> Result<(), AppError>;
     async fn restart_container(&self, id: &str) -> Result<(), AppError>;
     async fn get_logs(&self, id: &str, tail: usize) -> Result<String, AppError>;
+    /// Live CPU/memory stats for all running containers.
+    async fn container_stats(&self) -> Result<Vec<ContainerStats>, AppError>;
     async fn install_app(&self, app: &CatalogApp) -> Result<ContainerInfo, AppError>;
     async fn uninstall_app(&self, id: &str) -> Result<(), AppError>;
 }

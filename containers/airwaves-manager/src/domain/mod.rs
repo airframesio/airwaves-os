@@ -19,6 +19,19 @@ pub struct PortBinding {
     pub protocol: String,
 }
 
+/// Live resource usage for a single running container.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ContainerStats {
+    pub id: String,
+    pub name: String,
+    /// CPU usage as a percentage of total host CPU.
+    pub cpu_percent: f64,
+    /// Memory used in bytes.
+    pub memory_used: u64,
+    /// Memory limit in bytes (0 if unknown/unlimited).
+    pub memory_limit: u64,
+}
+
 /// System information
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemInfo {
@@ -387,6 +400,16 @@ pub struct UpdateRequest {
     /// Target codename for a major OS upgrade.
     #[serde(default)]
     pub os_major_to: Option<String>,
+    /// Pinned container image refs (image + tag) so updates pull immutable
+    /// version tags rather than `:latest`.
+    #[serde(default)]
+    pub manager_image: Option<String>,
+    #[serde(default)]
+    pub manager_tag: Option<String>,
+    #[serde(default)]
+    pub gateway_image: Option<String>,
+    #[serde(default)]
+    pub gateway_tag: Option<String>,
 }
 
 /// Progress written by the host updater (status.json).
