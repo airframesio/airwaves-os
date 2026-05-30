@@ -363,6 +363,7 @@ impl UpdatePort for UpdaterAdapter {
             // Always sync the manifest's host files (userpatches) on any update,
             // so script/unit/config changes reach deployed devices.
             host_files: manifest.host_files.clone(),
+            recreate: false,
         };
 
         // Always reconcile BOTH container image tags to the manifest's channel
@@ -446,22 +447,42 @@ impl UpdatePort for UpdaterAdapter {
 }
 
 impl UpdaterAdapter {
-    /// Force-refresh the system at the CURRENT release: refresh the host updater
-    /// script, then re-pull/re-apply the current channel's compose, catalog,
-    /// manager and gateway (pinned to the manifest's tags). Does NOT bump
-    /// versions — it reinstalls what the channel currently points at, repairing
-    /// drift (e.g. containers stuck on :latest, missing config).
+    /// Force-refresh = REPAIR at the installed version. Re-pull the images
+    /// currently pinned in docker-compose.yml and force-recreate the stack —
+    /// WITHOUT fetching the manifest, changing any image tags, or bumping
+    /// versions. This recovers a wedged/half-applied stack (e.g. a container
+    /// that won't come up) without turning into an upgrade.
     pub async fn refresh(&self) -> Result<(), AppError> {
-        // Deliver the latest host updater script first so pinning/backup logic
-        // runs even on devices provisioned before those features existed.
-        let _ = self.host.refresh_updater_files().await;
-        self.apply(vec![
-            "manager".into(),
-            "gateway".into(),
-            "compose".into(),
-            "catalog".into(),
-        ])
-        .await
+        let request = UpdateRequest {
+            requested_at: Self::now(),
+            components: vec!["recreate".into()],
+            recreate: true,
+            ..Default::default()
+        };
+
+        std::fs::create_dir_all(UPDATE_DIR)
+            .map_err(|e| AppError::Internal(format!("Cannot create {UPDATE_DIR}: {e}")))?;
+        let req_json = serde_json::to_string_pretty(&request)
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+        std::fs::write(format!("{UPDATE_DIR}/request.json"), req_json)
+            .map_err(|e| AppError::Internal(format!("Cannot write request.json: {e}")))?;
+
+        let queued = UpdateProgress {
+            state: "running".to_string(),
+            phase: "queued".to_string(),
+            percent: 0,
+            log: vec!["Force refresh (repair at installed version) requested".to_string()],
+            reboot_required: false,
+            error: None,
+            started_at: Some(Self::now()),
+            finished_at: None,
+        };
+        let _ = std::fs::write(
+            format!("{UPDATE_DIR}/status.json"),
+            serde_json::to_string_pretty(&queued).unwrap_or_default(),
+        );
+
+        self.host.start_update_service().await
     }
 
     /// Return the cached status if present, else run a fresh check.

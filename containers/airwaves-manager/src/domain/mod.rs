@@ -406,7 +406,7 @@ pub struct UpdateStatus {
 }
 
 /// What the manager asks the host updater to do (written to request.json).
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct UpdateRequest {
     /// RFC3339 timestamp.
     pub requested_at: String,
@@ -441,6 +441,11 @@ pub struct UpdateRequest {
     /// Host files (userpatches) to sync during this update.
     #[serde(default)]
     pub host_files: Vec<HostFile>,
+    /// Repair mode: re-pull the images CURRENTLY pinned in docker-compose.yml
+    /// and force-recreate the stack at the installed versions, without changing
+    /// any tags or fetching the manifest. Used by "Force refresh".
+    #[serde(default)]
+    pub recreate: bool,
 }
 
 /// Progress written by the host updater (status.json).

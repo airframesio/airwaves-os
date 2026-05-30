@@ -325,7 +325,7 @@ main() {
     fi
 
     # ---- container images --------------------------------------------------
-    if want manager || want gateway || want compose; then
+    if want manager || want gateway || want compose || [ "${RECREATE}" = "true" ]; then
         phase "pulling-images" 40
         # Image pulls download + unpack layers; ensure there's headroom first.
         local avail_img
@@ -346,23 +346,36 @@ main() {
         # stack is pulled, so the pull fetches specific versions (not :latest) and
         # both images stay aligned with the selected channel — even if only one
         # component triggered this update. The manager always writes both pins.
-        local mgr_img mgr_tag gw_img gw_tag
-        mgr_img="$(jq -r '.manager_image // empty' "${REQUEST}")"
-        mgr_tag="$(jq -r '.manager_tag // empty' "${REQUEST}")"
-        gw_img="$(jq -r '.gateway_image // empty' "${REQUEST}")"
-        gw_tag="$(jq -r '.gateway_tag // empty' "${REQUEST}")"
-        [ -n "${mgr_img}" ] && [ -n "${mgr_tag}" ] && pin_image_tag "${mgr_img}" "${mgr_tag}"
-        [ -n "${gw_img}" ] && [ -n "${gw_tag}" ] && pin_image_tag "${gw_img}" "${gw_tag}"
+        # In repair mode we deliberately do NOT touch image tags — we re-pull
+        # whatever is currently pinned in the compose file. Otherwise pin both
+        # images to the manifest's channel tags (manager always writes both).
+        if [ "${RECREATE}" = "true" ]; then
+            log "Repair mode: re-pulling currently pinned images (no tag changes)"
+        else
+            local mgr_img mgr_tag gw_img gw_tag
+            mgr_img="$(jq -r '.manager_image // empty' "${REQUEST}")"
+            mgr_tag="$(jq -r '.manager_tag // empty' "${REQUEST}")"
+            gw_img="$(jq -r '.gateway_image // empty' "${REQUEST}")"
+            gw_tag="$(jq -r '.gateway_tag // empty' "${REQUEST}")"
+            [ -n "${mgr_img}" ] && [ -n "${mgr_tag}" ] && pin_image_tag "${mgr_img}" "${mgr_tag}"
+            [ -n "${gw_img}" ] && [ -n "${gw_tag}" ] && pin_image_tag "${gw_img}" "${gw_tag}"
+        fi
 
         if ! run compose pull; then
-            fail "docker compose pull failed: $(log_tail)"
+            # Keep the error concise — the full log is already captured in the
+            # status log array; embedding the tail here duplicated it in the UI.
+            fail "docker compose pull failed (see log below)"
             rollback_config
             return 1
         fi
 
         phase "recreating-containers" 60
         # This may recreate the manager (this script keeps running on the host).
-        if ! run compose up -d --remove-orphans; then
+        # Repair mode forces recreation even when the image digest is unchanged.
+        local up_args="-d --remove-orphans"
+        [ "${RECREATE}" = "true" ] && up_args="-d --remove-orphans --force-recreate"
+        # shellcheck disable=SC2086
+        if ! run compose up ${up_args}; then
             fail "docker compose up failed"
             rollback_full
             return 1
