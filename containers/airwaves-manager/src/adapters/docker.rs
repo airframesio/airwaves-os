@@ -54,6 +54,16 @@ impl DockerAdapter {
         }
     }
 
+    /// Read a single label value from a container's image config (via the
+    /// Docker socket). Returns None if the container/label is absent.
+    pub async fn container_label(&self, name: &str, label: &str) -> Option<String> {
+        let info = self.client.inspect_container(name, None).await.ok()?;
+        info.config?
+            .labels?
+            .get(label)
+            .cloned()
+    }
+
     /// Returns a stream of Docker daemon events (container start/stop/die/etc.)
     pub async fn watch_events(
         &self,

@@ -50,6 +50,7 @@ fn api_router(state: AppState) -> Router {
         .route("/api/v1/system/update/apply", axum::routing::post(handlers::update::apply))
         .route("/api/v1/system/update/progress", axum::routing::get(handlers::update::progress))
         .route("/api/v1/system/update/channel", axum::routing::post(handlers::update::set_channel))
+        .route("/api/v1/system/update/refresh", axum::routing::post(handlers::update::refresh))
         // Container endpoints
         .route("/api/v1/containers", axum::routing::get(handlers::containers::list))
         .route("/api/v1/containers/stats", axum::routing::get(handlers::containers::stats))
@@ -125,7 +126,7 @@ async fn main() -> anyhow::Result<()> {
     let hardware = Arc::new(adapters::HardwareAdapter::new());
     let config = Arc::new(adapters::ConfigAdapter::new("/etc/airwaves/config.json"));
     let host = Arc::new(adapters::HostAdapter::new());
-    let updater = Arc::new(adapters::UpdaterAdapter::new(host.clone()));
+    let updater = Arc::new(adapters::UpdaterAdapter::new(host.clone(), docker.clone()));
     let (events_tx, _) = broadcast::channel(256);
     let forwarding_stats = Arc::new(Mutex::new(domain::ForwardingStats::default()));
     let message_buffer = Arc::new(Mutex::new(VecDeque::with_capacity(1000)));

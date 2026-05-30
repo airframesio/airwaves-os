@@ -37,12 +37,13 @@ pub fn is_valid_channel(channel: &str) -> bool {
 pub struct UpdaterAdapter {
     http: reqwest::Client,
     host: Arc<HostAdapter>,
+    docker: Arc<crate::adapters::DockerAdapter>,
     /// Cached result of the most recent check.
     cache: Mutex<Option<UpdateStatus>>,
 }
 
 impl UpdaterAdapter {
-    pub fn new(host: Arc<HostAdapter>) -> Self {
+    pub fn new(host: Arc<HostAdapter>, docker: Arc<crate::adapters::DockerAdapter>) -> Self {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .user_agent("airwaves-manager")
@@ -51,6 +52,7 @@ impl UpdaterAdapter {
         Self {
             http,
             host,
+            docker,
             cache: Mutex::new(None),
         }
     }
@@ -91,8 +93,23 @@ impl UpdaterAdapter {
         format!("{base}/{channel}.json")
     }
 
-    /// Read the control-app version the gateway is serving.
+    /// Read the control-app version the gateway is serving. Prefer the gateway
+    /// container's image label (authoritative, via the Docker socket — no
+    /// network/DNS dependency); fall back to the HTTP /version.json the gateway
+    /// serves, then "unknown".
     async fn control_app_version(&self) -> String {
+        // 1. Image label set at gateway build time.
+        if let Some(v) = self
+            .docker
+            .container_label("airwaves-gateway", "io.airwaves.control-app-version")
+            .await
+        {
+            let v = v.trim().to_string();
+            if !v.is_empty() && v != "unknown" {
+                return v;
+            }
+        }
+        // 2. HTTP /version.json fallback.
         let url = std::env::var("AIRWAVES_GATEWAY_VERSION_URL")
             .unwrap_or_else(|_| "http://airwaves-gateway/version.json".to_string());
         let fetched = async {
@@ -395,6 +412,10 @@ impl UpdatePort for UpdaterAdapter {
             serde_json::to_string_pretty(&queued).unwrap_or_default(),
         );
 
+        // Self-heal: refresh the host updater script before running, so devices
+        // pick up updater fixes (tag pinning, backups) automatically.
+        let _ = self.host.refresh_updater_files().await;
+
         // Kick off the host-side updater (runs outside this container).
         self.host.start_update_service().await
     }
@@ -412,6 +433,24 @@ impl UpdatePort for UpdaterAdapter {
 }
 
 impl UpdaterAdapter {
+    /// Force-refresh the system at the CURRENT release: refresh the host updater
+    /// script, then re-pull/re-apply the current channel's compose, catalog,
+    /// manager and gateway (pinned to the manifest's tags). Does NOT bump
+    /// versions — it reinstalls what the channel currently points at, repairing
+    /// drift (e.g. containers stuck on :latest, missing config).
+    pub async fn refresh(&self) -> Result<(), AppError> {
+        // Deliver the latest host updater script first so pinning/backup logic
+        // runs even on devices provisioned before those features existed.
+        let _ = self.host.refresh_updater_files().await;
+        self.apply(vec![
+            "manager".into(),
+            "gateway".into(),
+            "compose".into(),
+            "catalog".into(),
+        ])
+        .await
+    }
+
     /// Return the cached status if present, else run a fresh check.
     pub async fn status_cached(&self) -> UpdateStatus {
         if let Some(s) = self.cache.lock().ok().and_then(|g| g.clone()) {
