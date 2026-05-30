@@ -6,21 +6,21 @@
   "released": "2026-05-30",
   "severity": "recommended",
   "min_os_version": "1.0.0",
-  "summary": "Airwaves OS dev channel (1.0.5) \u2014 bleeding edge.",
+  "summary": "Airwaves OS dev channel (1.0.5) — bleeding edge.",
   "notes_url": "https://github.com/airframesio/airwaves-os/releases/tag/v1.0.0",
   "components": {
     "manager": {
       "version": "1.0.5",
       "severity": "recommended",
       "image": "ghcr.io/airframesio/airwaves-manager",
-      "tag": "dev"
+      "tag": "1.0.5-dev.47"
     },
     "gateway": {
       "version": "1.0.5",
       "control_app_version": "1.0.5",
       "severity": "recommended",
       "image": "ghcr.io/airframesio/airwaves-gateway",
-      "tag": "dev"
+      "tag": "1.0.5-dev.47"
     },
     "compose": {
       "version": "1",
