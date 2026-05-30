@@ -20,7 +20,7 @@
       "control_app_version": "1.0.9",
       "severity": "recommended",
       "image": "ghcr.io/airframesio/airwaves-gateway",
-      "tag": "1.0.8-dev.52"
+      "tag": "dev"
     },
     "compose": {
       "version": "1",

@@ -97,7 +97,12 @@ jobs:
   build-gateway:
     name: Build airwaves-gateway
     needs: [setup]
-    if: ${{ needs.setup.outputs.gateway == 'true' || github.event.inputs.container == 'all' || github.event.inputs.container == 'airwaves-gateway' || startsWith(github.ref, 'refs/tags/') }}
+    # Build on every push/tag (NOT gated by paths): the dev/beta channels pin
+    # BOTH images to a concrete <version>-<channel>.<run#> tag, so both images
+    # must exist for every run or the updater pins a phantom gateway tag and
+    # `docker compose pull` fails -> rollback. Manual dispatch still respects
+    # the container choice.
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.container == 'all' || github.event.inputs.container == 'airwaves-gateway' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -166,7 +171,9 @@ jobs:
   build-manager:
     name: Build airwaves-manager
     needs: [setup]
-    if: ${{ needs.setup.outputs.manager == 'true' || github.event.inputs.container == 'all' || github.event.inputs.container == 'airwaves-manager' || startsWith(github.ref, 'refs/tags/') }}
+    # Build on every push/tag (see build-gateway note): both images must exist
+    # for every dev/beta run so concrete channel tags never point at a phantom.
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.container == 'all' || github.event.inputs.container == 'airwaves-manager' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
