@@ -173,7 +173,9 @@ impl DockerPort for DockerAdapter {
 
             let mut stream = self.client.stats(
                 &id,
-                Some(StatsOptions { stream: false }),
+                // one_shot:false so Docker takes two samples internally and
+                // populates precpu_stats, making the CPU% delta meaningful.
+                Some(StatsOptions { stream: false, one_shot: false }),
             );
 
             if let Some(Ok(s)) = stream.next().await {
