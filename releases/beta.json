@@ -16,8 +16,8 @@
       "tag": "beta"
     },
     "gateway": {
-      "version": "1.0.7",
-      "control_app_version": "1.0.7",
+      "version": "1.0.8",
+      "control_app_version": "1.0.8",
       "severity": "recommended",
       "image": "ghcr.io/airframesio/airwaves-gateway",
       "tag": "beta"
