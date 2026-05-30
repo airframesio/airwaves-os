@@ -275,6 +275,32 @@ impl DockerPort for DockerAdapter {
         // Create container
         let container_name = format!("airwaves-{}", app.id);
 
+        // Pre-flight: reject if any requested host port is already published by
+        // another container, so the user gets a clear message instead of a raw
+        // "port is already allocated" 500 (common when two ADS-B apps overlap).
+        let wanted_ports: Vec<u16> = app.ports.iter().filter_map(|p| p.host_port).collect();
+        if !wanted_ports.is_empty() {
+            let existing = self
+                .list_containers()
+                .await
+                .unwrap_or_default();
+            for ec in &existing {
+                if ec.name == container_name {
+                    continue; // our own (about to be replaced)
+                }
+                for p in &ec.ports {
+                    if let Some(hp) = p.host_port {
+                        if wanted_ports.contains(&hp) {
+                            return Err(AppError::BadRequest(format!(
+                                "Host port {hp} is already in use by {}. Stop or uninstall it first (apps that share ports, like ultrafeeder and readsb, can't run together).",
+                                ec.name
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+
         // Make install idempotent: remove any pre-existing container with the
         // same name (e.g. a stale/failed prior attempt) so retries succeed.
         let _ = self
