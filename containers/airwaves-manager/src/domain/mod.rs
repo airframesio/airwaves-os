@@ -128,6 +128,10 @@ pub struct AirwavesConfig {
     pub aggregators: serde_json::Value,
     #[serde(default)]
     pub apps: serde_json::Value,
+    /// UI / user preferences (theme, etc). Free-form so the control app can
+    /// extend it without a schema change; persisted and included in backups.
+    #[serde(default)]
+    pub preferences: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

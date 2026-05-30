@@ -244,13 +244,23 @@ impl UpdatePort for UpdaterAdapter {
 
         let mut components: Vec<ComponentUpdate> = Vec::new();
 
+        // Display the concrete image tag (e.g. "1.0.6-dev.48") for the available
+        // version when it carries a channel suffix, so dev/beta updates are
+        // identifiable; comparison stays on the base semver version.
+        let display_available = |c: &ManifestComponent, base: &str| -> String {
+            match &c.tag {
+                Some(t) if t.contains('-') => t.clone(),
+                _ => base.to_string(),
+            }
+        };
+
         // Manager image.
         if let Some(c) = manifest.components.get("manager") {
             let avail = Self::is_newer(&installed.manager, &c.version);
             components.push(ComponentUpdate {
                 name: "manager".to_string(),
                 installed: installed.manager.clone(),
-                available: c.version.clone(),
+                available: display_available(c, &c.version),
                 update_available: avail,
                 severity: c.severity,
                 kind: "image".to_string(),
@@ -267,7 +277,7 @@ impl UpdatePort for UpdaterAdapter {
             components.push(ComponentUpdate {
                 name: "gateway".to_string(),
                 installed: installed.control_app.clone(),
-                available: target,
+                available: display_available(c, &target),
                 update_available: avail,
                 severity: c.severity,
                 kind: "image".to_string(),
