@@ -64,6 +64,25 @@ impl DockerAdapter {
             .cloned()
     }
 
+    /// The tag portion of a running container's image reference, e.g. the
+    /// "1.0.10-dev.60" of "ghcr.io/airframesio/airwaves-manager:1.0.10-dev.60".
+    /// This is the concrete version actually deployed, which is more precise than
+    /// any version baked into the binary. Returns None if absent or untagged
+    /// (e.g. pinned by digest), or for the non-informative "latest" tag.
+    pub async fn container_image_tag(&self, name: &str) -> Option<String> {
+        let info = self.client.inspect_container(name, None).await.ok()?;
+        let image = info.config?.image?;
+        // Strip any registry host (which may contain a port colon) before
+        // taking the tag after the final ':'. "host:5000/img:tag" -> "tag".
+        let last = image.rsplit('/').next().unwrap_or(&image);
+        let (_, tag) = last.rsplit_once(':')?;
+        let tag = tag.trim();
+        if tag.is_empty() || tag == "latest" || tag.starts_with("sha256") {
+            return None;
+        }
+        Some(tag.to_string())
+    }
+
     /// Returns a stream of Docker daemon events (container start/stop/die/etc.)
     pub async fn watch_events(
         &self,

@@ -97,8 +97,24 @@ impl UpdaterAdapter {
     /// container's image label (authoritative, via the Docker socket — no
     /// network/DNS dependency); fall back to the HTTP /version.json the gateway
     /// serves, then "unknown".
+    /// The manager's installed version. Prefer the concrete tag of the running
+    /// manager image (e.g. "1.0.10-dev.60") so dev/beta builds are identifiable;
+    /// fall back to the version compiled into this binary.
+    async fn manager_version(&self) -> String {
+        if let Some(tag) = self.docker.container_image_tag("airwaves-manager").await {
+            return tag;
+        }
+        env!("CARGO_PKG_VERSION").to_string()
+    }
+
     async fn control_app_version(&self) -> String {
-        // 1. Image label set at gateway build time.
+        // 1. Concrete tag of the running gateway image (e.g. "1.0.10-dev.60") —
+        //    the most precise "what's actually deployed", and identifies the
+        //    channel build. Falls through for :latest / digest pins.
+        if let Some(tag) = self.docker.container_image_tag("airwaves-gateway").await {
+            return tag;
+        }
+        // 2. Image label set at gateway build time (base version).
         if let Some(v) = self
             .docker
             .container_label("airwaves-gateway", "io.airwaves.control-app-version")
@@ -109,7 +125,7 @@ impl UpdaterAdapter {
                 return v;
             }
         }
-        // 2. HTTP /version.json fallback.
+        // 3. HTTP /version.json fallback.
         let url = std::env::var("AIRWAVES_GATEWAY_VERSION_URL")
             .unwrap_or_else(|_| "http://airwaves-gateway/version.json".to_string());
         let fetched = async {
@@ -210,7 +226,7 @@ impl UpdatePort for UpdaterAdapter {
         InstalledVersions {
             os_version,
             os_codename,
-            manager: env!("CARGO_PKG_VERSION").to_string(),
+            manager: self.manager_version().await,
             control_app: self.control_app_version().await,
             compose: versions.compose,
             catalog: versions.catalog,
