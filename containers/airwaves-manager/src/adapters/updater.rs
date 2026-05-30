@@ -509,4 +509,45 @@ mod tests {
         assert_eq!(m.os.major_upgrade.as_ref().unwrap().to, "trixie");
         assert_eq!(m.components.get("gateway").unwrap().severity, Severity::Required);
     }
+
+    #[test]
+    fn host_file_requires_sha256() {
+        // A host_files entry without sha256 must fail to deserialize, so a
+        // manifest can never ship a root-owned file with no integrity check.
+        let missing = r#"{"url": "https://example/v1/x", "dest": "/opt/airwaves/x"}"#;
+        assert!(
+            serde_json::from_str::<HostFile>(missing).is_err(),
+            "HostFile without sha256 must be rejected"
+        );
+        let ok = r#"{"url": "https://example/v1/x", "dest": "/opt/airwaves/x", "sha256": "deadbeef"}"#;
+        let hf: HostFile = serde_json::from_str(ok).expect("parse with sha256");
+        assert_eq!(hf.sha256, "deadbeef");
+    }
+
+    /// Every published channel manifest must deserialize against the strict
+    /// types (in particular: every host_files entry carries a sha256, and its
+    /// url is pinned to an immutable tag, not a mutable branch like `main`).
+    #[test]
+    fn published_manifests_are_valid_and_pinned() {
+        for (chan, raw) in [
+            ("stable", include_str!("../../../../releases/stable.json")),
+            ("dev", include_str!("../../../../releases/dev.json")),
+            ("beta", include_str!("../../../../releases/beta.json")),
+        ] {
+            let m: UpdateManifest = serde_json::from_str(raw)
+                .unwrap_or_else(|e| panic!("{chan}.json failed to parse: {e}"));
+            for hf in &m.host_files {
+                assert!(
+                    !hf.sha256.is_empty(),
+                    "{chan}.json: host_file {} has empty sha256",
+                    hf.dest
+                );
+                assert!(
+                    !hf.url.contains("/main/"),
+                    "{chan}.json: host_file {} url must pin to an immutable tag, not /main/",
+                    hf.dest
+                );
+            }
+        }
+    }
 }
