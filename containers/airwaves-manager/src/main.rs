@@ -144,6 +144,7 @@ async fn main() -> anyhow::Result<()> {
     spawn_stats_broadcaster(state.system.clone(), state.events_tx.clone());
     spawn_docker_event_watcher(state.docker.clone(), state.events_tx.clone());
     spawn_update_checker(state.updater.clone(), state.events_tx.clone());
+    spawn_app_reconciler(state.clone());
 
     // Spawn message forwarding service
     forwarding::spawn_forwarding_service(
@@ -195,6 +196,57 @@ fn spawn_stats_broadcaster(
                     disk_percent: stats.disk_percent,
                     temperature: stats.temperature,
                 });
+            }
+        }
+    });
+}
+
+/// On startup, reconcile installed apps: any app recorded in config.json whose
+/// container is missing is re-created. Docker's restart policy already brings
+/// apps back after a reboot; this is the backstop for cases where a container
+/// was pruned or failed to be recreated, so the recorded app set is authoritative.
+fn spawn_app_reconciler(state: AppState) {
+    use crate::ports::{ConfigPort, DockerPort};
+
+    tokio::spawn(async move {
+        // Give Docker a moment to bring restart-policy containers back first.
+        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+
+        let config = match state.config.read_config().await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("App reconcile: cannot read config: {}", e);
+                return;
+            }
+        };
+        let recorded = handlers::apps::recorded_app_ids(&config);
+        if recorded.is_empty() {
+            return;
+        }
+
+        let existing: std::collections::HashSet<String> = state
+            .docker
+            .list_containers()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|c| c.name.trim_start_matches('/').to_string())
+            .collect();
+
+        let catalog = handlers::apps::load_catalog().await;
+        for id in recorded {
+            let cname = format!("airwaves-{id}");
+            if existing.contains(&cname) {
+                continue;
+            }
+            match catalog.iter().find(|a| a.id == id) {
+                Some(app) => {
+                    tracing::info!("Reconcile: re-creating missing app container {}", cname);
+                    if let Err(e) = state.docker.install_app(app).await {
+                        tracing::warn!("Reconcile: failed to re-create {}: {}", cname, e);
+                    }
+                }
+                None => tracing::warn!("Reconcile: app {} not in catalog; skipping", id),
             }
         }
     });

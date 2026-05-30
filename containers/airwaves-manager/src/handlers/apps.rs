@@ -3,12 +3,12 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::domain::CatalogApp;
-use crate::ports::DockerPort;
+use crate::ports::{ConfigPort, DockerPort};
 use crate::{AppError, AppState};
 
 /// Load the full app catalog: prefer /etc/airwaves/catalog.json, fall back to
 /// the built-in default set.
-async fn load_catalog() -> Vec<CatalogApp> {
+pub async fn load_catalog() -> Vec<CatalogApp> {
     let catalog_path = std::path::Path::new("/etc/airwaves/catalog.json");
     if let Ok(content) = tokio::fs::read_to_string(catalog_path).await {
         if let Ok(catalog) = serde_json::from_str::<Vec<CatalogApp>>(&content) {
@@ -40,6 +40,11 @@ pub async fn install_app(
         .ok_or_else(|| AppError::NotFound(format!("App '{}' not found in catalog", req.app_id)))?;
 
     let container = state.docker.install_app(app).await?;
+    // Record the install in config.json so the app set survives reboots and the
+    // manager can reconcile (re-create) it if its container ever goes missing.
+    if let Err(e) = record_installed_app(&state, app).await {
+        tracing::warn!("Installed {} but failed to record in config: {}", app.id, e);
+    }
     Ok(Json(container))
 }
 
@@ -49,7 +54,55 @@ pub async fn uninstall_app(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let container_name = format!("airwaves-{}", id);
     state.docker.uninstall_app(&container_name).await?;
+    if let Err(e) = forget_installed_app(&state, &id).await {
+        tracing::warn!("Uninstalled {} but failed to update config: {}", id, e);
+    }
     Ok(Json(serde_json::json!({"status": "uninstalled", "id": id})))
+}
+
+/// The persisted record of an installed app (stored under config.apps).
+fn installed_record(app: &CatalogApp) -> serde_json::Value {
+    serde_json::json!({
+        "id": app.id,
+        "name": app.name,
+        "image": app.image,
+        "category": app.category,
+    })
+}
+
+/// Add (or update) an app entry in config.apps.
+async fn record_installed_app(state: &AppState, app: &CatalogApp) -> Result<(), AppError> {
+    let mut config = state.config.read_config().await?;
+    let mut apps: Vec<serde_json::Value> = match config.apps.take() {
+        serde_json::Value::Array(a) => a,
+        _ => Vec::new(),
+    };
+    apps.retain(|e| e.get("id").and_then(|v| v.as_str()) != Some(app.id.as_str()));
+    apps.push(installed_record(app));
+    config.apps = serde_json::Value::Array(apps);
+    state.config.write_config(&config).await
+}
+
+/// Remove an app entry from config.apps.
+async fn forget_installed_app(state: &AppState, id: &str) -> Result<(), AppError> {
+    let mut config = state.config.read_config().await?;
+    if let serde_json::Value::Array(mut apps) = config.apps.take() {
+        apps.retain(|e| e.get("id").and_then(|v| v.as_str()) != Some(id));
+        config.apps = serde_json::Value::Array(apps);
+        state.config.write_config(&config).await?;
+    }
+    Ok(())
+}
+
+/// Returns the list of recorded installed app IDs from config.apps.
+pub fn recorded_app_ids(config: &crate::domain::AirwavesConfig) -> Vec<String> {
+    match &config.apps {
+        serde_json::Value::Array(a) => a
+            .iter()
+            .filter_map(|e| e.get("id").and_then(|v| v.as_str()).map(String::from))
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 fn default_catalog() -> Vec<CatalogApp> {
