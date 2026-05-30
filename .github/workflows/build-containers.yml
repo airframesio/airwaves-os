@@ -60,6 +60,10 @@ jobs:
       is_stable: ${{ steps.chan.outputs.is_stable }}
       gateway: ${{ steps.filter.outputs.gateway }}
       manager: ${{ steps.filter.outputs.manager }}
+      # For a release (tag) build, the single source of truth for the version
+      # is the tag itself, so BOTH images stamp the same version and can never
+      # split-brain (manager 1.0.10 / gateway 1.0.8). Empty for non-tag builds.
+      release_version: ${{ steps.chan.outputs.release_version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -81,9 +85,14 @@ jobs:
           fi
           is_stable="false"
           [ "${channel}" = "stable" ] && is_stable="true"
+          release_version=""
+          if [[ "${REF}" == refs/tags/v* ]]; then
+            release_version="${REF#refs/tags/v}"
+          fi
           echo "channel=${channel}" >> "$GITHUB_OUTPUT"
           echo "is_stable=${is_stable}" >> "$GITHUB_OUTPUT"
-          echo "Resolved channel: ${channel} (is_stable=${is_stable})"
+          echo "release_version=${release_version}" >> "$GITHUB_OUTPUT"
+          echo "Resolved channel: ${channel} (is_stable=${is_stable}) release_version='${release_version}'"
 
       - uses: dorny/paths-filter@v3
         id: filter
@@ -124,13 +133,27 @@ jobs:
 
       - name: Read control-app version
         id: ctrlver
+        env:
+          RELEASE_VERSION: ${{ needs.setup.outputs.release_version }}
         run: |
-          VERSION="unknown"
+          SRC="unknown"
           if [ -f containers/airwaves-gateway/control-app/package.json ]; then
-            VERSION="$(jq -r '.version // "unknown"' containers/airwaves-gateway/control-app/package.json)"
+            SRC="$(jq -r '.version // "unknown"' containers/airwaves-gateway/control-app/package.json)"
+          fi
+          if [ -n "${RELEASE_VERSION}" ]; then
+            # Release build: the tag is authoritative. Refuse to publish if the
+            # control-app source disagrees, so a release is never assembled from
+            # mismatched component versions.
+            if [ "${SRC}" != "${RELEASE_VERSION}" ]; then
+              echo "::error::Release ${RELEASE_VERSION} but control-app package.json is ${SRC}. Tag the control-app repo at v${RELEASE_VERSION} (matching version) before releasing."
+              exit 1
+            fi
+            VERSION="${RELEASE_VERSION}"
+          else
+            VERSION="${SRC}"
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Control-app version: ${VERSION}"
+          echo "Control-app version: ${VERSION} (source ${SRC}, release '${RELEASE_VERSION}')"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -190,10 +213,23 @@ jobs:
 
       - name: Read manager version
         id: mgrver
+        env:
+          RELEASE_VERSION: ${{ needs.setup.outputs.release_version }}
         run: |
-          VERSION="$(grep -m1 '^version' containers/airwaves-manager/Cargo.toml | cut -d'"' -f2)"
-          echo "version=${VERSION:-unknown}" >> "$GITHUB_OUTPUT"
-          echo "Manager version: ${VERSION}"
+          SRC="$(grep -m1 '^version' containers/airwaves-manager/Cargo.toml | cut -d'"' -f2)"
+          SRC="${SRC:-unknown}"
+          if [ -n "${RELEASE_VERSION}" ]; then
+            # Release build: the tag is authoritative; refuse a version mismatch.
+            if [ "${SRC}" != "${RELEASE_VERSION}" ]; then
+              echo "::error::Release ${RELEASE_VERSION} but manager Cargo.toml is ${SRC}. Bump Cargo.toml to ${RELEASE_VERSION} before tagging."
+              exit 1
+            fi
+            VERSION="${RELEASE_VERSION}"
+          else
+            VERSION="${SRC}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Manager version: ${VERSION} (source ${SRC}, release '${RELEASE_VERSION}')"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -232,9 +268,60 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # Release-integrity gate: a release is only "real" if BOTH images exist at
+  # the SAME version tag. This catches any partial publish (one image built,
+  # the other skipped/failed/version-mismatched) and fails the run loudly so a
+  # half-published release never gets advertised to devices.
+  verify-release:
+    name: Verify both images published at ${{ needs.build-manager.outputs.version }}
+    needs: [setup, build-gateway, build-manager]
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Assert both images exist at matching version + channel tags
+        env:
+          MGR_VER: ${{ needs.build-manager.outputs.version }}
+          GW_VER: ${{ needs.build-gateway.outputs.version }}
+          MGR_TAG: ${{ needs.build-manager.outputs.tag }}
+          GW_TAG: ${{ needs.build-gateway.outputs.tag }}
+          IS_STABLE: ${{ needs.setup.outputs.is_stable }}
+        run: |
+          set -euo pipefail
+          fail=0
+          if [ "${MGR_VER}" != "${GW_VER}" ]; then
+            echo "::error::Component version mismatch: manager=${MGR_VER} gateway=${GW_VER}. A release must share one version."
+            fail=1
+          fi
+          check() { # check <image> <tag>
+            echo "Checking $1:$2 ..."
+            docker manifest inspect "${{ env.IMAGE_PREFIX }}/$1:$2" >/dev/null \
+              || { echo "::error::Missing image $1:$2"; return 1; }
+          }
+          if [ "${IS_STABLE}" = "true" ]; then
+            check airwaves-manager "${MGR_VER}" || fail=1
+            check airwaves-gateway "${GW_VER}" || fail=1
+            check airwaves-manager stable || fail=1
+            check airwaves-gateway stable || fail=1
+          else
+            check airwaves-manager "${MGR_TAG}" || fail=1
+            check airwaves-gateway "${GW_TAG}" || fail=1
+          fi
+          if [ "${fail}" != "0" ]; then
+            echo "::error::Release integrity check failed — not a complete release."
+            exit 1
+          fi
+          echo "Both images verified at matching versions."
+
   export-images:
     name: Export container tarballs (${{ matrix.arch }})
-    needs: [setup, build-gateway, build-manager]
+    needs: [setup, build-gateway, build-manager, verify-release]
     if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     strategy:
@@ -272,7 +359,9 @@ jobs:
   # specific, identifiable image (never a moving "dev"/"beta" tag).
   pin-manifest:
     name: Pin ${{ needs.setup.outputs.channel }} manifest to concrete tag
-    needs: [setup, build-gateway, build-manager]
+    # Depends on verify-release so a dev/beta manifest is only pinned once both
+    # images are confirmed published — never advertise a tag that isn't there.
+    needs: [setup, build-gateway, build-manager, verify-release]
     if: ${{ !failure() && !cancelled() && needs.setup.outputs.is_stable != 'true' }}
     runs-on: ubuntu-latest
     permissions:
