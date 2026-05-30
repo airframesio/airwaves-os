@@ -10,7 +10,7 @@
   "notes_url": "https://github.com/airframesio/airwaves-os/releases/tag/v1.0.0",
   "components": {
     "manager": {
-      "version": "1.0.7",
+      "version": "1.0.8",
       "severity": "recommended",
       "image": "ghcr.io/airframesio/airwaves-manager",
       "tag": "beta"

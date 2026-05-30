@@ -6,14 +6,14 @@
   "released": "2026-05-30",
   "severity": "recommended",
   "min_os_version": "1.0.0",
-  "summary": "Airwaves OS 1.0.8 \u2014 readable update logs + \"view last update log\"; manager 1.0.7.",
+  "summary": "Airwaves OS 1.0.8 \u2014 readable update logs + view-last-log, updating-banner (not \"demo data\"), gateway tag always aligned to channel, theme persisted in config.",
   "notes_url": "https://github.com/airframesio/airwaves-os/releases/tag/v1.0.0",
   "components": {
     "manager": {
-      "version": "1.0.7",
+      "version": "1.0.8",
       "severity": "recommended",
       "image": "ghcr.io/airframesio/airwaves-manager",
-      "tag": "1.0.7"
+      "tag": "1.0.8"
     },
     "gateway": {
       "version": "1.0.8",

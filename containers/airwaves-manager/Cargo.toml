@@ -1,6 +1,6 @@
 [package]
 name = "airwaves-manager"
-version = "1.0.7"
+version = "1.0.8"
 edition = "2021"
 description = "Airwaves OS system management API"
 license = "MIT"

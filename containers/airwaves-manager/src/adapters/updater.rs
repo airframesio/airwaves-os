@@ -362,23 +362,23 @@ impl UpdatePort for UpdaterAdapter {
             gateway_tag: None,
         };
 
-        // Pin container image tags from the manifest so the host updater pulls
-        // immutable version tags rather than :latest.
-        if want("manager") {
-            if let Some(c) = comp("manager") {
-                request.manager_image = c.image.clone();
-                request.manager_tag = c.tag.clone().or_else(|| Some(c.version.clone()));
-            }
+        // Always reconcile BOTH container image tags to the manifest's channel
+        // tags whenever the stack is touched — not only the component being
+        // updated. The compose file is shared, so pinning one image while
+        // leaving the other on :latest would leave the stack inconsistent
+        // (e.g. updating the manager left the gateway on :latest). This keeps
+        // both images aligned with the selected channel's tags.
+        if let Some(c) = comp("manager") {
+            request.manager_image = c.image.clone();
+            request.manager_tag = c.tag.clone().or_else(|| Some(c.version.clone()));
         }
-        if want("gateway") {
-            if let Some(c) = comp("gateway") {
-                request.gateway_image = c.image.clone();
-                request.gateway_tag = c
-                    .tag
-                    .clone()
-                    .or_else(|| c.control_app_version.clone())
-                    .or_else(|| Some(c.version.clone()));
-            }
+        if let Some(c) = comp("gateway") {
+            request.gateway_image = c.image.clone();
+            request.gateway_tag = c
+                .tag
+                .clone()
+                .or_else(|| c.control_app_version.clone())
+                .or_else(|| Some(c.version.clone()));
         }
 
         if want("compose") {

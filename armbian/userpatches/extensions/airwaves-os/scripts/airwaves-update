@@ -283,20 +283,17 @@ main() {
             return 1
         fi
 
-        # Pin compose image tags to the manifest's immutable version tags so the
-        # pull fetches a specific version (not whatever :latest currently is).
-        if want manager; then
-            local mgr_img mgr_tag
-            mgr_img="$(jq -r '.manager_image // empty' "${REQUEST}")"
-            mgr_tag="$(jq -r '.manager_tag // empty' "${REQUEST}")"
-            [ -n "${mgr_img}" ] && [ -n "${mgr_tag}" ] && pin_image_tag "${mgr_img}" "${mgr_tag}"
-        fi
-        if want gateway; then
-            local gw_img gw_tag
-            gw_img="$(jq -r '.gateway_image // empty' "${REQUEST}")"
-            gw_tag="$(jq -r '.gateway_tag // empty' "${REQUEST}")"
-            [ -n "${gw_img}" ] && [ -n "${gw_tag}" ] && pin_image_tag "${gw_img}" "${gw_tag}"
-        fi
+        # Pin BOTH compose image tags to the manifest's channel tags whenever the
+        # stack is pulled, so the pull fetches specific versions (not :latest) and
+        # both images stay aligned with the selected channel — even if only one
+        # component triggered this update. The manager always writes both pins.
+        local mgr_img mgr_tag gw_img gw_tag
+        mgr_img="$(jq -r '.manager_image // empty' "${REQUEST}")"
+        mgr_tag="$(jq -r '.manager_tag // empty' "${REQUEST}")"
+        gw_img="$(jq -r '.gateway_image // empty' "${REQUEST}")"
+        gw_tag="$(jq -r '.gateway_tag // empty' "${REQUEST}")"
+        [ -n "${mgr_img}" ] && [ -n "${mgr_tag}" ] && pin_image_tag "${mgr_img}" "${mgr_tag}"
+        [ -n "${gw_img}" ] && [ -n "${gw_tag}" ] && pin_image_tag "${gw_img}" "${gw_tag}"
 
         if ! run compose pull; then
             fail "docker compose pull failed: $(log_tail)"
