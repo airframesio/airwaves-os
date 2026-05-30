@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+#
+# Airwaves OS - grow the root partition + filesystem to fill the disk.
+#
+# Idempotent: a no-op when the partition already fills the disk. Runs on every
+# boot, so for VM deployments the user can simply enlarge the virtual disk and
+# reboot — the root filesystem expands automatically (no manual growpart needed).
+#
+set -uo pipefail
+
+log() {
+    echo "[airwaves-growfs] $*"
+    logger -t airwaves-growfs "$*" 2>/dev/null || true
+}
+
+# Resolve the block device backing "/".
+root_src="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
+part="$(readlink -f "${root_src}" 2>/dev/null || true)"
+case "${part}" in
+    /dev/*) ;;
+    *) log "Root '/' is not on a block device (${root_src:-unknown}); skipping."; exit 0 ;;
+esac
+[ -b "${part}" ] || { log "Root device ${part} not found; skipping."; exit 0; }
+
+# Parent disk and partition number (handles sdaN and nvme0n1pN).
+disk_name="$(lsblk -no PKNAME "${part}" 2>/dev/null | head -n1)"
+disk="/dev/${disk_name}"
+partnum="$(echo "${part}" | grep -o '[0-9]*$')"
+if [ -z "${disk_name}" ] || [ ! -b "${disk}" ] || [ -z "${partnum}" ]; then
+    log "Could not resolve disk/partition for ${part}; skipping."
+    exit 0
+fi
+
+log "Root ${part} on disk ${disk} (partition ${partnum})"
+
+# Grow the partition to fill any unallocated space at the end of the disk.
+if command -v growpart >/dev/null 2>&1; then
+    if out="$(growpart "${disk}" "${partnum}" 2>&1)"; then
+        log "Partition grown: ${out}"
+    elif echo "${out}" | grep -qi "NOCHANGE"; then
+        log "Partition already fills the disk."
+    else
+        log "growpart reported: ${out}"
+    fi
+else
+    log "growpart not available; skipping partition grow."
+fi
+
+# Online-grow the ext filesystem (no-op if already at maximum size).
+if command -v resize2fs >/dev/null 2>&1; then
+    if resize2fs "${part}" >/dev/null 2>&1; then
+        log "Filesystem resized to fill the partition."
+    else
+        log "resize2fs: nothing to do or unsupported filesystem."
+    fi
+fi
+
+exit 0

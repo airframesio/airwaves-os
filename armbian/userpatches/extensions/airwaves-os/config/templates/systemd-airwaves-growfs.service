@@ -1,0 +1,15 @@
+[Unit]
+Description=Airwaves OS - grow root filesystem to fill disk
+Documentation=https://airwavesos.com
+After=local-fs.target
+Before=docker.service airwaves-containers.service airwaves-init.service
+ConditionPathExists=/opt/airwaves/scripts/airwaves-growfs
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/airwaves/scripts/airwaves-growfs
+StandardOutput=journal+console
+
+[Install]
+WantedBy=multi-user.target

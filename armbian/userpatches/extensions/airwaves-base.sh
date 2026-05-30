@@ -10,7 +10,7 @@ function extension_prepare_config__airwaves_base() {
 
 function user_config__airwaves_base_packages() {
 	display_alert "Adding base packages for Airwaves OS" "${EXTENSION}" "info"
-	add_packages_to_rootfs sudo bash-completion curl wget jq toilet ca-certificates gnupg lsb-release
+	add_packages_to_rootfs sudo bash-completion curl wget jq toilet ca-certificates gnupg lsb-release cloud-guest-utils
 }
 
 function pre_install_kernel_debs__copy_airwaves_files() {
@@ -82,6 +82,13 @@ function post_family_tweaks__airwaves_base_setup() {
 	# not enabled at boot).
 	display_alert "Installing airwaves-update service" "${EXTENSION}" "info"
 	run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/templates/systemd-airwaves-update.service "${SDCARD}"/etc/systemd/system/airwaves-update.service
+
+	# Install + enable filesystem auto-grow service. Runs every boot and expands
+	# the root partition/filesystem to fill the disk (idempotent), so VM users
+	# can just enlarge the virtual disk and reboot.
+	display_alert "Installing airwaves-growfs service" "${EXTENSION}" "info"
+	run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/templates/systemd-airwaves-growfs.service "${SDCARD}"/etc/systemd/system/airwaves-growfs.service
+	chroot_sdcard systemctl --no-reload enable airwaves-growfs.service
 
 	# Mark as needing first run
 	run_host_command_logged touch "${SDCARD}"/opt/airwaves/.needs-first-run

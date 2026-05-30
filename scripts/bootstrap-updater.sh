@@ -33,7 +33,17 @@ chmod +x "${SCRIPTS_DIR}/airwaves-update"
 echo "==> Installing systemd unit"
 curl -fsSL "${EXT}/config/templates/systemd-airwaves-update.service" \
     -o /etc/systemd/system/airwaves-update.service
+
+echo "==> Installing filesystem auto-grow service"
+curl -fsSL "${EXT}/scripts/airwaves-growfs" -o "${SCRIPTS_DIR}/airwaves-growfs"
+chmod +x "${SCRIPTS_DIR}/airwaves-growfs"
+curl -fsSL "${EXT}/config/templates/systemd-airwaves-growfs.service" \
+    -o /etc/systemd/system/airwaves-growfs.service
+command -v growpart >/dev/null 2>&1 || apt-get install -y cloud-guest-utils >/dev/null 2>&1 || true
 systemctl daemon-reload
+systemctl enable airwaves-growfs.service >/dev/null 2>&1 || true
+# Run it now so an already-enlarged disk is picked up immediately.
+"${SCRIPTS_DIR}/airwaves-growfs" || true
 
 echo "==> Seeding updater state"
 install -d "${AIRWAVES_DIR}/update"

@@ -226,8 +226,22 @@ main() {
     # ---- container images --------------------------------------------------
     if want manager || want gateway || want compose; then
         phase "pulling-images" 40
+        # Image pulls download + unpack layers; ensure there's headroom first.
+        local avail_img
+        avail_img="$(free_mb)"
+        if [ "${avail_img:-0}" -lt 1500 ]; then
+            log "Low disk (${avail_img} MB); reclaiming space before pull"
+            run docker image prune -f
+            run apt-get clean
+            avail_img="$(free_mb)"
+        fi
+        if [ "${avail_img:-0}" -lt 1000 ]; then
+            fail "Not enough free disk space to pull images (${avail_img} MB free; need ~1000 MB). Expand the disk, then try again."
+            rollback_config
+            return 1
+        fi
         if ! run compose pull; then
-            fail "docker compose pull failed"
+            fail "docker compose pull failed: $(log_tail)"
             rollback_config
             return 1
         fi
