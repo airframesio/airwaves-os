@@ -232,6 +232,46 @@ main() {
         ls -1dt "${BACKUPS_DIR}"/*/ 2>/dev/null | tail -n +11 | xargs -r rm -rf
     fi
 
+    # ---- host files (userpatches: scripts, systemd units, config) ----------
+    # Sync any manifest-declared host files so userpatch changes reach the
+    # device without a reflash. Atomic per-file; daemon-reload if a unit changed.
+    local hf_count
+    hf_count="$(jq -r '.host_files | length' "${REQUEST}" 2>/dev/null || echo 0)"
+    if [ "${hf_count}" -gt 0 ] 2>/dev/null; then
+        phase "syncing-host-files" 30
+        local need_daemon_reload="false" i
+        for i in $(seq 0 $((hf_count - 1))); do
+            local hf_url hf_dest hf_mode hf_sha
+            hf_url="$(jq -r ".host_files[$i].url // empty" "${REQUEST}")"
+            hf_dest="$(jq -r ".host_files[$i].dest // empty" "${REQUEST}")"
+            hf_mode="$(jq -r ".host_files[$i].mode // empty" "${REQUEST}")"
+            hf_sha="$(jq -r ".host_files[$i].sha256 // empty" "${REQUEST}")"
+            if [ -z "${hf_url}" ] || [ -z "${hf_dest}" ]; then continue; fi
+            # Refuse anything outside known-safe host roots.
+            case "${hf_dest}" in
+                /opt/airwaves/*|/etc/airwaves/*|/etc/systemd/system/*|/etc/update-motd.d/*|/etc/udev/rules.d/*) ;;
+                *) log "Refusing host file with disallowed dest: ${hf_dest}"; continue ;;
+            esac
+            if [ "${DRYRUN}" = "1" ]; then
+                log "[dry-run] would sync ${hf_url} -> ${hf_dest}"
+                continue
+            fi
+            mkdir -p "$(dirname "${hf_dest}")"
+            if ! download "${hf_url}" "${hf_dest}" "${hf_sha}"; then
+                log "WARNING: failed to sync ${hf_dest}; skipping"
+                continue
+            fi
+            [ -n "${hf_mode}" ] && chmod "${hf_mode}" "${hf_dest}"
+            case "${hf_dest}" in
+                /etc/systemd/system/*) need_daemon_reload="true" ;;
+            esac
+            log "Synced host file -> ${hf_dest}"
+        done
+        if [ "${need_daemon_reload}" = "true" ] && [ "${DRYRUN}" != "1" ]; then
+            systemctl daemon-reload || true
+        fi
+    fi
+
     # ---- compose + catalog config -----------------------------------------
     if want compose; then
         local url sha ver

@@ -329,6 +329,26 @@ pub struct UpdateManifest {
     pub components: std::collections::HashMap<String, ManifestComponent>,
     #[serde(default)]
     pub os: ManifestOs,
+    /// Host files (userpatch scripts, systemd units, config) to sync onto the
+    /// device during an update, so changes to userpatches reach deployed
+    /// devices without a reflash.
+    #[serde(default)]
+    pub host_files: Vec<HostFile>,
+}
+
+/// A file delivered to the host filesystem as part of an update.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HostFile {
+    /// Download URL (pinned to the release tag for stable; main for dev/beta).
+    pub url: String,
+    /// Absolute destination path on the host.
+    pub dest: String,
+    /// Optional octal mode string (e.g. "0755"); applied after write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// Optional sha256 (lowercase hex) for verification.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }
 
 fn default_schema() -> u32 {
@@ -414,6 +434,9 @@ pub struct UpdateRequest {
     pub gateway_image: Option<String>,
     #[serde(default)]
     pub gateway_tag: Option<String>,
+    /// Host files (userpatches) to sync during this update.
+    #[serde(default)]
+    pub host_files: Vec<HostFile>,
 }
 
 /// Progress written by the host updater (status.json).

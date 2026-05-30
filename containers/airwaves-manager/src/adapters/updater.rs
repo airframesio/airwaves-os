@@ -360,6 +360,9 @@ impl UpdatePort for UpdaterAdapter {
             manager_tag: None,
             gateway_image: None,
             gateway_tag: None,
+            // Always sync the manifest's host files (userpatches) on any update,
+            // so script/unit/config changes reach deployed devices.
+            host_files: manifest.host_files.clone(),
         };
 
         // Always reconcile BOTH container image tags to the manifest's channel
