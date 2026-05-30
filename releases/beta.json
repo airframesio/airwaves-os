@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "channel": "stable",
+  "channel": "beta",
   "os_version": "1.0.0",
   "codename": "Sideband",
   "released": "2026-05-30",
   "severity": "recommended",
   "min_os_version": "1.0.0",
-  "summary": "Airwaves OS 1.0.2 \u2014 update channels (stable/beta/dev), sidebar update indicator, app install persistence.",
+  "summary": "Airwaves OS beta channel. Early access.",
   "notes_url": "https://github.com/airframesio/airwaves-os/releases/tag/v1.0.0",
   "components": {
     "manager": {

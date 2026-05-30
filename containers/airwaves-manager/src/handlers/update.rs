@@ -44,3 +44,18 @@ pub async fn progress(
 ) -> Result<Json<crate::domain::UpdateProgress>, AppError> {
     Ok(Json(state.updater.progress().await))
 }
+
+#[derive(Deserialize)]
+pub struct SetChannelRequest {
+    pub channel: String,
+}
+
+/// Switch the update channel (stable | beta | dev) and re-check immediately
+/// against the new channel's manifest.
+pub async fn set_channel(
+    State(state): State<AppState>,
+    Json(req): Json<SetChannelRequest>,
+) -> Result<Json<crate::domain::UpdateStatus>, AppError> {
+    state.updater.set_channel(&req.channel)?;
+    Ok(Json(state.updater.check().await))
+}

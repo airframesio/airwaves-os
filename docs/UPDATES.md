@@ -138,3 +138,24 @@ and brings the stack up. After that, updates are fully in-app.
   partitions — see [ROADMAP.md](ROADMAP.md).
 - Major in-place Debian upgrades are powerful but inherently risky without A/B
   partitions; back up first.
+
+## Update channels
+
+Devices track one of three channels, stored in `/etc/airwaves/.versions.json`
+(`"channel"`), which selects the manifest fetched (`releases/<channel>.json`):
+
+- **stable** — production releases (default).
+- **beta** — early access to upcoming releases.
+- **dev** — bleeding edge; may be unstable.
+
+Switch channels in the control app (System Update → channel selector) or via
+the API:
+
+```
+POST /api/v1/system/update/channel   { "channel": "beta" }
+```
+
+Switching persists the choice and immediately re-checks against the new
+channel's manifest. Publishing flow: cut a release, then update the relevant
+`releases/<channel>.json` (beta/dev can point at pre-release image tags +
+config once those artifacts are published; until then they mirror stable).

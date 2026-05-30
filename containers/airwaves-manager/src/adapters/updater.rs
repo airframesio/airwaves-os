@@ -13,7 +13,7 @@ const DEFAULT_MANIFEST_BASE: &str =
     "https://raw.githubusercontent.com/airframesio/airwaves-os/main/releases";
 
 /// On-disk version markers seeded into the image and updated by the host updater.
-#[derive(serde::Deserialize, Default)]
+#[derive(serde::Deserialize, serde::Serialize, Default)]
 struct VersionsFile {
     #[serde(default)]
     compose: u32,
@@ -25,6 +25,13 @@ struct VersionsFile {
 
 fn default_channel() -> String {
     "stable".to_string()
+}
+
+/// Update channels, from most-stable to least.
+pub const CHANNELS: &[&str] = &["stable", "beta", "dev"];
+
+pub fn is_valid_channel(channel: &str) -> bool {
+    CHANNELS.contains(&channel)
 }
 
 pub struct UpdaterAdapter {
@@ -123,6 +130,28 @@ impl UpdaterAdapter {
         if let Ok(mut guard) = self.cache.lock() {
             *guard = Some(status.clone());
         }
+    }
+
+    /// Persist a new update channel into .versions.json (preserving the
+    /// compose/catalog revisions) and clear the cached status so the next
+    /// check hits the new channel's manifest.
+    pub fn set_channel(&self, channel: &str) -> Result<(), AppError> {
+        if !is_valid_channel(channel) {
+            return Err(AppError::BadRequest(format!(
+                "Invalid channel '{channel}'. Valid: {}",
+                CHANNELS.join(", ")
+            )));
+        }
+        let mut versions = Self::read_versions_file();
+        versions.channel = channel.to_string();
+        let json = serde_json::to_string_pretty(&versions)
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+        std::fs::write(VERSIONS_FILE, json)
+            .map_err(|e| AppError::Internal(format!("Cannot write {VERSIONS_FILE}: {e}")))?;
+        if let Ok(mut guard) = self.cache.lock() {
+            *guard = None;
+        }
+        Ok(())
     }
 }
 

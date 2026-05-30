@@ -6,11 +6,11 @@
   "released": "2026-05-30",
   "severity": "recommended",
   "min_os_version": "1.0.0",
-  "summary": "Airwaves OS 1.0.2 \u2014 condensed sidebar update indicator (no per-page banner); manager 1.0.1.",
+  "summary": "Airwaves OS 1.0.2 \u2014 update channels (stable/beta/dev), sidebar update indicator, app install persistence.",
   "notes_url": "https://github.com/airframesio/airwaves-os/releases/tag/v1.0.0",
   "components": {
     "manager": {
-      "version": "1.0.1",
+      "version": "1.0.2",
       "severity": "recommended",
       "image": "ghcr.io/airframesio/airwaves-manager",
       "tag": "latest"
