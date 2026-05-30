@@ -6,21 +6,21 @@
   "released": "2026-05-30",
   "severity": "recommended",
   "min_os_version": "1.0.0",
-  "summary": "Airwaves OS beta channel (1.0.5) \u2014 early access.",
+  "summary": "Airwaves OS beta channel (1.0.5) — early access.",
   "notes_url": "https://github.com/airframesio/airwaves-os/releases/tag/v1.0.0",
   "components": {
     "manager": {
       "version": "1.0.10",
       "severity": "recommended",
       "image": "ghcr.io/airframesio/airwaves-manager",
-      "tag": "beta"
+      "tag": "1.0.10-beta.62"
     },
     "gateway": {
       "version": "1.0.10",
       "control_app_version": "1.0.10",
       "severity": "recommended",
       "image": "ghcr.io/airframesio/airwaves-gateway",
-      "tag": "beta"
+      "tag": "1.0.10-beta.62"
     },
     "compose": {
       "version": "1",
