@@ -13,14 +13,14 @@
       "version": "1.0.3",
       "severity": "recommended",
       "image": "ghcr.io/airframesio/airwaves-manager",
-      "tag": "1.0.3"
+      "tag": "beta"
     },
     "gateway": {
       "version": "1.0.3",
       "control_app_version": "1.0.3",
       "severity": "recommended",
       "image": "ghcr.io/airframesio/airwaves-gateway",
-      "tag": "1.0.3"
+      "tag": "beta"
     },
     "compose": {
       "version": "1",

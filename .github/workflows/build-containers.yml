@@ -1,10 +1,20 @@
 name: Build Containers
 
+# Channel model:
+#   - push to main          -> "dev" channel    (image tag: dev)
+#   - push to beta branch   -> "beta" channel   (image tag: beta)
+#   - push tag v*           -> "stable" channel (image tags: stable + latest)
+#   - workflow_dispatch     -> choose channel (auto = infer from branch)
+# Every build also publishes an immutable version tag (from Cargo.toml /
+# control-app package.json) and a sha- tag, so updates can pin exact versions.
+
 on:
   push:
-    branches: [main, modernize-base-os]
+    branches: [main, beta, modernize-base-os]
     paths:
       - "containers/**"
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       container:
@@ -16,6 +26,16 @@ on:
           - all
           - airwaves-gateway
           - airwaves-manager
+      channel:
+        description: "Channel to publish (auto = infer from branch)"
+        required: true
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - stable
+          - beta
+          - dev
 
 env:
   REGISTRY: ghcr.io
@@ -24,14 +44,39 @@ env:
 
 jobs:
 
-  changes:
-    name: Detect changes
+  setup:
+    name: Setup (channel + changes)
     runs-on: ubuntu-latest
     outputs:
+      channel: ${{ steps.chan.outputs.channel }}
+      is_stable: ${{ steps.chan.outputs.is_stable }}
       gateway: ${{ steps.filter.outputs.gateway }}
       manager: ${{ steps.filter.outputs.manager }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Determine channel
+        id: chan
+        env:
+          REF: ${{ github.ref }}
+          INPUT_CHANNEL: ${{ github.event.inputs.channel }}
+        run: |
+          channel="dev"
+          if [ -n "${INPUT_CHANNEL}" ] && [ "${INPUT_CHANNEL}" != "auto" ]; then
+            channel="${INPUT_CHANNEL}"
+          elif [[ "${REF}" == refs/tags/v* ]]; then
+            channel="stable"
+          elif [ "${REF}" = "refs/heads/beta" ]; then
+            channel="beta"
+          else
+            channel="dev"
+          fi
+          is_stable="false"
+          [ "${channel}" = "stable" ] && is_stable="true"
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+          echo "is_stable=${is_stable}" >> "$GITHUB_OUTPUT"
+          echo "Resolved channel: ${channel} (is_stable=${is_stable})"
+
       - uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -43,8 +88,8 @@ jobs:
 
   build-gateway:
     name: Build airwaves-gateway
-    needs: [changes]
-    if: ${{ needs.changes.outputs.gateway == 'true' || github.event.inputs.container == 'all' || github.event.inputs.container == 'airwaves-gateway' }}
+    needs: [setup]
+    if: ${{ needs.setup.outputs.gateway == 'true' || github.event.inputs.container == 'all' || github.event.inputs.container == 'airwaves-gateway' || startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -91,9 +136,9 @@ jobs:
           images: ${{ env.IMAGE_PREFIX }}/airwaves-gateway
           tags: |
             type=sha
-            type=ref,event=branch
             type=raw,value=${{ steps.ctrlver.outputs.version }},enable=${{ steps.ctrlver.outputs.version != 'unknown' }}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ needs.setup.outputs.channel }}
+            type=raw,value=latest,enable=${{ needs.setup.outputs.is_stable == 'true' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -110,8 +155,8 @@ jobs:
 
   build-manager:
     name: Build airwaves-manager
-    needs: [changes]
-    if: ${{ needs.changes.outputs.manager == 'true' || github.event.inputs.container == 'all' || github.event.inputs.container == 'airwaves-manager' }}
+    needs: [setup]
+    if: ${{ needs.setup.outputs.manager == 'true' || github.event.inputs.container == 'all' || github.event.inputs.container == 'airwaves-manager' || startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -147,9 +192,9 @@ jobs:
           images: ${{ env.IMAGE_PREFIX }}/airwaves-manager
           tags: |
             type=sha
-            type=ref,event=branch
             type=raw,value=${{ steps.mgrver.outputs.version }},enable=${{ steps.mgrver.outputs.version != 'unknown' }}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ needs.setup.outputs.channel }}
+            type=raw,value=latest,enable=${{ needs.setup.outputs.is_stable == 'true' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -164,7 +209,7 @@ jobs:
 
   export-images:
     name: Export container tarballs (${{ matrix.arch }})
-    needs: [build-gateway, build-manager]
+    needs: [setup, build-gateway, build-manager]
     if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     strategy:
@@ -180,15 +225,16 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull and export images
+        env:
+          CHANNEL: ${{ needs.setup.outputs.channel }}
         run: |
           for image in airwaves-gateway airwaves-manager; do
-            docker pull --platform "linux/${{ matrix.arch }}" "${{ env.IMAGE_PREFIX }}/${image}:latest" || true
-            docker save "${{ env.IMAGE_PREFIX }}/${image}:latest" -o "${image}-${{ matrix.arch }}.tar" || true
+            docker pull --platform "linux/${{ matrix.arch }}" "${{ env.IMAGE_PREFIX }}/${image}:${CHANNEL}" || true
+            docker save "${{ env.IMAGE_PREFIX }}/${image}:${CHANNEL}" -o "${image}-${{ matrix.arch }}.tar" || true
           done
-
       - name: Upload tarballs
         uses: actions/upload-artifact@v4
         with:
-          name: container-images-${{ matrix.arch }}
+          name: container-images-${{ matrix.arch }}-${{ needs.setup.outputs.channel }}
           path: "*.tar"
           retention-days: 30

@@ -156,6 +156,46 @@ POST /api/v1/system/update/channel   { "channel": "beta" }
 ```
 
 Switching persists the choice and immediately re-checks against the new
-channel's manifest. Publishing flow: cut a release, then update the relevant
-`releases/<channel>.json` (beta/dev can point at pre-release image tags +
-config once those artifacts are published; until then they mirror stable).
+channel's manifest.
+
+### How channels map to images (CI)
+
+The **Build Containers** workflow tags images by git ref so each channel has
+its own moving image tag, plus an immutable version tag and a `sha-` tag:
+
+| Git ref | Channel | Image tags published |
+|---|---|---|
+| push to `main` | **dev** | `dev`, `<version>`, `sha-…` |
+| push to `beta` branch | **beta** | `beta`, `<version>`, `sha-…` |
+| push tag `v*` | **stable** | `stable`, `latest`, `<version>`, `sha-…` |
+| `workflow_dispatch` | choose (`auto` infers from branch) | as above |
+
+(`<version>` = manager `Cargo.toml` / control-app `package.json`.)
+
+Each channel manifest (`releases/<channel>.json`) pins the component `tag` to
+its channel:
+
+- `stable.json` → immutable version tag (e.g. `1.0.3`) for reproducibility;
+  bump on each stable release.
+- `beta.json` → `beta` (moving; republished on every `beta` branch push).
+- `dev.json` → `dev` (moving; republished on every `main` push).
+
+On apply, the host updater rewrites `docker-compose.yml` to the manifest's
+pinned tag before pulling, so a `dev` device runs `:dev`, a `beta` device runs
+`:beta`, and `stable` devices stay on the exact stable version — no fighting
+over `:latest`.
+
+### Publishing per channel
+
+- **dev**: merge to `main`. CI republishes the `dev` image tag. To make dev
+  devices *see* an update, bump the prerelease version (e.g. `1.0.4-dev.1`) in
+  `Cargo.toml`/`package.json` and `releases/dev.json` — version drives update
+  detection (semver), the tag drives what's pulled.
+- **beta**: push the `beta` branch; bump a `-beta.N` prerelease version and
+  update `releases/beta.json`.
+- **stable**: push a `v<version>` tag (builds `stable` + `latest` + version);
+  bump versions and `releases/stable.json` to the immutable version tag, and
+  recompute the compose/catalog `sha256`.
+
+All `releases/*.json` are read from `main`, so update the channel manifest on
+`main` even when the images came from another branch.
