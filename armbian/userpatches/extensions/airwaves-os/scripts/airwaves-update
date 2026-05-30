@@ -17,15 +17,17 @@ AIRWAVES_DIR="/etc/airwaves"
 COMPOSE="${AIRWAVES_DIR}/docker-compose.yml"
 CATALOG="${AIRWAVES_DIR}/catalog.json"
 VERSIONS="${AIRWAVES_DIR}/.versions.json"
+CONFIG="${AIRWAVES_DIR}/config.json"
 UPDATE_DIR="${AIRWAVES_DIR}/update"
 REQUEST="${UPDATE_DIR}/request.json"
 STATUS="${UPDATE_DIR}/status.json"
 BACKUP_DIR="${UPDATE_DIR}/backup"
+BACKUPS_DIR="${UPDATE_DIR}/backups"
 LOGFILE="/var/log/airwaves-update.log"
 HEALTH_TIMEOUT="${AIRWAVES_HEALTH_TIMEOUT:-120}"
 DRYRUN="${AIRWAVES_UPDATE_DRYRUN:-0}"
 
-mkdir -p "${UPDATE_DIR}" "${BACKUP_DIR}"
+mkdir -p "${UPDATE_DIR}" "${BACKUP_DIR}" "${BACKUPS_DIR}"
 : > "${UPDATE_DIR}/.log.tmp" 2>/dev/null || true
 LOG_TMP="${UPDATE_DIR}/.log.tmp"
 
@@ -199,12 +201,36 @@ main() {
     log "Requested components: ${COMPONENTS}"
 
     phase "backing-up" 5
-    # Snapshot config + current image digests for rollback.
+    log "Backing up current configuration before updating (so changes can be rolled back)..."
+
+    # Snapshot config + current image digests for rollback. BACKUP_DIR is the
+    # working copy used for automatic rollback within this run.
     [ -f "${COMPOSE}" ] && cp -f "${COMPOSE}" "${BACKUP_DIR}/docker-compose.yml"
     [ -f "${CATALOG}" ] && cp -f "${CATALOG}" "${BACKUP_DIR}/catalog.json"
     [ -f "${VERSIONS}" ] && cp -f "${VERSIONS}" "${BACKUP_DIR}/.versions.json"
-    docker inspect -f '{{index .Config.Image}} {{.Image}}' airwaves-manager airwaves-gateway \
-        > "${BACKUP_DIR}/digests.txt" 2>/dev/null || true
+    [ -f "${CONFIG}" ] && cp -f "${CONFIG}" "${BACKUP_DIR}/config.json"
+    : > "${BACKUP_DIR}/digests.txt"
+    for cname in airwaves-manager airwaves-gateway; do
+        local pre_id
+        pre_id="$(docker inspect -f '{{.Image}}' "${cname}" 2>/dev/null || true)"
+        [ -n "${pre_id}" ] && echo "${cname} ${pre_id}" >> "${BACKUP_DIR}/digests.txt"
+    done
+
+    # Also keep a timestamped, retained snapshot the user can restore from later,
+    # independent of the next update's rollback working copy.
+    if [ "${DRYRUN}" != "1" ]; then
+        local snap_ts snap_dir
+        snap_ts="$(date -u +%Y%m%dT%H%M%SZ)"
+        snap_dir="${BACKUPS_DIR}/${snap_ts}"
+        mkdir -p "${snap_dir}"
+        for f in "${COMPOSE}" "${CATALOG}" "${VERSIONS}" "${CONFIG}"; do
+            [ -f "${f}" ] && cp -f "${f}" "${snap_dir}/" 2>/dev/null || true
+        done
+        cp -f "${BACKUP_DIR}/digests.txt" "${snap_dir}/digests.txt" 2>/dev/null || true
+        log "Configuration backed up to ${snap_dir}"
+        # Retain only the most recent 10 snapshots.
+        ls -1dt "${BACKUPS_DIR}"/*/ 2>/dev/null | tail -n +11 | xargs -r rm -rf
+    fi
 
     # ---- compose + catalog config -----------------------------------------
     if want compose; then
