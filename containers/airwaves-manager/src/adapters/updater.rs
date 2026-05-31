@@ -270,30 +270,36 @@ impl UpdatePort for UpdaterAdapter {
             }
         };
 
-        // Manager image.
+        // Manager image. Compare the installed value against the SAME concrete
+        // value we display (e.g. "1.0.11-dev.65"), not the bare base version.
+        // Otherwise, on a device already running the channel's prerelease tag,
+        // semver ranks the base release ("1.0.11") above the prerelease
+        // ("1.0.11-dev.65") and falsely reports an update to the identical tag.
         if let Some(c) = manifest.components.get("manager") {
-            let avail = Self::is_newer(&installed.manager, &c.version);
+            let available = display_available(c, &c.version);
+            let avail = Self::is_newer(&installed.manager, &available);
             components.push(ComponentUpdate {
                 name: "manager".to_string(),
                 installed: installed.manager.clone(),
-                available: display_available(c, &c.version),
+                available,
                 update_available: avail,
                 severity: c.severity,
                 kind: "image".to_string(),
             });
         }
 
-        // Gateway carries the control app; compare the control-app version.
+        // Gateway carries the control app; compare against the concrete tag too.
         if let Some(c) = manifest.components.get("gateway") {
             let target = c
                 .control_app_version
                 .clone()
                 .unwrap_or_else(|| c.version.clone());
-            let avail = Self::is_newer(&installed.control_app, &target);
+            let available = display_available(c, &target);
+            let avail = Self::is_newer(&installed.control_app, &available);
             components.push(ComponentUpdate {
                 name: "gateway".to_string(),
                 installed: installed.control_app.clone(),
-                available: display_available(c, &target),
+                available,
                 update_available: avail,
                 severity: c.severity,
                 kind: "image".to_string(),
