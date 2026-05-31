@@ -13,14 +13,14 @@
       "version": "1.0.11",
       "severity": "recommended",
       "image": "ghcr.io/airframesio/airwaves-manager",
-      "tag": "1.0.11-dev.65"
+      "tag": "1.0.11-dev.66"
     },
     "gateway": {
       "version": "1.0.11",
       "control_app_version": "1.0.11",
       "severity": "recommended",
       "image": "ghcr.io/airframesio/airwaves-gateway",
-      "tag": "1.0.11-dev.65"
+      "tag": "1.0.11-dev.66"
     },
     "compose": {
       "version": "1",
