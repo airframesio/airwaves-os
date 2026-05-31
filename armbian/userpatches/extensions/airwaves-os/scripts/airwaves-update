@@ -144,6 +144,15 @@ wait_healthy() {
         fi
         sleep 3
     done
+    # Timed out — log each container's actual state + health so the rollback
+    # reason is obvious in the update log (e.g. an image whose healthcheck binary
+    # is missing shows "unhealthy" forever).
+    local c st he
+    for c in airwaves-manager airwaves-gateway; do
+        st="$(docker inspect -f '{{.State.Status}}' "${c}" 2>/dev/null || echo missing)"
+        he="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${c}" 2>/dev/null || echo n/a)"
+        log "Health timeout: ${c} status=${st} health=${he}"
+    done
     return 1
 }
 
