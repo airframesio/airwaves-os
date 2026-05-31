@@ -27,6 +27,37 @@ pub async fn list_catalog() -> Result<Json<Vec<CatalogApp>>, AppError> {
 #[derive(Deserialize)]
 pub struct InstallRequest {
     pub app_id: String,
+    /// Environment overrides from the install wizard, merged on top of the
+    /// catalog app's defaults. The frontend composes SDR assignment here too
+    /// (e.g. SOAPYSDR=driver=rtlsdr,serial=00000001), keeping the backend
+    /// generic.
+    #[serde(default)]
+    pub env: std::collections::HashMap<String, String>,
+    /// Optional image tag/version to install (e.g. "latest" or "v3.2"). When
+    /// set, the catalog image's tag is replaced with this so a user can pin a
+    /// specific app version. Empty/absent = use the catalog image as-is.
+    #[serde(default)]
+    pub image_tag: Option<String>,
+}
+
+/// Replace the tag portion of an image reference, preserving any registry host
+/// (which may itself contain a ':port'). "ghcr.io/x/y:latest" + "v2" ->
+/// "ghcr.io/x/y:v2". A digest pin (containing '@') or empty tag is left as-is.
+fn retag_image(image: &str, tag: &str) -> String {
+    let tag = tag.trim();
+    if tag.is_empty() || image.contains('@') {
+        return image.to_string();
+    }
+    match image.rsplit_once('/') {
+        Some((prefix, last)) => {
+            let last = last.split(':').next().unwrap_or(last);
+            format!("{prefix}/{last}:{tag}")
+        }
+        None => {
+            let base = image.split(':').next().unwrap_or(image);
+            format!("{base}:{tag}")
+        }
+    }
 }
 
 pub async fn install_app(
@@ -39,10 +70,25 @@ pub async fn install_app(
         .find(|a| a.id == req.app_id)
         .ok_or_else(|| AppError::NotFound(format!("App '{}' not found in catalog", req.app_id)))?;
 
-    let container = state.docker.install_app(app).await?;
+    // Apply the wizard's choices on top of the catalog defaults: env overrides
+    // (SDR assignment, frequencies, …) and an optional pinned image tag. Without
+    // the env merge, the user's selections would be silently dropped at install.
+    let mut app = app.clone();
+    for (k, v) in req.env {
+        app.env.insert(k, v);
+    }
+    if let Some(tag) = req.image_tag.as_deref() {
+        let tag = tag.trim();
+        if !tag.is_empty() {
+            app.image = retag_image(&app.image, tag);
+            app.version = tag.to_string();
+        }
+    }
+
+    let container = state.docker.install_app(&app).await?;
     // Record the install in config.json so the app set survives reboots and the
     // manager can reconcile (re-create) it if its container ever goes missing.
-    if let Err(e) = record_installed_app(&state, app).await {
+    if let Err(e) = record_installed_app(&state, &app).await {
         tracing::warn!("Installed {} but failed to record in config: {}", app.id, e);
     }
     Ok(Json(container))
