@@ -245,7 +245,15 @@ fn spawn_app_reconciler(state: AppState) {
             match catalog.iter().find(|a| a.id == id) {
                 Some(app) => {
                     tracing::info!("Reconcile: re-creating missing app container {}", cname);
-                    if let Err(e) = state.docker.install_app(app).await {
+                    // Re-apply the user's stored configuration (e.g. assigned
+                    // SDR) on top of the catalog defaults, so a recreated app
+                    // keeps the radio/settings it was installed with instead of
+                    // reverting to the generic default.
+                    let mut app = app.clone();
+                    for (k, v) in handlers::apps::recorded_app_env(&config, &id) {
+                        app.env.insert(k, v);
+                    }
+                    if let Err(e) = state.docker.install_app(&app).await {
                         tracing::warn!("Reconcile: failed to re-create {}: {}", cname, e);
                     }
                 }

@@ -35,11 +35,11 @@
       "READSB_LON": "",
       "TZ": "UTC",
       "READSB_NET_ENABLE": "true",
-      "READSB_DEVICE": ""
+      "READSB_RTLSDR_DEVICE": ""
     },
     "config_fields": [
       {
-        "key": "READSB_DEVICE",
+        "key": "READSB_RTLSDR_DEVICE",
         "label": "SDR device",
         "help": "Serial of the RTL-SDR to use. Leave blank to auto-select the first one.",
         "kind": "sdr",
@@ -61,7 +61,7 @@
         "kind": "text",
         "default": "",
         "required": false,
-        "help": "Your antenna latitude (decimal degrees)."
+        "help": "Antenna latitude (decimal degrees)."
       },
       {
         "key": "READSB_LON",
@@ -69,7 +69,7 @@
         "kind": "text",
         "default": "",
         "required": false,
-        "help": "Your antenna longitude (decimal degrees)."
+        "help": "Antenna longitude (decimal degrees)."
       },
       {
         "key": "TZ",
@@ -115,11 +115,11 @@
       "READSB_LAT": "",
       "READSB_LON": "",
       "TZ": "UTC",
-      "READSB_DEVICE": ""
+      "READSB_RTLSDR_DEVICE": ""
     },
     "config_fields": [
       {
-        "key": "READSB_DEVICE",
+        "key": "READSB_RTLSDR_DEVICE",
         "label": "SDR device",
         "help": "Serial of the RTL-SDR to use. Leave blank to auto-select the first one.",
         "kind": "sdr",
@@ -141,7 +141,7 @@
         "kind": "text",
         "default": "",
         "required": false,
-        "help": "Your antenna latitude (decimal degrees)."
+        "help": "Antenna latitude (decimal degrees)."
       },
       {
         "key": "READSB_LON",
@@ -149,7 +149,7 @@
         "kind": "text",
         "default": "",
         "required": false,
-        "help": "Your antenna longitude (decimal degrees)."
+        "help": "Antenna longitude (decimal degrees)."
       },
       {
         "key": "TZ",
@@ -386,17 +386,17 @@
     ],
     "env": {
       "TZ": "UTC",
-      "RTLSDR_SERIAL": ""
+      "AIS_SERIAL": ""
     },
     "config_fields": [
       {
-        "key": "RTLSDR_SERIAL",
+        "key": "AIS_SERIAL",
         "label": "SDR device",
-        "help": "Serial of the RTL-SDR to use. Leave blank to auto-select.",
+        "help": "Serial of the RTL-SDR to use for AIS reception.",
         "kind": "sdr",
         "format": "serial",
         "default": "",
-        "required": false
+        "required": true
       },
       {
         "key": "TZ",
@@ -405,6 +405,12 @@
         "default": "UTC",
         "required": false
       }
+    ],
+    "command": [
+      "-d",
+      "{{AIS_SERIAL}}",
+      "-N",
+      "8100"
     ]
   },
   {
@@ -428,17 +434,26 @@
     ],
     "env": {
       "TZ": "UTC",
-      "RTLSDR_SERIAL": ""
+      "RTLSDRAIRBAND_SERIAL": "",
+      "RTLSDRAIRBAND_GAIN": "25"
     },
     "config_fields": [
       {
-        "key": "RTLSDR_SERIAL",
+        "key": "RTLSDRAIRBAND_SERIAL",
         "label": "SDR device",
-        "help": "Serial of the RTL-SDR to use. Leave blank to auto-select.",
+        "help": "Serial of the RTL-SDR to use. Leave blank if only one is connected.",
         "kind": "sdr",
         "format": "serial",
         "default": "",
         "required": false
+      },
+      {
+        "key": "RTLSDRAIRBAND_GAIN",
+        "label": "Gain",
+        "kind": "text",
+        "default": "25",
+        "required": false,
+        "help": "Dongle gain (dB)."
       },
       {
         "key": "TZ",
@@ -469,12 +484,18 @@
       {
         "key": "RTL_433_SERIAL",
         "label": "SDR device",
-        "help": "Serial of the RTL-SDR to use. Leave blank to auto-select.",
+        "help": "Serial of the RTL-SDR to use (rtl_433 selects the device by serial).",
         "kind": "sdr",
         "format": "serial",
         "default": "",
-        "required": false
+        "required": true
       }
+    ],
+    "command": [
+      "-d",
+      ":{{RTL_433_SERIAL}}",
+      "-F",
+      "json"
     ]
   },
   {
@@ -500,11 +521,11 @@
     ],
     "env": {
       "TZ": "UTC",
-      "SOAPYSDR": "driver=rtlsdr"
+      "SOAPYSDRDRIVER": "driver=rtlsdr"
     },
     "config_fields": [
       {
-        "key": "SOAPYSDR",
+        "key": "SOAPYSDRDRIVER",
         "label": "SDR device",
         "help": "Select which connected SDR this app should use.",
         "kind": "sdr",

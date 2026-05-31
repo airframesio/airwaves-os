@@ -202,6 +202,12 @@ pub struct CatalogApp {
     /// Each maps to an environment variable (or the special SDR assignment).
     #[serde(default)]
     pub config_fields: Vec<ConfigField>,
+    /// Optional container command (exec form) for apps that take the SDR/options
+    /// as CLI args rather than env (e.g. rtl_433 `-d :<serial>`). Each element
+    /// may contain `{{ENV_KEY}}` tokens, substituted from the resolved env at
+    /// install time. Empty = use the image's default command.
+    #[serde(default)]
+    pub command: Vec<String>,
 }
 
 /// One configurable field shown in the pre-install wizard.

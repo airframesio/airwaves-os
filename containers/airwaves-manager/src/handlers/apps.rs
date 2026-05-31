@@ -61,13 +61,35 @@ pub async fn uninstall_app(
 }
 
 /// The persisted record of an installed app (stored under config.apps).
+/// Includes the resolved env (SDR assignment, frequencies, etc.) so the user's
+/// configuration survives reboots and is re-applied if the app is recreated.
 fn installed_record(app: &CatalogApp) -> serde_json::Value {
     serde_json::json!({
         "id": app.id,
         "name": app.name,
         "image": app.image,
         "category": app.category,
+        "env": app.env,
     })
+}
+
+/// The persisted env overrides for a recorded app, if any. Used by the
+/// reconciler to re-create a missing container with the SAME configuration the
+/// user chose (e.g. the assigned SDR), not the bare catalog defaults.
+pub fn recorded_app_env(
+    config: &crate::domain::AirwavesConfig,
+    id: &str,
+) -> std::collections::HashMap<String, String> {
+    config
+        .apps
+        .as_array()
+        .and_then(|arr| {
+            arr.iter()
+                .find(|a| a.get("id").and_then(|v| v.as_str()) == Some(id))
+                .and_then(|a| a.get("env"))
+                .and_then(|e| serde_json::from_value(e.clone()).ok())
+        })
+        .unwrap_or_default()
 }
 
 /// Add (or update) an app entry in config.apps.

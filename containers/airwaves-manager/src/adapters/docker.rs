@@ -391,9 +391,45 @@ impl DockerPort for DockerAdapter {
             ..Default::default()
         };
 
+        // Inject the app's environment (defaults merged with the install
+        // wizard's overrides by the handler) as KEY=VALUE. This is how SDR
+        // assignment, frequencies, gain, lat/lon, etc. actually reach the
+        // container — without this the configuration is silently dropped.
+        let env_vars: Vec<String> = {
+            let mut e: Vec<String> = app
+                .env
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect();
+            e.sort(); // stable ordering for reproducible container specs
+            e
+        };
+
+        // Optional command (exec form) for apps that take options as CLI args
+        // (e.g. rtl_433 `-d :<serial>`). Substitute {{ENV_KEY}} tokens from the
+        // resolved env so the picked SDR flows into the command line too.
+        let cmd: Option<Vec<String>> = if app.command.is_empty() {
+            None
+        } else {
+            Some(
+                app.command
+                    .iter()
+                    .map(|arg| {
+                        let mut out = arg.clone();
+                        for (k, v) in &app.env {
+                            out = out.replace(&format!("{{{{{k}}}}}"), v);
+                        }
+                        out
+                    })
+                    .collect(),
+            )
+        };
+
         let config = Config {
             image: Some(app.image.clone()),
             labels: Some(labels),
+            env: if env_vars.is_empty() { None } else { Some(env_vars) },
+            cmd,
             exposed_ports: if exposed_ports.is_empty() {
                 None
             } else {
