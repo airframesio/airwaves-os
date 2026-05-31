@@ -217,6 +217,11 @@ pub struct ConfigField {
     /// Field kind: "text" | "number" | "select" | "sdr".
     #[serde(default = "default_field_kind")]
     pub kind: String,
+    /// For kind == "sdr": how the picked device is encoded into the env value.
+    /// "soapy" → "driver=<drv>,serial=<serial>" (SoapySDR apps); "serial" →
+    /// the bare serial (readsb/dump978-style apps). Defaults to "soapy".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
     /// Default value (prefilled in the form).
     #[serde(default)]
     pub default: String,

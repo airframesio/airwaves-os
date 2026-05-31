@@ -34,8 +34,51 @@
       "READSB_LAT": "",
       "READSB_LON": "",
       "TZ": "UTC",
-      "READSB_NET_ENABLE": "true"
-    }
+      "READSB_NET_ENABLE": "true",
+      "READSB_DEVICE": ""
+    },
+    "config_fields": [
+      {
+        "key": "READSB_DEVICE",
+        "label": "SDR device",
+        "help": "Serial of the RTL-SDR to use. Leave blank to auto-select the first one.",
+        "kind": "sdr",
+        "format": "serial",
+        "default": "",
+        "required": false
+      },
+      {
+        "key": "READSB_GAIN",
+        "label": "Gain",
+        "kind": "text",
+        "default": "autogain",
+        "required": false,
+        "help": "Receiver gain, or 'autogain'."
+      },
+      {
+        "key": "READSB_LAT",
+        "label": "Latitude",
+        "kind": "text",
+        "default": "",
+        "required": false,
+        "help": "Your antenna latitude (decimal degrees)."
+      },
+      {
+        "key": "READSB_LON",
+        "label": "Longitude",
+        "kind": "text",
+        "default": "",
+        "required": false,
+        "help": "Your antenna longitude (decimal degrees)."
+      },
+      {
+        "key": "TZ",
+        "label": "Timezone",
+        "kind": "text",
+        "default": "UTC",
+        "required": false
+      }
+    ]
   },
   {
     "id": "readsb",
@@ -71,8 +114,51 @@
       "READSB_GAIN": "autogain",
       "READSB_LAT": "",
       "READSB_LON": "",
-      "TZ": "UTC"
-    }
+      "TZ": "UTC",
+      "READSB_DEVICE": ""
+    },
+    "config_fields": [
+      {
+        "key": "READSB_DEVICE",
+        "label": "SDR device",
+        "help": "Serial of the RTL-SDR to use. Leave blank to auto-select the first one.",
+        "kind": "sdr",
+        "format": "serial",
+        "default": "",
+        "required": false
+      },
+      {
+        "key": "READSB_GAIN",
+        "label": "Gain",
+        "kind": "text",
+        "default": "autogain",
+        "required": false,
+        "help": "Receiver gain, or 'autogain'."
+      },
+      {
+        "key": "READSB_LAT",
+        "label": "Latitude",
+        "kind": "text",
+        "default": "",
+        "required": false,
+        "help": "Your antenna latitude (decimal degrees)."
+      },
+      {
+        "key": "READSB_LON",
+        "label": "Longitude",
+        "kind": "text",
+        "default": "",
+        "required": false,
+        "help": "Your antenna longitude (decimal degrees)."
+      },
+      {
+        "key": "TZ",
+        "label": "Timezone",
+        "kind": "text",
+        "default": "UTC",
+        "required": false
+      }
+    ]
   },
   {
     "id": "acarsdec",
@@ -92,7 +178,8 @@
       "SOAPYSDR": "driver=rtlsdr",
       "FREQUENCIES": "130.025;130.450;131.125;131.550",
       "FEED_ID": "",
-      "TZ": "UTC"
+      "TZ": "UTC",
+      "GAIN": "auto"
     },
     "config_fields": [
       {
@@ -101,7 +188,8 @@
         "help": "Select which connected SDR acarsdec should use.",
         "kind": "sdr",
         "default": "driver=rtlsdr",
-        "required": true
+        "required": true,
+        "format": "soapy"
       },
       {
         "key": "FREQUENCIES",
@@ -156,7 +244,33 @@
       "ZMQ_MODE": "server",
       "ZMQ_ENDPOINT": "tcp://0.0.0.0:45555",
       "TZ": "UTC"
-    }
+    },
+    "config_fields": [
+      {
+        "key": "SOAPYSDR",
+        "label": "SDR device",
+        "help": "Select which connected SDR this app should use.",
+        "kind": "sdr",
+        "format": "soapy",
+        "default": "driver=rtlsdr",
+        "required": true
+      },
+      {
+        "key": "FREQUENCIES",
+        "label": "Frequencies (MHz)",
+        "kind": "text",
+        "default": "136.650;136.800;136.975",
+        "required": true,
+        "help": "Semicolon-separated VDL2 frequencies."
+      },
+      {
+        "key": "TZ",
+        "label": "Timezone",
+        "kind": "text",
+        "default": "UTC",
+        "required": false
+      }
+    ]
   },
   {
     "id": "dumphfdl",
@@ -176,7 +290,25 @@
     "env": {
       "SOAPYSDR": "driver=rtlsdr",
       "TZ": "UTC"
-    }
+    },
+    "config_fields": [
+      {
+        "key": "SOAPYSDR",
+        "label": "SDR device",
+        "help": "Select the SDR (an Airspy HF+ or wideband SDR is recommended for HF).",
+        "kind": "sdr",
+        "format": "soapy",
+        "default": "driver=rtlsdr",
+        "required": true
+      },
+      {
+        "key": "TZ",
+        "label": "Timezone",
+        "kind": "text",
+        "default": "UTC",
+        "required": false
+      }
+    ]
   },
   {
     "id": "acars-router",
@@ -205,7 +337,32 @@
       "AR_SEND_UDP_VDLM2": "",
       "AR_RECV_ZMQ_VDLM2": "",
       "TZ": "UTC"
-    }
+    },
+    "config_fields": [
+      {
+        "key": "AR_SEND_UDP_ACARS",
+        "label": "Send ACARS to (UDP host:port)",
+        "kind": "text",
+        "default": "",
+        "required": false,
+        "help": "Optional UDP target for ACARS JSON, e.g. acarshub:5550."
+      },
+      {
+        "key": "AR_SEND_UDP_VDLM2",
+        "label": "Send VDLM2 to (UDP host:port)",
+        "kind": "text",
+        "default": "",
+        "required": false,
+        "help": "Optional UDP target for VDLM2 JSON, e.g. acarshub:5555."
+      },
+      {
+        "key": "TZ",
+        "label": "Timezone",
+        "kind": "text",
+        "default": "UTC",
+        "required": false
+      }
+    ]
   },
   {
     "id": "ais-catcher",
@@ -228,8 +385,27 @@
       "airspy"
     ],
     "env": {
-      "TZ": "UTC"
-    }
+      "TZ": "UTC",
+      "RTLSDR_SERIAL": ""
+    },
+    "config_fields": [
+      {
+        "key": "RTLSDR_SERIAL",
+        "label": "SDR device",
+        "help": "Serial of the RTL-SDR to use. Leave blank to auto-select.",
+        "kind": "sdr",
+        "format": "serial",
+        "default": "",
+        "required": false
+      },
+      {
+        "key": "TZ",
+        "label": "Timezone",
+        "kind": "text",
+        "default": "UTC",
+        "required": false
+      }
+    ]
   },
   {
     "id": "rtl-airband",
@@ -251,8 +427,27 @@
       "rtl_sdr"
     ],
     "env": {
-      "TZ": "UTC"
-    }
+      "TZ": "UTC",
+      "RTLSDR_SERIAL": ""
+    },
+    "config_fields": [
+      {
+        "key": "RTLSDR_SERIAL",
+        "label": "SDR device",
+        "help": "Serial of the RTL-SDR to use. Leave blank to auto-select.",
+        "kind": "sdr",
+        "format": "serial",
+        "default": "",
+        "required": false
+      },
+      {
+        "key": "TZ",
+        "label": "Timezone",
+        "kind": "text",
+        "default": "UTC",
+        "required": false
+      }
+    ]
   },
   {
     "id": "rtl-433",
@@ -267,7 +462,20 @@
     "sdr_types": [
       "rtl_sdr"
     ],
-    "env": {}
+    "env": {
+      "RTL_433_SERIAL": ""
+    },
+    "config_fields": [
+      {
+        "key": "RTL_433_SERIAL",
+        "label": "SDR device",
+        "help": "Serial of the RTL-SDR to use. Leave blank to auto-select.",
+        "kind": "sdr",
+        "format": "serial",
+        "default": "",
+        "required": false
+      }
+    ]
   },
   {
     "id": "satdump",
@@ -291,8 +499,27 @@
       "hack_rf"
     ],
     "env": {
-      "TZ": "UTC"
-    }
+      "TZ": "UTC",
+      "SOAPYSDR": "driver=rtlsdr"
+    },
+    "config_fields": [
+      {
+        "key": "SOAPYSDR",
+        "label": "SDR device",
+        "help": "Select which connected SDR this app should use.",
+        "kind": "sdr",
+        "format": "soapy",
+        "default": "driver=rtlsdr",
+        "required": true
+      },
+      {
+        "key": "TZ",
+        "label": "Timezone",
+        "kind": "text",
+        "default": "UTC",
+        "required": false
+      }
+    ]
   },
   {
     "id": "dump978",
@@ -315,8 +542,27 @@
     ],
     "env": {
       "TZ": "UTC",
-      "DUMP978_DEVICE_TYPE": "rtlsdr"
-    }
+      "DUMP978_DEVICE_TYPE": "rtlsdr",
+      "DUMP978_RTLSDR_DEVICE": ""
+    },
+    "config_fields": [
+      {
+        "key": "DUMP978_RTLSDR_DEVICE",
+        "label": "SDR device",
+        "help": "Serial of the RTL-SDR to use for 978 MHz UAT. Leave blank to auto-select.",
+        "kind": "sdr",
+        "format": "serial",
+        "default": "",
+        "required": false
+      },
+      {
+        "key": "TZ",
+        "label": "Timezone",
+        "kind": "text",
+        "default": "UTC",
+        "required": false
+      }
+    ]
   },
   {
     "id": "acarshub",
@@ -339,7 +585,32 @@
       "TZ": "UTC",
       "ENABLE_ACARS": "true",
       "ENABLE_VDLM": "true"
-    }
+    },
+    "config_fields": [
+      {
+        "key": "ENABLE_ACARS",
+        "label": "Enable ACARS",
+        "kind": "text",
+        "default": "true",
+        "required": false,
+        "help": "Set 'true' to ingest ACARS."
+      },
+      {
+        "key": "ENABLE_VDLM",
+        "label": "Enable VDLM2",
+        "kind": "text",
+        "default": "true",
+        "required": false,
+        "help": "Set 'true' to ingest VDLM2."
+      },
+      {
+        "key": "TZ",
+        "label": "Timezone",
+        "kind": "text",
+        "default": "UTC",
+        "required": false
+      }
+    ]
   },
   {
     "id": "tar1090",
@@ -363,7 +634,38 @@
       "BEASTHOST": "airwaves-readsb",
       "LAT": "",
       "LONG": ""
-    }
+    },
+    "config_fields": [
+      {
+        "key": "BEASTHOST",
+        "label": "Beast source host",
+        "kind": "text",
+        "default": "airwaves-readsb",
+        "required": false,
+        "help": "Container providing Beast data (e.g. airwaves-readsb or airwaves-ultrafeeder)."
+      },
+      {
+        "key": "LAT",
+        "label": "Latitude",
+        "kind": "text",
+        "default": "",
+        "required": false
+      },
+      {
+        "key": "LONG",
+        "label": "Longitude",
+        "kind": "text",
+        "default": "",
+        "required": false
+      },
+      {
+        "key": "TZ",
+        "label": "Timezone",
+        "kind": "text",
+        "default": "UTC",
+        "required": false
+      }
+    ]
   },
   {
     "id": "shipfeeder",
@@ -379,6 +681,23 @@
     "env": {
       "TZ": "UTC",
       "AISCATCHER_UDP_INPUTS": ""
-    }
+    },
+    "config_fields": [
+      {
+        "key": "AISCATCHER_UDP_INPUTS",
+        "label": "AIS-Catcher UDP inputs",
+        "kind": "text",
+        "default": "",
+        "required": false,
+        "help": "UDP feed inputs, e.g. airwaves-ais-catcher:4002."
+      },
+      {
+        "key": "TZ",
+        "label": "Timezone",
+        "kind": "text",
+        "default": "UTC",
+        "required": false
+      }
+    ]
   }
 ]
