@@ -45,9 +45,9 @@ pub async fn progress(
     Ok(Json(state.updater.progress().await))
 }
 
-/// Force-refresh the system at its current release (repair drift): re-pull the
-/// compose/catalog at the current rev and re-install manager + control panel at
-/// the current release tags. Does not perform a version upgrade.
+/// Force-refresh the system at its current release (repair drift): sync current
+/// host repair files, re-pull the images already pinned in compose, and
+/// force-recreate containers. Does not perform a version upgrade.
 pub async fn refresh(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, AppError> {

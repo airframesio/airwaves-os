@@ -114,55 +114,62 @@ impl HostAdapter {
         Some(count as u32)
     }
 
-    /// Refresh the host-side updater script + systemd unit from the repo before
-    /// running an update, so already-deployed devices pick up updater fixes
-    /// (tag pinning, backups, etc.) without a manual bootstrap. Best-effort.
+    /// Refresh host-side bootstrap files from the repo before running an update,
+    /// so already-deployed devices pick up out-of-band updater fixes without a
+    /// manual bootstrap. Best-effort; the signed manifest performs the
+    /// integrity-checked sync once the host updater starts.
     pub async fn refresh_updater_files(&self) -> Result<(), AppError> {
         const RAW: &str = "https://raw.githubusercontent.com/airframesio/airwaves-os/main/armbian/userpatches/extensions/airwaves-os";
-        // Updater script.
-        let _ = self
-            .run(vec![
-                "curl".into(),
-                "-fsSL".into(),
-                format!("{RAW}/scripts/airwaves-update"),
-                "-o".into(),
-                "/opt/airwaves/scripts/airwaves-update".into(),
-            ])
-            .await;
-        let _ = self
-            .run(vec![
-                "chmod".into(),
-                "+x".into(),
-                "/opt/airwaves/scripts/airwaves-update".into(),
-            ])
-            .await;
-        // Growfs helper (also delivered via updates).
-        let _ = self
-            .run(vec![
-                "curl".into(),
-                "-fsSL".into(),
-                format!("{RAW}/scripts/airwaves-growfs"),
-                "-o".into(),
-                "/opt/airwaves/scripts/airwaves-growfs".into(),
-            ])
-            .await;
-        let _ = self
-            .run(vec![
-                "chmod".into(),
-                "+x".into(),
-                "/opt/airwaves/scripts/airwaves-growfs".into(),
-            ])
-            .await;
-        // systemd unit (in case it changed).
-        let _ = self
-            .run(vec![
-                "curl".into(),
-                "-fsSL".into(),
-                format!("{RAW}/config/templates/systemd-airwaves-update.service"),
-                "-o".into(),
-                "/etc/systemd/system/airwaves-update.service".into(),
-            ])
-            .await;
+        for (src, dest, executable) in [
+            (
+                "scripts/airwaves-update",
+                "/opt/airwaves/scripts/airwaves-update",
+                true,
+            ),
+            (
+                "scripts/airwaves-growfs",
+                "/opt/airwaves/scripts/airwaves-growfs",
+                true,
+            ),
+            (
+                "scripts/airwaves-init",
+                "/opt/airwaves/scripts/airwaves-init",
+                true,
+            ),
+            (
+                "config/templates/systemd-airwaves-update.service",
+                "/etc/systemd/system/airwaves-update.service",
+                false,
+            ),
+            (
+                "config/templates/systemd-airwaves-growfs.service",
+                "/etc/systemd/system/airwaves-growfs.service",
+                false,
+            ),
+            (
+                "config/templates/systemd-airwaves-init.service",
+                "/etc/systemd/system/airwaves-init.service",
+                false,
+            ),
+            (
+                "config/templates/systemd-airwaves-containers.service",
+                "/etc/systemd/system/airwaves-containers.service",
+                false,
+            ),
+        ] {
+            let _ = self
+                .run(vec![
+                    "curl".into(),
+                    "-fsSL".into(),
+                    format!("{RAW}/{src}"),
+                    "-o".into(),
+                    dest.into(),
+                ])
+                .await;
+            if executable {
+                let _ = self.run(vec!["chmod".into(), "+x".into(), dest.into()]).await;
+            }
+        }
         let _ = self.run(vec!["systemctl".into(), "daemon-reload".into()]).await;
         Ok(())
     }

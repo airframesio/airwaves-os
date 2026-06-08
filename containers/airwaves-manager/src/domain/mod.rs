@@ -576,7 +576,7 @@ pub struct UpdateRequest {
     pub host_files: Vec<HostFile>,
     /// Repair mode: re-pull the images CURRENTLY pinned in docker-compose.yml
     /// and force-recreate the stack at the installed versions, without changing
-    /// any tags or fetching the manifest. Used by "Force refresh".
+    /// any image tags. Used by "Force refresh".
     #[serde(default)]
     pub recreate: bool,
 }
