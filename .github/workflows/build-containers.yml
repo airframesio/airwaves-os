@@ -44,6 +44,11 @@ on:
           - stable
           - beta
           - dev
+      control_ref:
+        description: "Optional airwaves-os-control ref for gateway builds"
+        required: false
+        default: ""
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -123,7 +128,18 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      - name: Clone control app at requested ref
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.control_ref != '' }}
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CONTROL_APP_REPO }}
+          path: containers/airwaves-gateway/control-app
+          ref: ${{ github.event.inputs.control_ref }}
+          token: ${{ secrets.CONTROL_APP_TOKEN || secrets.GITHUB_TOKEN }}
+
       - name: Clone control app
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.control_ref == '' }}
         continue-on-error: true
         uses: actions/checkout@v4
         with:
