@@ -3,10 +3,10 @@
   "channel": "dev",
   "os_version": "1.0.10",
   "codename": "Sideband",
-  "released": "2026-05-30",
+  "released": "2026-06-08",
   "severity": "recommended",
   "min_os_version": "1.0.0",
-  "summary": "Airwaves OS dev channel (1.0.5) — bleeding edge.",
+  "summary": "Airwaves OS dev channel (1.0.15) - app catalog, install wizards, rtl_airband Airband page, and app metrics/configuration improvements.",
   "notes_url": "https://github.com/airframesio/airwaves-os/releases/tag/v1.0.0",
   "components": {
     "manager": {
@@ -29,10 +29,10 @@
       "sha256": "3610e27c32a2090a3bb8474b160a75e316ff4d55bb891ad3685dd7f2ea5d48c3"
     },
     "catalog": {
-      "version": "1",
+      "version": "2",
       "severity": "nice-to-have",
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/main/armbian/userpatches/extensions/airwaves-os/config/catalog.json",
-      "sha256": "0b687a6c169251157886b9e1b47b1276e6476e78ae2397d8d38ad05979bd95aa"
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/be5f535b514f6d909330aa5af8f93c5f9e4a55d7/armbian/userpatches/extensions/airwaves-os/config/catalog.json",
+      "sha256": "b3e64ce28a982c834b1877e66634cd30b14d43c3c61b48ac791ed78da890c8c6"
     }
   },
   "os": {
