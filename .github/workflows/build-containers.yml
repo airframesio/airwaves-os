@@ -69,6 +69,7 @@ jobs:
       # is the tag itself, so BOTH images stamp the same version and can never
       # split-brain (manager 1.0.10 / gateway 1.0.8). Empty for non-tag builds.
       release_version: ${{ steps.chan.outputs.release_version }}
+      control_ref: ${{ steps.chan.outputs.control_ref }}
     steps:
       - uses: actions/checkout@v4
 
@@ -77,6 +78,7 @@ jobs:
         env:
           REF: ${{ github.ref }}
           INPUT_CHANNEL: ${{ github.event.inputs.channel }}
+          INPUT_CONTROL_REF: ${{ github.event.inputs.control_ref }}
         run: |
           channel="dev"
           if [ -n "${INPUT_CHANNEL}" ] && [ "${INPUT_CHANNEL}" != "auto" ]; then
@@ -91,13 +93,18 @@ jobs:
           is_stable="false"
           [ "${channel}" = "stable" ] && is_stable="true"
           release_version=""
+          control_ref=""
           if [[ "${REF}" == refs/tags/v* ]]; then
             release_version="${REF#refs/tags/v}"
+            control_ref="${REF#refs/tags/}"
+          elif [ -n "${INPUT_CONTROL_REF}" ]; then
+            control_ref="${INPUT_CONTROL_REF}"
           fi
           echo "channel=${channel}" >> "$GITHUB_OUTPUT"
           echo "is_stable=${is_stable}" >> "$GITHUB_OUTPUT"
           echo "release_version=${release_version}" >> "$GITHUB_OUTPUT"
-          echo "Resolved channel: ${channel} (is_stable=${is_stable}) release_version='${release_version}'"
+          echo "control_ref=${control_ref}" >> "$GITHUB_OUTPUT"
+          echo "Resolved channel: ${channel} (is_stable=${is_stable}) release_version='${release_version}' control_ref='${control_ref}'"
 
       - uses: dorny/paths-filter@v3
         id: filter
@@ -129,17 +136,17 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Clone control app at requested ref
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.control_ref != '' }}
+        if: ${{ needs.setup.outputs.control_ref != '' }}
         continue-on-error: true
         uses: actions/checkout@v4
         with:
           repository: ${{ env.CONTROL_APP_REPO }}
           path: containers/airwaves-gateway/control-app
-          ref: ${{ github.event.inputs.control_ref }}
+          ref: ${{ needs.setup.outputs.control_ref }}
           token: ${{ secrets.CONTROL_APP_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Clone control app
-        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.control_ref == '' }}
+        if: ${{ needs.setup.outputs.control_ref == '' }}
         continue-on-error: true
         uses: actions/checkout@v4
         with:
