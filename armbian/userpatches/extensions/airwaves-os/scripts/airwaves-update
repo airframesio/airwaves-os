@@ -254,6 +254,7 @@ main() {
 
     phase "backing-up" 5
     log "Backing up current configuration before updating (so changes can be rolled back)..."
+    write_status
 
     # Snapshot config + current image digests for rollback. BACKUP_DIR is the
     # working copy used for automatic rollback within this run.
@@ -264,7 +265,7 @@ main() {
     : > "${BACKUP_DIR}/digests.txt"
     for cname in airwaves-manager airwaves-gateway; do
         local pre_id
-        pre_id="$(docker inspect -f '{{.Image}}' "${cname}" 2>/dev/null || true)"
+        pre_id="$(timeout 10s docker inspect -f '{{.Image}}' "${cname}" 2>/dev/null || true)"
         [ -n "${pre_id}" ] && echo "${cname} ${pre_id}" >> "${BACKUP_DIR}/digests.txt"
     done
 
@@ -280,6 +281,7 @@ main() {
         done
         cp -f "${BACKUP_DIR}/digests.txt" "${snap_dir}/digests.txt" 2>/dev/null || true
         log "Configuration backed up to ${snap_dir}"
+        write_status
         # Retain only the most recent 10 snapshots.
         ls -1dt "${BACKUPS_DIR}"/*/ 2>/dev/null | tail -n +11 | xargs -r rm -rf
     fi

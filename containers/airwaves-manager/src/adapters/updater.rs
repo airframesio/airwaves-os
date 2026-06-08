@@ -475,9 +475,15 @@ impl UpdaterAdapter {
     /// versions. This recovers a wedged/half-applied stack (e.g. a container
     /// that won't come up) without turning into an upgrade.
     pub async fn refresh(&self) -> Result<(), AppError> {
+        let host_files = self
+            .fetch_manifest()
+            .await
+            .map(|manifest| manifest.host_files)
+            .unwrap_or_default();
         let request = UpdateRequest {
             requested_at: Self::now(),
-            components: vec!["recreate".into()],
+            components: vec![],
+            host_files,
             recreate: true,
             ..Default::default()
         };
