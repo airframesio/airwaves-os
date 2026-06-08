@@ -10,17 +10,17 @@
   "notes_url": "https://github.com/airframesio/airwaves-os/releases/tag/v1.0.16",
   "components": {
     "manager": {
-      "version": "1.0.16",
+      "version": "1.0.17",
       "severity": "recommended",
       "image": "ghcr.io/airframesio/airwaves-manager",
-      "tag": "1.0.16-dev.77"
+      "tag": "1.0.17-dev.79"
     },
     "gateway": {
-      "version": "1.0.16",
-      "control_app_version": "1.0.16",
+      "version": "1.0.17",
+      "control_app_version": "1.0.17",
       "severity": "recommended",
       "image": "ghcr.io/airframesio/airwaves-gateway",
-      "tag": "1.0.16-dev.77"
+      "tag": "1.0.17-dev.79"
     },
     "compose": {
       "version": "1",
