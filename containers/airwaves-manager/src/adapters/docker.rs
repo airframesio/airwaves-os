@@ -1,6 +1,6 @@
 use bollard::container::{
     Config, CreateContainerOptions, ListContainersOptions, LogOutput, LogsOptions,
-    StartContainerOptions, StatsOptions, StopContainerOptions, RemoveContainerOptions,
+    RemoveContainerOptions, StartContainerOptions, StatsOptions, StopContainerOptions,
 };
 use bollard::system::EventsOptions;
 use bollard::Docker;
@@ -29,7 +29,12 @@ impl DockerAdapter {
 impl DockerAdapter {
     /// Create a bridge network if it doesn't already exist (idempotent).
     async fn ensure_network(&self, name: &str) -> Result<(), AppError> {
-        if self.client.inspect_network::<String>(name, None).await.is_ok() {
+        if self
+            .client
+            .inspect_network::<String>(name, None)
+            .await
+            .is_ok()
+        {
             return Ok(());
         }
         match self
@@ -47,8 +52,7 @@ impl DockerAdapter {
             }
             // Race: another caller created it between inspect and create.
             Err(bollard::errors::Error::DockerResponseServerError {
-                status_code: 409,
-                ..
+                status_code: 409, ..
             }) => Ok(()),
             Err(e) => Err(AppError::Docker(e)),
         }
@@ -58,10 +62,7 @@ impl DockerAdapter {
     /// Docker socket). Returns None if the container/label is absent.
     pub async fn container_label(&self, name: &str, label: &str) -> Option<String> {
         let info = self.client.inspect_container(name, None).await.ok()?;
-        info.config?
-            .labels?
-            .get(label)
-            .cloned()
+        info.config?.labels?.get(label).cloned()
     }
 
     /// The tag portion of a running container's image reference, e.g. the
@@ -86,8 +87,14 @@ impl DockerAdapter {
     /// Returns a stream of Docker daemon events (container start/stop/die/etc.)
     pub async fn watch_events(
         &self,
-    ) -> Pin<Box<dyn futures::Stream<Item = Result<bollard::models::EventMessage, bollard::errors::Error>> + Send + '_>>
-    {
+    ) -> Pin<
+        Box<
+            dyn futures::Stream<
+                    Item = Result<bollard::models::EventMessage, bollard::errors::Error>,
+                > + Send
+                + '_,
+        >,
+    > {
         let opts = EventsOptions::<String> {
             filters: {
                 let mut f = HashMap::new();
@@ -131,19 +138,24 @@ impl DockerPort for DockerAdapter {
         let result: Vec<ContainerInfo> = containers
             .into_iter()
             .map(|c| {
-                let name = c.names
+                let name = c
+                    .names
                     .as_ref()
                     .and_then(|n| n.first())
                     .map(|n| n.trim_start_matches('/').to_string())
                     .unwrap_or_default();
 
-                let ports = c.ports
+                let ports = c
+                    .ports
                     .unwrap_or_default()
                     .into_iter()
                     .map(|p| PortBinding {
                         container_port: p.private_port,
                         host_port: p.public_port,
-                        protocol: p.typ.map(|t| format!("{:?}", t)).unwrap_or_else(|| "tcp".to_string()),
+                        protocol: p
+                            .typ
+                            .map(|t| format!("{:?}", t))
+                            .unwrap_or_else(|| "tcp".to_string()),
                     })
                     .collect();
 
@@ -178,7 +190,10 @@ impl DockerPort for DockerAdapter {
 
     async fn restart_container(&self, id: &str) -> Result<(), AppError> {
         self.client
-            .restart_container(id, Some(bollard::container::RestartContainerOptions { t: 10 }))
+            .restart_container(
+                id,
+                Some(bollard::container::RestartContainerOptions { t: 10 }),
+            )
             .await?;
         Ok(())
     }
@@ -231,7 +246,10 @@ impl DockerPort for DockerAdapter {
                 &id,
                 // one_shot:false so Docker takes two samples internally and
                 // populates precpu_stats, making the CPU% delta meaningful.
-                Some(StatsOptions { stream: false, one_shot: false }),
+                Some(StatsOptions {
+                    stream: false,
+                    one_shot: false,
+                }),
             );
 
             if let Some(Ok(s)) = stream.next().await {
@@ -261,6 +279,33 @@ impl DockerPort for DockerAdapter {
                 // Memory usage vs limit (bytes).
                 let memory_used = s.memory_stats.usage.unwrap_or(0);
                 let memory_limit = s.memory_stats.limit.unwrap_or(0);
+                let (network_rx_bytes, network_tx_bytes) = s
+                    .networks
+                    .as_ref()
+                    .map(|networks| {
+                        networks.values().fold((0_u64, 0_u64), |(rx, tx), n| {
+                            (rx.saturating_add(n.rx_bytes), tx.saturating_add(n.tx_bytes))
+                        })
+                    })
+                    .or_else(|| {
+                        s.network
+                            .map(|network| (network.rx_bytes, network.tx_bytes))
+                    })
+                    .unwrap_or((0, 0));
+                let (block_read_bytes, block_write_bytes) = s
+                    .blkio_stats
+                    .io_service_bytes_recursive
+                    .as_ref()
+                    .map(|entries| {
+                        entries.iter().fold((0_u64, 0_u64), |(read, write), e| {
+                            match e.op.as_str() {
+                                "Read" => (read.saturating_add(e.value), write),
+                                "Write" => (read, write.saturating_add(e.value)),
+                                _ => (read, write),
+                            }
+                        })
+                    })
+                    .unwrap_or((0, 0));
 
                 results.push(ContainerStats {
                     id: id[..12.min(id.len())].to_string(),
@@ -268,6 +313,11 @@ impl DockerPort for DockerAdapter {
                     cpu_percent: (cpu_percent * 10.0).round() / 10.0,
                     memory_used,
                     memory_limit,
+                    network_rx_bytes,
+                    network_tx_bytes,
+                    block_read_bytes,
+                    block_write_bytes,
+                    pids: s.num_procs,
                 });
             }
         }
@@ -309,10 +359,7 @@ impl DockerPort for DockerAdapter {
         // "port is already allocated" 500 (common when two ADS-B apps overlap).
         let wanted_ports: Vec<u16> = app.ports.iter().filter_map(|p| p.host_port).collect();
         if !wanted_ports.is_empty() {
-            let existing = self
-                .list_containers()
-                .await
-                .unwrap_or_default();
+            let existing = self.list_containers().await.unwrap_or_default();
             for ec in &existing {
                 if ec.name == container_name {
                     continue; // our own (about to be replaced)
@@ -396,11 +443,7 @@ impl DockerPort for DockerAdapter {
         // assignment, frequencies, gain, lat/lon, etc. actually reach the
         // container — without this the configuration is silently dropped.
         let env_vars: Vec<String> = {
-            let mut e: Vec<String> = app
-                .env
-                .iter()
-                .map(|(k, v)| format!("{k}={v}"))
-                .collect();
+            let mut e: Vec<String> = app.env.iter().map(|(k, v)| format!("{k}={v}")).collect();
             e.sort(); // stable ordering for reproducible container specs
             e
         };
@@ -428,7 +471,11 @@ impl DockerPort for DockerAdapter {
         let config = Config {
             image: Some(app.image.clone()),
             labels: Some(labels),
-            env: if env_vars.is_empty() { None } else { Some(env_vars) },
+            env: if env_vars.is_empty() {
+                None
+            } else {
+                Some(env_vars)
+            },
             cmd,
             exposed_ports: if exposed_ports.is_empty() {
                 None
@@ -481,7 +528,8 @@ impl DockerPort for DockerAdapter {
 
     async fn uninstall_app(&self, id: &str) -> Result<(), AppError> {
         // Stop first
-        let _ = self.client
+        let _ = self
+            .client
             .stop_container(id, Some(StopContainerOptions { t: 5 }))
             .await;
 

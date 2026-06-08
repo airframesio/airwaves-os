@@ -78,6 +78,67 @@
         "default": "UTC",
         "required": false
       }
+    ],
+    "long_description": "ADS-B Ultrafeeder is the recommended all-in-one ADS-B install for most Airwaves OS receivers. It bundles readsb, tar1090, graphs1090, adaptive gain, Beast/RAW network outputs, and feeder integrations in one managed container.",
+    "install_notes": [
+      "Best choice when this SDR is dedicated to 1090 MHz ADS-B.",
+      "Uses host ports 8080, 30003, and 30005; stop readsb or tar1090 first if those ports are already in use.",
+      "Set latitude and longitude to enable range plots, MLAT-ready output, and accurate maps."
+    ],
+    "outputs": [
+      {
+        "kind": "tracking",
+        "label": "ADS-B aircraft positions",
+        "description": "Decoded aircraft position and Mode S traffic from 1090 MHz."
+      },
+      {
+        "kind": "web",
+        "label": "tar1090 map",
+        "description": "Interactive aircraft map exposed on port 8080.",
+        "protocol": "http",
+        "port": 8080
+      },
+      {
+        "kind": "raw",
+        "label": "Beast output",
+        "description": "Beast-format ADS-B stream for local consumers.",
+        "protocol": "tcp",
+        "port": 30005
+      },
+      {
+        "kind": "raw",
+        "label": "Basestation output",
+        "description": "SBS/BaseStation stream for compatible feeders.",
+        "protocol": "tcp",
+        "port": 30003
+      }
+    ],
+    "suggested_feeds": [
+      {
+        "id": "airplanes-live-ultrafeeder",
+        "name": "Airplanes.live ADS-B",
+        "feed_type": "integrated_option",
+        "protocol": "tcp",
+        "host": "feed.airplanes.live",
+        "port": 30004,
+        "description": "Optional ADS-B feed destination using Ultrafeeder output."
+      },
+      {
+        "id": "custom-adsb-ultrafeeder",
+        "name": "Custom ADS-B Beast Output",
+        "feed_type": "raw_stream",
+        "protocol": "tcp",
+        "host": "",
+        "port": 30005,
+        "enabled": false,
+        "description": "Forward decoded ADS-B Beast output to a custom host."
+      }
+    ],
+    "links": [
+      {
+        "label": "sdr-enthusiasts image",
+        "url": "https://github.com/sdr-enthusiasts/docker-adsb-ultrafeeder"
+      }
     ]
   },
   {
@@ -158,6 +219,64 @@
         "default": "UTC",
         "required": false
       }
+    ],
+    "long_description": "readsb is a focused ADS-B Mode S decoder and network server. Install it when you want a lean decoder feeding another map, aggregator, or local application instead of the full Ultrafeeder stack.",
+    "install_notes": [
+      "Do not run readsb and Ultrafeeder together unless you change overlapping host ports.",
+      "Set receiver location if you plan to use range graphs, MLAT, or downstream maps."
+    ],
+    "outputs": [
+      {
+        "kind": "tracking",
+        "label": "ADS-B aircraft positions",
+        "description": "Decoded aircraft and Mode S traffic."
+      },
+      {
+        "kind": "web",
+        "label": "readsb web UI",
+        "description": "Built-in receiver view exposed on port 8078.",
+        "protocol": "http",
+        "port": 8078
+      },
+      {
+        "kind": "raw",
+        "label": "Beast output",
+        "protocol": "tcp",
+        "port": 30005
+      },
+      {
+        "kind": "raw",
+        "label": "Basestation output",
+        "protocol": "tcp",
+        "port": 30003
+      }
+    ],
+    "suggested_feeds": [
+      {
+        "id": "airplanes-live-readsb",
+        "name": "Airplanes.live ADS-B",
+        "feed_type": "integrated_option",
+        "protocol": "tcp",
+        "host": "feed.airplanes.live",
+        "port": 30004,
+        "description": "Optional ADS-B feed destination from readsb Beast output."
+      },
+      {
+        "id": "custom-adsb-readsb",
+        "name": "Custom ADS-B Beast Output",
+        "feed_type": "raw_stream",
+        "protocol": "tcp",
+        "host": "",
+        "port": 30005,
+        "enabled": false,
+        "description": "Forward decoded ADS-B Beast output to a custom host."
+      }
+    ],
+    "links": [
+      {
+        "label": "readsb source",
+        "url": "https://github.com/wiedehopf/readsb"
+      }
     ]
   },
   {
@@ -222,6 +341,46 @@
         "default": "UTC",
         "required": false
       }
+    ],
+    "long_description": "acarsdec decodes classic VHF ACARS messages from aircraft. It is useful as a lightweight source feeding ACARS Router, ACARS Hub, or a direct UDP/TCP destination.",
+    "install_notes": [
+      "Choose one SDR and confirm its antenna is suitable for VHF airband.",
+      "The default frequency set covers common ACARS channels; adjust for your region.",
+      "Install ACARS Hub or ACARS Router if you want a local message viewer or forwarding pipeline."
+    ],
+    "outputs": [
+      {
+        "kind": "messages",
+        "label": "ACARS messages",
+        "description": "Decoded VHF ACARS message stream."
+      }
+    ],
+    "suggested_feeds": [
+      {
+        "id": "airframes-acarsdec",
+        "name": "Airframes.io ACARS",
+        "feed_type": "raw_stream",
+        "protocol": "tcp",
+        "host": "feed.airframes.io",
+        "port": 5550,
+        "description": "Optional ACARS forwarding destination."
+      },
+      {
+        "id": "custom-acarsdec",
+        "name": "Custom ACARS Output",
+        "feed_type": "raw_stream",
+        "protocol": "udp",
+        "host": "",
+        "port": 5550,
+        "enabled": false,
+        "description": "Forward ACARS messages to a custom host."
+      }
+    ],
+    "links": [
+      {
+        "label": "acarsdec source",
+        "url": "https://github.com/TLeconte/acarsdec"
+      }
     ]
   },
   {
@@ -270,6 +429,46 @@
         "default": "UTC",
         "required": false
       }
+    ],
+    "long_description": "dumpvdl2 decodes VDL Mode 2 aircraft datalink traffic, including ACARS-over-AVLC and CPDLC-related frames. It is a higher-rate companion to classic ACARS monitoring.",
+    "install_notes": [
+      "Use an SDR and antenna tuned for VHF airband.",
+      "The default VDL2 channels are common but regional channel use varies.",
+      "Enable ACARS Router or ACARS Hub when you want a live searchable message view."
+    ],
+    "outputs": [
+      {
+        "kind": "messages",
+        "label": "VDL2 messages",
+        "description": "Decoded VDL Mode 2 datalink frames."
+      }
+    ],
+    "suggested_feeds": [
+      {
+        "id": "airframes-dumpvdl2",
+        "name": "Airframes.io VDL2",
+        "feed_type": "raw_stream",
+        "protocol": "tcp",
+        "host": "feed.airframes.io",
+        "port": 5555,
+        "description": "Optional VDL2 forwarding destination."
+      },
+      {
+        "id": "custom-dumpvdl2",
+        "name": "Custom VDL2 Output",
+        "feed_type": "raw_stream",
+        "protocol": "udp",
+        "host": "",
+        "port": 5555,
+        "enabled": false,
+        "description": "Forward VDL2 messages to a custom host."
+      }
+    ],
+    "links": [
+      {
+        "label": "dumpvdl2 source",
+        "url": "https://github.com/szpajder/dumpvdl2"
+      }
     ]
   },
   {
@@ -307,6 +506,45 @@
         "kind": "text",
         "default": "UTC",
         "required": false
+      }
+    ],
+    "long_description": "dumphfdl decodes High Frequency Data Link messages used by aircraft on long-haul oceanic and remote routes. It works best with an HF-capable receiver and antenna.",
+    "install_notes": [
+      "HF reception requires the right antenna and SDR; Airspy HF+ or similar hardware is recommended.",
+      "Pick the SDR explicitly if multiple radios are connected."
+    ],
+    "outputs": [
+      {
+        "kind": "messages",
+        "label": "HFDL messages",
+        "description": "Decoded HF datalink traffic."
+      }
+    ],
+    "suggested_feeds": [
+      {
+        "id": "airframes-dumphfdl",
+        "name": "Airframes.io HFDL",
+        "feed_type": "raw_stream",
+        "protocol": "tcp",
+        "host": "feed.airframes.io",
+        "port": 5556,
+        "description": "Optional HFDL forwarding destination."
+      },
+      {
+        "id": "custom-dumphfdl",
+        "name": "Custom HFDL Output",
+        "feed_type": "raw_stream",
+        "protocol": "udp",
+        "host": "",
+        "port": 5556,
+        "enabled": false,
+        "description": "Forward HFDL messages to a custom host."
+      }
+    ],
+    "links": [
+      {
+        "label": "dumphfdl source",
+        "url": "https://github.com/szpajder/dumphfdl"
       }
     ]
   },
@@ -362,6 +600,44 @@
         "default": "UTC",
         "required": false
       }
+    ],
+    "long_description": "ACARS Router ties multiple aircraft datalink decoders together. Use it to receive ACARS, VDL2, or HFDL data locally and route normalized messages to ACARS Hub or external destinations.",
+    "install_notes": [
+      "Install this after at least one ACARS, VDL2, or HFDL decoder.",
+      "Use container hostnames like airwaves-acarshub for local Airwaves apps on the shared app network."
+    ],
+    "outputs": [
+      {
+        "kind": "messages",
+        "label": "Routed datalink messages",
+        "description": "Normalized ACARS, VDL2, and HFDL output."
+      }
+    ],
+    "suggested_feeds": [
+      {
+        "id": "airframes-acars-router",
+        "name": "Airframes.io Datalink",
+        "feed_type": "raw_stream",
+        "protocol": "tcp",
+        "host": "feed.airframes.io",
+        "port": 5550,
+        "description": "Optional datalink forwarding destination."
+      },
+      {
+        "id": "acarshub-router",
+        "name": "Local ACARS Hub",
+        "feed_type": "integrated_option",
+        "protocol": "udp",
+        "host": "airwaves-acarshub",
+        "port": 5550,
+        "description": "Route local decoded messages to ACARS Hub."
+      }
+    ],
+    "links": [
+      {
+        "label": "acars_router source",
+        "url": "https://github.com/sdr-enthusiasts/acars_router"
+      }
     ]
   },
   {
@@ -411,6 +687,51 @@
       "{{AIS_SERIAL}}",
       "-N",
       "8100"
+    ],
+    "long_description": "AIS-Catcher receives AIS position reports from ships on the marine VHF AIS channels and exposes a local web view plus network output for maritime feeders.",
+    "install_notes": [
+      "Use a VHF antenna suitable for 162 MHz marine AIS.",
+      "The web UI is exposed on port 8100 after install."
+    ],
+    "outputs": [
+      {
+        "kind": "tracking",
+        "label": "AIS vessel positions",
+        "description": "Decoded ship position reports."
+      },
+      {
+        "kind": "web",
+        "label": "AIS-Catcher web UI",
+        "protocol": "http",
+        "port": 8100
+      }
+    ],
+    "suggested_feeds": [
+      {
+        "id": "marinetraffic-ais-catcher",
+        "name": "MarineTraffic AIS",
+        "feed_type": "raw_stream",
+        "protocol": "udp",
+        "host": "5.9.207.224",
+        "port": 5321,
+        "description": "Optional AIS feed destination."
+      },
+      {
+        "id": "custom-ais-catcher",
+        "name": "Custom AIS Output",
+        "feed_type": "raw_stream",
+        "protocol": "udp",
+        "host": "",
+        "port": 4002,
+        "enabled": false,
+        "description": "Forward AIS messages to a custom host."
+      }
+    ],
+    "links": [
+      {
+        "label": "AIS-Catcher source",
+        "url": "https://github.com/jvde-github/AIS-catcher"
+      }
     ]
   },
   {
@@ -462,6 +783,63 @@
         "default": "UTC",
         "required": false
       }
+    ],
+    "long_description": "rtl_airband demodulates aviation voice channels and publishes live audio streams, usually through Icecast. Airwaves OS adds an Airband page when this app is installed so operators can monitor channels and stream endpoints.",
+    "install_notes": [
+      "Installs the rtl_airband container and unlocks the bundled Airband page in Airwaves OS.",
+      "Use a VHF airband antenna and an SDR dedicated to voice monitoring.",
+      "The default stream port is 8000."
+    ],
+    "outputs": [
+      {
+        "kind": "audio",
+        "label": "Airband audio streams",
+        "description": "Live ATC audio streams.",
+        "protocol": "http",
+        "port": 8000
+      },
+      {
+        "kind": "web",
+        "label": "Airband controls",
+        "description": "Airwaves OS Airband page."
+      },
+      {
+        "kind": "web",
+        "label": "Bundled Airband page",
+        "description": "Airwaves OS control page for rtl_airband status, streams, config, and logs."
+      }
+    ],
+    "suggested_feeds": [
+      {
+        "id": "local-airband-stream",
+        "name": "Local Airband Audio Stream",
+        "feed_type": "audio_stream",
+        "protocol": "tcp",
+        "host": "localhost",
+        "port": 8000,
+        "description": "Track the local Icecast/audio stream endpoint in Feeds."
+      }
+    ],
+    "value_page": {
+      "label": "Airband",
+      "path": "/airband",
+      "description": "Bundled Airwaves OS page unlocked by rtl_airband for stream status, configuration, and logs."
+    },
+    "links": [
+      {
+        "label": "rtl_airband source",
+        "url": "https://github.com/charlie-foxtrot/RTLSDR-Airband"
+      }
+    ],
+    "bundled_features": [
+      {
+        "id": "airband-control-page",
+        "kind": "control_page",
+        "label": "Airband",
+        "path": "/airband",
+        "entrypoint": "builtin:rtl-airband",
+        "description": "Adds the Airband navigation item and live rtl_airband management page when installed."
+      }
     ]
   },
   {
@@ -496,6 +874,36 @@
       ":{{RTL_433_SERIAL}}",
       "-F",
       "json"
+    ],
+    "long_description": "rtl_433 decodes short-range ISM-band devices such as weather stations, tire-pressure sensors, utility meters, and simple remote sensors.",
+    "install_notes": [
+      "Choose the SDR assigned to ISM-band monitoring.",
+      "The default command emits JSON logs; use container logs or a downstream collector to consume events."
+    ],
+    "outputs": [
+      {
+        "kind": "messages",
+        "label": "ISM sensor messages",
+        "description": "Decoded JSON sensor events."
+      }
+    ],
+    "suggested_feeds": [
+      {
+        "id": "custom-rtl-433",
+        "name": "Custom rtl_433 JSON Output",
+        "feed_type": "raw_stream",
+        "protocol": "udp",
+        "host": "",
+        "port": 8433,
+        "enabled": false,
+        "description": "Forward rtl_433 JSON events to a local collector."
+      }
+    ],
+    "links": [
+      {
+        "label": "rtl_433 source",
+        "url": "https://github.com/merbanan/rtl_433"
+      }
     ]
   },
   {
@@ -540,6 +948,30 @@
         "default": "UTC",
         "required": false
       }
+    ],
+    "long_description": "SatDump is a broad satellite decoding and processing suite for weather and data satellites. It is best used with app-specific satellite plans and an SDR/antenna suited to the target satellite band.",
+    "install_notes": [
+      "Use the right SDR and antenna for the satellite family you want to receive.",
+      "The web interface is exposed on port 8081 when the image provides it."
+    ],
+    "outputs": [
+      {
+        "kind": "web",
+        "label": "SatDump web UI",
+        "protocol": "http",
+        "port": 8081
+      },
+      {
+        "kind": "raw",
+        "label": "Satellite data products",
+        "description": "Decoded imagery and telemetry files produced by SatDump."
+      }
+    ],
+    "links": [
+      {
+        "label": "SatDump source",
+        "url": "https://github.com/SatDump/SatDump"
+      }
     ]
   },
   {
@@ -582,6 +1014,36 @@
         "kind": "text",
         "default": "UTC",
         "required": false
+      }
+    ],
+    "long_description": "dump978 receives UAT traffic on 978 MHz, including ADS-B traffic and FIS-B weather products in the United States.",
+    "install_notes": [
+      "Use this only where 978 MHz UAT is active, primarily the United States.",
+      "Use a separate SDR from any 1090 MHz ADS-B receiver."
+    ],
+    "outputs": [
+      {
+        "kind": "tracking",
+        "label": "978 MHz UAT messages",
+        "description": "Decoded UAT traffic and weather products."
+      }
+    ],
+    "suggested_feeds": [
+      {
+        "id": "custom-dump978",
+        "name": "Custom UAT Output",
+        "feed_type": "raw_stream",
+        "protocol": "tcp",
+        "host": "",
+        "port": 30978,
+        "enabled": false,
+        "description": "Forward decoded UAT output to a custom host."
+      }
+    ],
+    "links": [
+      {
+        "label": "dump978 source",
+        "url": "https://github.com/flightaware/dump978"
       }
     ]
   },
@@ -630,6 +1092,30 @@
         "kind": "text",
         "default": "UTC",
         "required": false
+      }
+    ],
+    "long_description": "ACARS Hub is the local web viewer for decoded ACARS, VDL2, and HFDL traffic. It is most useful after installing one or more aircraft datalink decoders or ACARS Router.",
+    "install_notes": [
+      "Install ACARS, VDL2, or HFDL decoders first if you want live data immediately.",
+      "The web UI is exposed on port 8900."
+    ],
+    "outputs": [
+      {
+        "kind": "web",
+        "label": "ACARS Hub web UI",
+        "protocol": "http",
+        "port": 8900
+      },
+      {
+        "kind": "messages",
+        "label": "Searchable datalink archive",
+        "description": "Live decoded message viewer."
+      }
+    ],
+    "links": [
+      {
+        "label": "ACARS Hub image",
+        "url": "https://github.com/sdr-enthusiasts/docker-acarshub"
       }
     ]
   },
@@ -686,6 +1172,25 @@
         "default": "UTC",
         "required": false
       }
+    ],
+    "long_description": "tar1090 is an aircraft map UI that consumes Beast data from readsb or Ultrafeeder. Install it when you want a dedicated web map separate from the decoder container.",
+    "install_notes": [
+      "Requires a running Beast source such as airwaves-readsb or airwaves-ultrafeeder.",
+      "The web map is exposed on port 8082."
+    ],
+    "outputs": [
+      {
+        "kind": "web",
+        "label": "Aircraft map",
+        "protocol": "http",
+        "port": 8082
+      }
+    ],
+    "links": [
+      {
+        "label": "tar1090 source",
+        "url": "https://github.com/wiedehopf/tar1090"
+      }
     ]
   },
   {
@@ -718,6 +1223,45 @@
         "kind": "text",
         "default": "UTC",
         "required": false
+      }
+    ],
+    "long_description": "Ship Feeder forwards AIS data from AIS-Catcher or another AIS source to maritime aggregators. It is a feeder/connector, not a decoder by itself.",
+    "install_notes": [
+      "Install AIS-Catcher first or provide another AIS UDP input.",
+      "Configure the UDP input source before enabling external forwarding."
+    ],
+    "outputs": [
+      {
+        "kind": "tracking",
+        "label": "Forwarded AIS vessel data",
+        "description": "AIS data prepared for maritime aggregators."
+      }
+    ],
+    "suggested_feeds": [
+      {
+        "id": "marinetraffic-shipfeeder",
+        "name": "MarineTraffic AIS",
+        "feed_type": "dedicated_app",
+        "protocol": "udp",
+        "host": "5.9.207.224",
+        "port": 5321,
+        "description": "Track the MarineTraffic AIS feed configured through Ship Feeder."
+      },
+      {
+        "id": "custom-shipfeeder",
+        "name": "Custom AIS Feed",
+        "feed_type": "raw_stream",
+        "protocol": "udp",
+        "host": "",
+        "port": 5321,
+        "enabled": false,
+        "description": "Forward AIS output to a custom destination."
+      }
+    ],
+    "links": [
+      {
+        "label": "Ship Feeder image",
+        "url": "https://github.com/sdr-enthusiasts/docker-shipfeeder"
       }
     ]
   }
