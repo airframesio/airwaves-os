@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "airwaves-manager"
-version = "1.0.21"
+version = "1.0.22"
 dependencies = [
  "anyhow",
  "axum",
