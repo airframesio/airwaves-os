@@ -207,6 +207,7 @@ main() {
     fi
 
     COMPONENTS="$(jq -c '.components // []' "${REQUEST}")"
+    RECREATE="$(jq -r '.recreate // false' "${REQUEST}")"
     log "Requested components: ${COMPONENTS}"
 
     phase "backing-up" 5
