@@ -412,13 +412,26 @@ impl DockerPort for DockerAdapter {
             }
         }
 
-        // SDR apps need access to USB devices on the host.
+        // SDR apps need USB access. When the UI recorded an exact Airwaves SDR
+        // id, map only that USB node so duplicate RTL-SDR serials and other
+        // decoder containers cannot contend for the whole bus.
         let devices = if app.requires_sdr {
-            Some(vec![bollard::models::DeviceMapping {
-                path_on_host: Some("/dev/bus/usb".to_string()),
-                path_in_container: Some("/dev/bus/usb".to_string()),
-                cgroup_permissions: Some("rwm".to_string()),
-            }])
+            let selected_paths = crate::sdr::usb_device_paths_for_env(&app.env);
+            let paths = if selected_paths.is_empty() {
+                vec!["/dev/bus/usb".to_string()]
+            } else {
+                selected_paths
+            };
+            Some(
+                paths
+                    .into_iter()
+                    .map(|path| bollard::models::DeviceMapping {
+                        path_on_host: Some(path.clone()),
+                        path_in_container: Some(path),
+                        cgroup_permissions: Some("rwm".to_string()),
+                    })
+                    .collect(),
+            )
         } else {
             None
         };
@@ -443,7 +456,12 @@ impl DockerPort for DockerAdapter {
         // assignment, frequencies, gain, lat/lon, etc. actually reach the
         // container — without this the configuration is silently dropped.
         let env_vars: Vec<String> = {
-            let mut e: Vec<String> = app.env.iter().map(|(k, v)| format!("{k}={v}")).collect();
+            let mut e: Vec<String> = app
+                .env
+                .iter()
+                .filter(|(k, _)| !crate::sdr::is_sdr_id_env_key(k))
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect();
             e.sort(); // stable ordering for reproducible container specs
             e
         };

@@ -3,7 +3,7 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::domain::CatalogApp;
-use crate::ports::{ConfigPort, DockerPort};
+use crate::ports::{ConfigPort, DockerPort, HardwarePort};
 use crate::{AppError, AppState};
 
 /// Load the full app catalog: prefer /etc/airwaves/catalog.json, fall back to
@@ -109,6 +109,8 @@ pub async fn install_app(
         Vec::new()
     };
 
+    validate_sdr_assignments(&state, &[app.clone()], &bundled_apps, None).await?;
+
     let container = state.docker.install_app(&app).await?;
     // Record the install in config.json so the app set survives reboots and the
     // manager can reconcile (re-create) it if its container ever goes missing.
@@ -167,13 +169,11 @@ pub async fn update_app_config(
         Vec::new()
     };
 
+    validate_sdr_assignments(&state, &[app.clone()], &bundled_apps, Some(&config)).await?;
+
     let container = state.docker.install_app(&app).await?;
     if let Err(e) = record_installed_app(&state, &app).await {
-        tracing::warn!(
-            "Updated {} but failed to record new config: {}",
-            app.id,
-            e
-        );
+        tracing::warn!("Updated {} but failed to record new config: {}", app.id, e);
     }
 
     for bundled_app in bundled_apps {
@@ -216,6 +216,48 @@ fn env_value(env: &std::collections::HashMap<String, String>, key: &str, default
         .to_string()
 }
 
+async fn validate_sdr_assignments(
+    state: &AppState,
+    primary_apps: &[CatalogApp],
+    bundled_apps: &[CatalogApp],
+    config: Option<&crate::domain::AirwavesConfig>,
+) -> Result<(), AppError> {
+    let owned_config;
+    let config = match config {
+        Some(config) => config,
+        None => {
+            owned_config = state.config.read_config().await?;
+            &owned_config
+        }
+    };
+    let devices = state.hardware.list_sdr_devices()?;
+    let mut targets = primary_apps.to_vec();
+    targets.extend(bundled_apps.iter().cloned());
+    crate::sdr::validate_app_sdr_assignments(config, &targets, &devices)
+        .map_err(AppError::BadRequest)
+}
+
+fn copy_sdr_metadata(
+    source_env: &std::collections::HashMap<String, String>,
+    source_key: &str,
+    target_env: &mut std::collections::HashMap<String, String>,
+    target_key: &str,
+) {
+    let source_meta_key = crate::sdr::sdr_id_env_key(source_key);
+    let Some(device_id) = source_env
+        .get(&source_meta_key)
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+    else {
+        return;
+    };
+
+    target_env.insert(
+        crate::sdr::sdr_id_env_key(target_key),
+        device_id.to_string(),
+    );
+}
+
 fn prepare_acarshub_bundle(catalog: &[CatalogApp], hub: &mut CatalogApp) -> Vec<CatalogApp> {
     let mut bundled = Vec::new();
 
@@ -233,6 +275,7 @@ fn prepare_acarshub_bundle(catalog: &[CatalogApp], hub: &mut CatalogApp) -> Vec<
                 "SOAPYSDR".to_string(),
                 env_value(&hub.env, "LOCAL_ACARSDEC_SDR", "driver=rtlsdr"),
             );
+            copy_sdr_metadata(&hub.env, "LOCAL_ACARSDEC_SDR", &mut source.env, "SOAPYSDR");
             source.env.insert(
                 "FREQUENCIES".to_string(),
                 env_value(
@@ -283,6 +326,7 @@ fn prepare_acarshub_bundle(catalog: &[CatalogApp], hub: &mut CatalogApp) -> Vec<
                 "SOAPYSDR".to_string(),
                 env_value(&hub.env, "LOCAL_DUMPVDL2_SDR", "driver=rtlsdr"),
             );
+            copy_sdr_metadata(&hub.env, "LOCAL_DUMPVDL2_SDR", &mut source.env, "SOAPYSDR");
             source.env.insert(
                 "FREQUENCIES".to_string(),
                 env_value(
