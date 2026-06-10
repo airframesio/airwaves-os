@@ -296,7 +296,7 @@
     "env": {
       "SOAPYSDR": "driver=rtlsdr",
       "FREQUENCIES": "130.025;130.450;131.125;131.550",
-      "FEED_ID": "",
+      "FEED_ID": "airwaves-acarsdec",
       "TZ": "UTC",
       "GAIN": "auto",
       "OUTPUT_SERVER": "airwaves-acarshub",
@@ -325,10 +325,10 @@
       {
         "key": "FEED_ID",
         "label": "Feed ID",
-        "help": "Optional station/feed identifier sent with messages.",
+        "help": "Station/feed identifier required by the decoder container and sent with messages.",
         "kind": "text",
-        "default": "",
-        "required": false
+        "default": "airwaves-acarsdec",
+        "required": true
       },
       {
         "key": "GAIN",
@@ -455,8 +455,9 @@
     "env": {
       "SOAPYSDR": "driver=rtlsdr",
       "FREQUENCIES": "136.650;136.800;136.975",
-      "ZMQ_MODE": "server",
-      "ZMQ_ENDPOINT": "tcp://0.0.0.0:45555",
+      "FEED_ID": "airwaves-dumpvdl2",
+      "SERVER": "airwaves-acarshub",
+      "SERVER_PORT": "5555",
       "TZ": "UTC"
     },
     "config_fields": [
@@ -478,6 +479,30 @@
         "help": "Semicolon-separated VDL2 frequencies."
       },
       {
+        "key": "FEED_ID",
+        "label": "Feed ID",
+        "kind": "text",
+        "default": "airwaves-dumpvdl2",
+        "required": true,
+        "help": "Station/feed identifier required by the decoder container and sent with messages."
+      },
+      {
+        "key": "SERVER",
+        "label": "VDL2 output host",
+        "kind": "text",
+        "default": "airwaves-acarshub",
+        "required": false,
+        "help": "Local ACARS Hub is airwaves-acarshub. Use another hostname/IP to feed a remote hub."
+      },
+      {
+        "key": "SERVER_PORT",
+        "label": "VDL2 output port",
+        "kind": "number",
+        "default": "5555",
+        "required": false,
+        "help": "ACARS Hub listens for VDL2 JSON on UDP 5555 by default."
+      },
+      {
         "key": "TZ",
         "label": "Timezone",
         "kind": "text",
@@ -489,7 +514,7 @@
     "install_notes": [
       "Use an SDR and antenna tuned for VHF airband.",
       "The default VDL2 channels are common but regional channel use varies.",
-      "Enable ACARS Router or ACARS Hub when you want a live searchable message view."
+      "By default this decoder sends VDL2 JSON to the local ACARS Hub container at airwaves-acarshub:5555."
     ],
     "outputs": [
       {
@@ -517,6 +542,16 @@
         "port": 5555,
         "enabled": false,
         "description": "Forward VDL2 messages to a custom host."
+      },
+      {
+        "id": "acarshub-dumpvdl2",
+        "name": "Local ACARS Hub",
+        "feed_type": "integrated_option",
+        "protocol": "udp",
+        "host": "airwaves-acarshub",
+        "port": 5555,
+        "enabled": true,
+        "description": "Send decoded VDL2 messages to the local ACARS Hub app."
       }
     ],
     "links": [
@@ -1148,8 +1183,16 @@
       "TZ": "UTC",
       "ENABLE_ACARS": "true",
       "ACARS_CONNECTIONS": "udp://0.0.0.0:5550",
+      "ENABLE_LOCAL_ACARSDEC": "false",
+      "LOCAL_ACARSDEC_SDR": "driver=rtlsdr",
+      "LOCAL_ACARSDEC_FREQUENCIES": "130.025;130.450;131.125;131.550",
+      "LOCAL_ACARSDEC_FEED_ID": "airwaves-acarsdec",
       "ENABLE_VDLM": "true",
       "VDLM_CONNECTIONS": "udp://0.0.0.0:5555",
+      "ENABLE_LOCAL_DUMPVDL2": "false",
+      "LOCAL_DUMPVDL2_SDR": "driver=rtlsdr",
+      "LOCAL_DUMPVDL2_FREQUENCIES": "136.650;136.800;136.975",
+      "LOCAL_DUMPVDL2_FEED_ID": "airwaves-dumpvdl2",
       "ENABLE_HFDL": "false",
       "HFDL_CONNECTIONS": "udp://0.0.0.0:5556",
       "ENABLE_IMSL": "false",
@@ -1217,6 +1260,14 @@
         "help": "Semicolon-separated ACARS frequencies used by the companion acarsdec source."
       },
       {
+        "key": "LOCAL_ACARSDEC_FEED_ID",
+        "label": "ACARS decoder Feed ID",
+        "kind": "text",
+        "default": "airwaves-acarsdec",
+        "required": false,
+        "help": "Station/feed identifier applied to the companion acarsdec container."
+      },
+      {
         "key": "ENABLE_VDLM",
         "label": "Enable VDLM2",
         "kind": "select",
@@ -1234,7 +1285,7 @@
         "kind": "text",
         "default": "udp://0.0.0.0:5555",
         "required": false,
-        "help": "Comma-separated descriptors, e.g. udp://0.0.0.0:5555 or zmq://airwaves-dumpvdl2:45555."
+        "help": "Comma-separated descriptors. Use udp://0.0.0.0:5555 for direct local dumpvdl2 input."
       },
       {
         "key": "ENABLE_LOCAL_DUMPVDL2",
@@ -1246,7 +1297,7 @@
           "true"
         ],
         "required": false,
-        "help": "When true, Airwaves installs or recreates dumpvdl2 and points ACARS Hub at its ZMQ stream."
+        "help": "When true, Airwaves installs or recreates dumpvdl2 and points it at this ACARS Hub."
       },
       {
         "key": "LOCAL_DUMPVDL2_SDR",
@@ -1264,6 +1315,14 @@
         "default": "136.650;136.800;136.975",
         "required": false,
         "help": "Semicolon-separated VDL2 frequencies used by the companion dumpvdl2 source."
+      },
+      {
+        "key": "LOCAL_DUMPVDL2_FEED_ID",
+        "label": "VDL2 decoder Feed ID",
+        "kind": "text",
+        "default": "airwaves-dumpvdl2",
+        "required": false,
+        "help": "Station/feed identifier applied to the companion dumpvdl2 container."
       },
       {
         "key": "ENABLE_HFDL",

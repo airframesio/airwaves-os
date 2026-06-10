@@ -78,6 +78,10 @@ fn api_router(state: AppState) -> Router {
         // App catalog endpoints
         .route("/api/v1/apps/catalog", axum::routing::get(handlers::apps::list_catalog))
         .route("/api/v1/apps/install", axum::routing::post(handlers::apps::install_app))
+        .route(
+            "/api/v1/apps/{id}/config",
+            axum::routing::put(handlers::apps::update_app_config),
+        )
         .route("/api/v1/apps/{id}", axum::routing::delete(handlers::apps::uninstall_app))
         // Tracking (aircraft/ship positions from decoder containers)
         .route("/api/v1/tracking/vehicles", axum::routing::get(handlers::tracking::get_vehicles))

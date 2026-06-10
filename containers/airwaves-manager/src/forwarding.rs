@@ -4,7 +4,7 @@
 //! them to the configured primary node. Also stores them in the local
 //! message buffer for the UI.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use crate::adapters::{ConfigAdapter, DockerAdapter};
@@ -24,10 +24,11 @@ const DECODER_PREFIXES: &[(&str, &str)] = &[
 
 fn looks_like_service_log(line: &str) -> bool {
     let lower = line.to_ascii_lowercase();
-    lower.starts_with('[')
-        || lower.contains("[webapp]")
+    lower.contains("[webapp]")
         || lower.contains("[error]")
         || lower.contains("[warning]")
+        || lower.contains("namespace")
+        || lower.contains("=>")
         || lower.contains(" table plugin")
         || lower.contains("collectd")
         || lower.contains("starting ")
@@ -128,6 +129,8 @@ pub fn spawn_forwarding_service(
             .expect("Failed to create HTTP client");
 
         let hostname = sysinfo::System::host_name().unwrap_or_else(|| "unknown".to_string());
+        let mut seen_log_lines: VecDeque<String> = VecDeque::new();
+        let mut seen_log_set: HashSet<String> = HashSet::new();
 
         loop {
             // Read forwarding config
@@ -194,6 +197,17 @@ pub fn spawn_forwarding_service(
                 use crate::ports::DockerPort;
                 if let Ok(logs) = docker.get_logs(&container.name, 10).await {
                     for line in logs.lines() {
+                        let line_key = format!("{}:{}", container.name, line.trim());
+                        if !seen_log_set.insert(line_key.clone()) {
+                            continue;
+                        }
+                        seen_log_lines.push_back(line_key);
+                        while seen_log_lines.len() > 2000 {
+                            if let Some(oldest) = seen_log_lines.pop_front() {
+                                seen_log_set.remove(&oldest);
+                            }
+                        }
+
                         if let Some(message) =
                             decoded_message_from_log(&hostname, &container.name, msg_type, line)
                         {
@@ -278,6 +292,10 @@ mod tests {
         assert!(looks_like_decoded_message(
             "ais",
             "!AIVDM,1,1,,A,15Muq?002>G?svP00<:O?vN60<0,0*5C"
+        ));
+        assert!(looks_like_decoded_message(
+            "acars",
+            "[2026-06-10 02:59:46] ACARS mode:2 label:H1 block_id:1 tail:N123AB msg:POSRPT"
         ));
     }
 }

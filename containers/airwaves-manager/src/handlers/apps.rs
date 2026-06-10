@@ -40,6 +40,16 @@ pub struct InstallRequest {
     pub image_tag: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct UpdateAppConfigRequest {
+    /// Environment overrides to persist and apply to the installed app.
+    #[serde(default)]
+    pub env: std::collections::HashMap<String, String>,
+    /// Optional image tag/version to use while recreating the app container.
+    #[serde(default)]
+    pub image_tag: Option<String>,
+}
+
 /// Replace the tag portion of an image reference, preserving any registry host
 /// (which may itself contain a ':port'). "ghcr.io/x/y:latest" + "v2" ->
 /// "ghcr.io/x/y:v2". A digest pin (containing '@') or empty tag is left as-is.
@@ -60,6 +70,23 @@ fn retag_image(image: &str, tag: &str) -> String {
     }
 }
 
+fn apply_app_overrides(
+    app: &mut CatalogApp,
+    env: std::collections::HashMap<String, String>,
+    image_tag: Option<String>,
+) {
+    for (k, v) in env {
+        app.env.insert(k, v);
+    }
+    if let Some(tag) = image_tag.as_deref() {
+        let tag = tag.trim();
+        if !tag.is_empty() {
+            app.image = retag_image(&app.image, tag);
+            app.version = tag.to_string();
+        }
+    }
+}
+
 pub async fn install_app(
     State(state): State<AppState>,
     Json(req): Json<InstallRequest>,
@@ -74,16 +101,7 @@ pub async fn install_app(
     // (SDR assignment, frequencies, …) and an optional pinned image tag. Without
     // the env merge, the user's selections would be silently dropped at install.
     let mut app = app.clone();
-    for (k, v) in req.env {
-        app.env.insert(k, v);
-    }
-    if let Some(tag) = req.image_tag.as_deref() {
-        let tag = tag.trim();
-        if !tag.is_empty() {
-            app.image = retag_image(&app.image, tag);
-            app.version = tag.to_string();
-        }
-    }
+    apply_app_overrides(&mut app, req.env, req.image_tag);
 
     let bundled_apps = if app.id == "acarshub" {
         prepare_acarshub_bundle(&catalog, &mut app)
@@ -113,6 +131,66 @@ pub async fn install_app(
             Err(e) => {
                 return Err(AppError::Internal(format!(
                     "Installed ACARS Hub, but failed to install bundled source app {bundled_id}: {e}"
+                )));
+            }
+        }
+    }
+
+    Ok(Json(container))
+}
+
+pub async fn update_app_config(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateAppConfigRequest>,
+) -> Result<Json<crate::domain::ContainerInfo>, AppError> {
+    let requested_id = id
+        .strip_prefix("airwaves-")
+        .map(str::to_string)
+        .unwrap_or(id);
+    let catalog = load_catalog().await;
+    let app = catalog
+        .iter()
+        .find(|a| a.id == requested_id)
+        .ok_or_else(|| AppError::NotFound(format!("App '{requested_id}' not found in catalog")))?;
+
+    let config = state.config.read_config().await?;
+    let mut app = app.clone();
+    for (k, v) in recorded_app_env(&config, &requested_id) {
+        app.env.insert(k, v);
+    }
+    apply_app_overrides(&mut app, req.env, req.image_tag);
+
+    let bundled_apps = if app.id == "acarshub" {
+        prepare_acarshub_bundle(&catalog, &mut app)
+    } else {
+        Vec::new()
+    };
+
+    let container = state.docker.install_app(&app).await?;
+    if let Err(e) = record_installed_app(&state, &app).await {
+        tracing::warn!(
+            "Updated {} but failed to record new config: {}",
+            app.id,
+            e
+        );
+    }
+
+    for bundled_app in bundled_apps {
+        let bundled_id = bundled_app.id.clone();
+        match state.docker.install_app(&bundled_app).await {
+            Ok(_) => {
+                if let Err(e) = record_installed_app(&state, &bundled_app).await {
+                    tracing::warn!(
+                        "Updated bundled {} but failed to record new config: {}",
+                        bundled_id,
+                        e
+                    );
+                }
+            }
+            Err(e) => {
+                return Err(AppError::Internal(format!(
+                    "Updated ACARS Hub, but failed to update bundled source app {bundled_id}: {e}"
                 )));
             }
         }
@@ -163,6 +241,10 @@ fn prepare_acarshub_bundle(catalog: &[CatalogApp], hub: &mut CatalogApp) -> Vec<
                     "130.025;130.450;131.125;131.550",
                 ),
             );
+            source.env.insert(
+                "FEED_ID".to_string(),
+                env_value(&hub.env, "LOCAL_ACARSDEC_FEED_ID", "airwaves-acarsdec"),
+            );
             source
                 .env
                 .insert("OUTPUT_SERVER".to_string(), "airwaves-acarshub".to_string());
@@ -192,7 +274,7 @@ fn prepare_acarshub_bundle(catalog: &[CatalogApp], hub: &mut CatalogApp) -> Vec<
             .insert("ENABLE_VDLM".to_string(), "true".to_string());
         hub.env.insert(
             "VDLM_CONNECTIONS".to_string(),
-            "zmq://airwaves-dumpvdl2:45555".to_string(),
+            env_value(&hub.env, "VDLM_CONNECTIONS", "udp://0.0.0.0:5555"),
         );
 
         if let Some(source) = catalog.iter().find(|a| a.id == "dumpvdl2").cloned() {
@@ -209,13 +291,18 @@ fn prepare_acarshub_bundle(catalog: &[CatalogApp], hub: &mut CatalogApp) -> Vec<
                     "136.650;136.800;136.975",
                 ),
             );
+            source.env.insert(
+                "FEED_ID".to_string(),
+                env_value(&hub.env, "LOCAL_DUMPVDL2_FEED_ID", "airwaves-dumpvdl2"),
+            );
             source
                 .env
-                .insert("ZMQ_MODE".to_string(), "server".to_string());
-            source.env.insert(
-                "ZMQ_ENDPOINT".to_string(),
-                "tcp://0.0.0.0:45555".to_string(),
-            );
+                .insert("SERVER".to_string(), "airwaves-acarshub".to_string());
+            source
+                .env
+                .insert("SERVER_PORT".to_string(), "5555".to_string());
+            source.env.remove("ZMQ_MODE");
+            source.env.remove("ZMQ_ENDPOINT");
             source.env.insert(
                 "TZ".to_string(),
                 env_value(
@@ -311,6 +398,13 @@ pub fn recorded_app_ids(config: &crate::domain::AirwavesConfig) -> Vec<String> {
 }
 
 fn default_catalog() -> Vec<CatalogApp> {
+    let env = |pairs: &[(&str, &str)]| -> std::collections::HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+            .collect()
+    };
+
     // Minimal fallback catalog when /etc/airwaves/catalog.json is not present.
     // The full catalog is in the JSON file; this just ensures core apps are available.
     vec![
@@ -346,6 +440,16 @@ fn default_catalog() -> Vec<CatalogApp> {
                 crate::domain::SdrType::RtlSdr,
                 crate::domain::SdrType::Airspy,
             ],
+            env: env(&[
+                ("SOAPYSDR", "driver=rtlsdr"),
+                ("FREQUENCIES", "130.025;130.450;131.125;131.550"),
+                ("FEED_ID", "airwaves-acarsdec"),
+                ("OUTPUT_SERVER", "airwaves-acarshub"),
+                ("OUTPUT_SERVER_PORT", "5550"),
+                ("OUTPUT_SERVER_MODE", "udp"),
+                ("QUIET_LOGS", "true"),
+                ("TZ", "UTC"),
+            ]),
             ..Default::default()
         },
         CatalogApp {
@@ -362,6 +466,14 @@ fn default_catalog() -> Vec<CatalogApp> {
                 crate::domain::SdrType::RtlSdr,
                 crate::domain::SdrType::Airspy,
             ],
+            env: env(&[
+                ("SOAPYSDR", "driver=rtlsdr"),
+                ("FREQUENCIES", "136.650;136.800;136.975"),
+                ("FEED_ID", "airwaves-dumpvdl2"),
+                ("SERVER", "airwaves-acarshub"),
+                ("SERVER_PORT", "5555"),
+                ("TZ", "UTC"),
+            ]),
             ..Default::default()
         },
         CatalogApp {
@@ -396,6 +508,24 @@ fn default_catalog() -> Vec<CatalogApp> {
             }],
             requires_sdr: false,
             sdr_types: vec![],
+            env: env(&[
+                ("TZ", "UTC"),
+                ("ENABLE_ACARS", "true"),
+                ("ACARS_CONNECTIONS", "udp://0.0.0.0:5550"),
+                ("ENABLE_LOCAL_ACARSDEC", "false"),
+                ("LOCAL_ACARSDEC_SDR", "driver=rtlsdr"),
+                (
+                    "LOCAL_ACARSDEC_FREQUENCIES",
+                    "130.025;130.450;131.125;131.550",
+                ),
+                ("LOCAL_ACARSDEC_FEED_ID", "airwaves-acarsdec"),
+                ("ENABLE_VDLM", "true"),
+                ("VDLM_CONNECTIONS", "udp://0.0.0.0:5555"),
+                ("ENABLE_LOCAL_DUMPVDL2", "false"),
+                ("LOCAL_DUMPVDL2_SDR", "driver=rtlsdr"),
+                ("LOCAL_DUMPVDL2_FREQUENCIES", "136.650;136.800;136.975"),
+                ("LOCAL_DUMPVDL2_FEED_ID", "airwaves-dumpvdl2"),
+            ]),
             ..Default::default()
         },
         CatalogApp {
