@@ -85,13 +85,150 @@ pub async fn install_app(
         }
     }
 
+    let bundled_apps = if app.id == "acarshub" {
+        prepare_acarshub_bundle(&catalog, &mut app)
+    } else {
+        Vec::new()
+    };
+
     let container = state.docker.install_app(&app).await?;
     // Record the install in config.json so the app set survives reboots and the
     // manager can reconcile (re-create) it if its container ever goes missing.
     if let Err(e) = record_installed_app(&state, &app).await {
         tracing::warn!("Installed {} but failed to record in config: {}", app.id, e);
     }
+
+    for bundled_app in bundled_apps {
+        let bundled_id = bundled_app.id.clone();
+        match state.docker.install_app(&bundled_app).await {
+            Ok(_) => {
+                if let Err(e) = record_installed_app(&state, &bundled_app).await {
+                    tracing::warn!(
+                        "Installed bundled {} but failed to record in config: {}",
+                        bundled_id,
+                        e
+                    );
+                }
+            }
+            Err(e) => {
+                return Err(AppError::Internal(format!(
+                    "Installed ACARS Hub, but failed to install bundled source app {bundled_id}: {e}"
+                )));
+            }
+        }
+    }
+
     Ok(Json(container))
+}
+
+fn env_enabled(env: &std::collections::HashMap<String, String>, key: &str) -> bool {
+    env.get(key)
+        .map(|v| {
+            let v = v.trim();
+            v.eq_ignore_ascii_case("true") || v == "1" || v.eq_ignore_ascii_case("yes")
+        })
+        .unwrap_or(false)
+}
+
+fn env_value(env: &std::collections::HashMap<String, String>, key: &str, default: &str) -> String {
+    env.get(key)
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+        .unwrap_or(default)
+        .to_string()
+}
+
+fn prepare_acarshub_bundle(catalog: &[CatalogApp], hub: &mut CatalogApp) -> Vec<CatalogApp> {
+    let mut bundled = Vec::new();
+
+    if env_enabled(&hub.env, "ENABLE_LOCAL_ACARSDEC") {
+        hub.env
+            .insert("ENABLE_ACARS".to_string(), "true".to_string());
+        hub.env.insert(
+            "ACARS_CONNECTIONS".to_string(),
+            env_value(&hub.env, "ACARS_CONNECTIONS", "udp://0.0.0.0:5550"),
+        );
+
+        if let Some(source) = catalog.iter().find(|a| a.id == "acarsdec").cloned() {
+            let mut source = source;
+            source.env.insert(
+                "SOAPYSDR".to_string(),
+                env_value(&hub.env, "LOCAL_ACARSDEC_SDR", "driver=rtlsdr"),
+            );
+            source.env.insert(
+                "FREQUENCIES".to_string(),
+                env_value(
+                    &hub.env,
+                    "LOCAL_ACARSDEC_FREQUENCIES",
+                    "130.025;130.450;131.125;131.550",
+                ),
+            );
+            source
+                .env
+                .insert("OUTPUT_SERVER".to_string(), "airwaves-acarshub".to_string());
+            source
+                .env
+                .insert("OUTPUT_SERVER_PORT".to_string(), "5550".to_string());
+            source
+                .env
+                .insert("OUTPUT_SERVER_MODE".to_string(), "udp".to_string());
+            source
+                .env
+                .insert("QUIET_LOGS".to_string(), "true".to_string());
+            source.env.insert(
+                "TZ".to_string(),
+                env_value(
+                    &hub.env,
+                    "TZ",
+                    source.env.get("TZ").map(String::as_str).unwrap_or("UTC"),
+                ),
+            );
+            bundled.push(source);
+        }
+    }
+
+    if env_enabled(&hub.env, "ENABLE_LOCAL_DUMPVDL2") {
+        hub.env
+            .insert("ENABLE_VDLM".to_string(), "true".to_string());
+        hub.env.insert(
+            "VDLM_CONNECTIONS".to_string(),
+            "zmq://airwaves-dumpvdl2:45555".to_string(),
+        );
+
+        if let Some(source) = catalog.iter().find(|a| a.id == "dumpvdl2").cloned() {
+            let mut source = source;
+            source.env.insert(
+                "SOAPYSDR".to_string(),
+                env_value(&hub.env, "LOCAL_DUMPVDL2_SDR", "driver=rtlsdr"),
+            );
+            source.env.insert(
+                "FREQUENCIES".to_string(),
+                env_value(
+                    &hub.env,
+                    "LOCAL_DUMPVDL2_FREQUENCIES",
+                    "136.650;136.800;136.975",
+                ),
+            );
+            source
+                .env
+                .insert("ZMQ_MODE".to_string(), "server".to_string());
+            source.env.insert(
+                "ZMQ_ENDPOINT".to_string(),
+                "tcp://0.0.0.0:45555".to_string(),
+            );
+            source.env.insert(
+                "TZ".to_string(),
+                env_value(
+                    &hub.env,
+                    "TZ",
+                    source.env.get("TZ").map(String::as_str).unwrap_or("UTC"),
+                ),
+            );
+            bundled.push(source);
+        }
+    }
+
+    bundled
 }
 
 pub async fn uninstall_app(
@@ -180,12 +317,17 @@ fn default_catalog() -> Vec<CatalogApp> {
         CatalogApp {
             id: "ultrafeeder".to_string(),
             name: "ADS-B Ultrafeeder".to_string(),
-            description: "All-in-one ADS-B: readsb, tar1090, graphs1090, autogain, multi-feeder".to_string(),
+            description: "All-in-one ADS-B: readsb, tar1090, graphs1090, autogain, multi-feeder"
+                .to_string(),
             version: "latest".to_string(),
             category: "decoder".to_string(),
             image: "ghcr.io/sdr-enthusiasts/docker-adsb-ultrafeeder:latest".to_string(),
             icon: None,
-            ports: vec![crate::domain::PortBinding { container_port: 80, host_port: Some(8080), protocol: "tcp".to_string() }],
+            ports: vec![crate::domain::PortBinding {
+                container_port: 80,
+                host_port: Some(8080),
+                protocol: "tcp".to_string(),
+            }],
             requires_sdr: true,
             sdr_types: vec![crate::domain::SdrType::RtlSdr],
             ..Default::default()
@@ -200,7 +342,10 @@ fn default_catalog() -> Vec<CatalogApp> {
             icon: None,
             ports: vec![],
             requires_sdr: true,
-            sdr_types: vec![crate::domain::SdrType::RtlSdr, crate::domain::SdrType::Airspy],
+            sdr_types: vec![
+                crate::domain::SdrType::RtlSdr,
+                crate::domain::SdrType::Airspy,
+            ],
             ..Default::default()
         },
         CatalogApp {
@@ -213,7 +358,10 @@ fn default_catalog() -> Vec<CatalogApp> {
             icon: None,
             ports: vec![],
             requires_sdr: true,
-            sdr_types: vec![crate::domain::SdrType::RtlSdr, crate::domain::SdrType::Airspy],
+            sdr_types: vec![
+                crate::domain::SdrType::RtlSdr,
+                crate::domain::SdrType::Airspy,
+            ],
             ..Default::default()
         },
         CatalogApp {
@@ -226,7 +374,11 @@ fn default_catalog() -> Vec<CatalogApp> {
             icon: None,
             ports: vec![],
             requires_sdr: true,
-            sdr_types: vec![crate::domain::SdrType::RtlSdr, crate::domain::SdrType::Airspy, crate::domain::SdrType::AirspyHf],
+            sdr_types: vec![
+                crate::domain::SdrType::RtlSdr,
+                crate::domain::SdrType::Airspy,
+                crate::domain::SdrType::AirspyHf,
+            ],
             ..Default::default()
         },
         CatalogApp {
@@ -237,7 +389,11 @@ fn default_catalog() -> Vec<CatalogApp> {
             category: "visualization".to_string(),
             image: "ghcr.io/sdr-enthusiasts/docker-acarshub:latest".to_string(),
             icon: None,
-            ports: vec![crate::domain::PortBinding { container_port: 80, host_port: Some(8900), protocol: "tcp".to_string() }],
+            ports: vec![crate::domain::PortBinding {
+                container_port: 80,
+                host_port: Some(8900),
+                protocol: "tcp".to_string(),
+            }],
             requires_sdr: false,
             sdr_types: vec![],
             ..Default::default()
@@ -250,9 +406,16 @@ fn default_catalog() -> Vec<CatalogApp> {
             category: "decoder".to_string(),
             image: "ghcr.io/jvde-github/ais-catcher:latest".to_string(),
             icon: None,
-            ports: vec![crate::domain::PortBinding { container_port: 8100, host_port: Some(8100), protocol: "tcp".to_string() }],
+            ports: vec![crate::domain::PortBinding {
+                container_port: 8100,
+                host_port: Some(8100),
+                protocol: "tcp".to_string(),
+            }],
             requires_sdr: true,
-            sdr_types: vec![crate::domain::SdrType::RtlSdr, crate::domain::SdrType::Airspy],
+            sdr_types: vec![
+                crate::domain::SdrType::RtlSdr,
+                crate::domain::SdrType::Airspy,
+            ],
             ..Default::default()
         },
     ]

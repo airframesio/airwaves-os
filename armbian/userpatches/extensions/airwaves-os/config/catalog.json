@@ -298,7 +298,11 @@
       "FREQUENCIES": "130.025;130.450;131.125;131.550",
       "FEED_ID": "",
       "TZ": "UTC",
-      "GAIN": "auto"
+      "GAIN": "auto",
+      "OUTPUT_SERVER": "airwaves-acarshub",
+      "OUTPUT_SERVER_PORT": "5550",
+      "OUTPUT_SERVER_MODE": "udp",
+      "QUIET_LOGS": "true"
     },
     "config_fields": [
       {
@@ -335,6 +339,47 @@
         "required": false
       },
       {
+        "key": "OUTPUT_SERVER",
+        "label": "ACARS output host",
+        "help": "Local ACARS Hub is airwaves-acarshub. Use another hostname/IP to feed a remote hub or router.",
+        "kind": "text",
+        "default": "airwaves-acarshub",
+        "required": false
+      },
+      {
+        "key": "OUTPUT_SERVER_PORT",
+        "label": "ACARS output port",
+        "help": "ACARS Hub listens for ACARS JSON on UDP 5550 by default.",
+        "kind": "number",
+        "default": "5550",
+        "required": false
+      },
+      {
+        "key": "OUTPUT_SERVER_MODE",
+        "label": "Output mode",
+        "help": "Use udp for direct local ACARS Hub input, or tcp/zmq when feeding acars_router.",
+        "kind": "select",
+        "default": "udp",
+        "options": [
+          "udp",
+          "tcp",
+          "zmq"
+        ],
+        "required": false
+      },
+      {
+        "key": "QUIET_LOGS",
+        "label": "Quiet logs",
+        "kind": "select",
+        "default": "true",
+        "options": [
+          "true",
+          "false"
+        ],
+        "required": false,
+        "help": "Keep container logs from being noisy; decoded messages should flow through ACARS Hub instead."
+      },
+      {
         "key": "TZ",
         "label": "Timezone",
         "kind": "text",
@@ -346,7 +391,7 @@
     "install_notes": [
       "Choose one SDR and confirm its antenna is suitable for VHF airband.",
       "The default frequency set covers common ACARS channels; adjust for your region.",
-      "Install ACARS Hub or ACARS Router if you want a local message viewer or forwarding pipeline."
+      "By default this decoder sends ACARS JSON to the local ACARS Hub container at airwaves-acarshub:5550."
     ],
     "outputs": [
       {
@@ -374,6 +419,16 @@
         "port": 5550,
         "enabled": false,
         "description": "Forward ACARS messages to a custom host."
+      },
+      {
+        "id": "acarshub-acarsdec",
+        "name": "Local ACARS Hub",
+        "feed_type": "integrated_option",
+        "protocol": "udp",
+        "host": "airwaves-acarshub",
+        "port": 5550,
+        "enabled": true,
+        "description": "Send decoded ACARS messages to the local ACARS Hub app."
       }
     ],
     "links": [
@@ -1060,6 +1115,31 @@
         "container_port": 80,
         "host_port": 8900,
         "protocol": "tcp"
+      },
+      {
+        "container_port": 5550,
+        "host_port": 5550,
+        "protocol": "udp"
+      },
+      {
+        "container_port": 5555,
+        "host_port": 5555,
+        "protocol": "udp"
+      },
+      {
+        "container_port": 5556,
+        "host_port": 5556,
+        "protocol": "udp"
+      },
+      {
+        "container_port": 5557,
+        "host_port": 5557,
+        "protocol": "udp"
+      },
+      {
+        "container_port": 5558,
+        "host_port": 5558,
+        "protocol": "udp"
       }
     ],
     "requires_sdr": false,
@@ -1067,24 +1147,207 @@
     "env": {
       "TZ": "UTC",
       "ENABLE_ACARS": "true",
-      "ENABLE_VDLM": "true"
+      "ACARS_CONNECTIONS": "udp://0.0.0.0:5550",
+      "ENABLE_VDLM": "true",
+      "VDLM_CONNECTIONS": "udp://0.0.0.0:5555",
+      "ENABLE_HFDL": "false",
+      "HFDL_CONNECTIONS": "udp://0.0.0.0:5556",
+      "ENABLE_IMSL": "false",
+      "IMSL_CONNECTIONS": "udp://0.0.0.0:5557",
+      "ENABLE_IRDM": "false",
+      "IRDM_CONNECTIONS": "udp://0.0.0.0:5558",
+      "ENABLE_ADSB": "false",
+      "ADSB_URL": "http://airwaves-readsb/tar1090/data/aircraft.json",
+      "ADSB_LAT": "0",
+      "ADSB_LON": "0",
+      "DB_SAVEALL": "true",
+      "DB_SAVE_DAYS": "7",
+      "DB_ALERT_SAVE_DAYS": "120",
+      "ALLOW_REMOTE_UPDATES": "True",
+      "MIN_LOG_LEVEL": "3"
     },
     "config_fields": [
       {
         "key": "ENABLE_ACARS",
         "label": "Enable ACARS",
-        "kind": "text",
+        "kind": "select",
         "default": "true",
+        "options": [
+          "true",
+          "false"
+        ],
         "required": false,
-        "help": "Set 'true' to ingest ACARS."
+        "help": "Receive classic VHF ACARS JSON. Local acarsdec defaults to airwaves-acarshub:5550."
+      },
+      {
+        "key": "ACARS_CONNECTIONS",
+        "label": "ACARS connections",
+        "kind": "text",
+        "default": "udp://0.0.0.0:5550",
+        "required": false,
+        "help": "Comma-separated descriptors. Use udp://0.0.0.0:5550 for direct decoder input or zmq://airwaves-acars-router:45550 when using acars_router."
+      },
+      {
+        "key": "ENABLE_LOCAL_ACARSDEC",
+        "label": "Install local ACARS decoder",
+        "kind": "select",
+        "default": "false",
+        "options": [
+          "false",
+          "true"
+        ],
+        "required": false,
+        "help": "When true, Airwaves installs or recreates acarsdec and points it at this ACARS Hub."
+      },
+      {
+        "key": "LOCAL_ACARSDEC_SDR",
+        "label": "ACARS decoder SDR",
+        "kind": "sdr",
+        "format": "soapy",
+        "default": "driver=rtlsdr",
+        "required": false,
+        "help": "Radio used by the companion acarsdec source."
+      },
+      {
+        "key": "LOCAL_ACARSDEC_FREQUENCIES",
+        "label": "ACARS decoder frequencies",
+        "kind": "text",
+        "default": "130.025;130.450;131.125;131.550",
+        "required": false,
+        "help": "Semicolon-separated ACARS frequencies used by the companion acarsdec source."
       },
       {
         "key": "ENABLE_VDLM",
         "label": "Enable VDLM2",
-        "kind": "text",
+        "kind": "select",
         "default": "true",
+        "options": [
+          "true",
+          "false"
+        ],
         "required": false,
-        "help": "Set 'true' to ingest VDLM2."
+        "help": "Receive VDL Mode 2 decoded JSON."
+      },
+      {
+        "key": "VDLM_CONNECTIONS",
+        "label": "VDLM2 connections",
+        "kind": "text",
+        "default": "udp://0.0.0.0:5555",
+        "required": false,
+        "help": "Comma-separated descriptors, e.g. udp://0.0.0.0:5555 or zmq://airwaves-dumpvdl2:45555."
+      },
+      {
+        "key": "ENABLE_LOCAL_DUMPVDL2",
+        "label": "Install local VDL2 decoder",
+        "kind": "select",
+        "default": "false",
+        "options": [
+          "false",
+          "true"
+        ],
+        "required": false,
+        "help": "When true, Airwaves installs or recreates dumpvdl2 and points ACARS Hub at its ZMQ stream."
+      },
+      {
+        "key": "LOCAL_DUMPVDL2_SDR",
+        "label": "VDL2 decoder SDR",
+        "kind": "sdr",
+        "format": "soapy",
+        "default": "driver=rtlsdr",
+        "required": false,
+        "help": "Radio used by the companion dumpvdl2 source."
+      },
+      {
+        "key": "LOCAL_DUMPVDL2_FREQUENCIES",
+        "label": "VDL2 decoder frequencies",
+        "kind": "text",
+        "default": "136.650;136.800;136.975",
+        "required": false,
+        "help": "Semicolon-separated VDL2 frequencies used by the companion dumpvdl2 source."
+      },
+      {
+        "key": "ENABLE_HFDL",
+        "label": "Enable HFDL",
+        "kind": "select",
+        "default": "false",
+        "options": [
+          "true",
+          "false"
+        ],
+        "required": false,
+        "help": "Receive HF datalink messages from dumphfdl or acars_router."
+      },
+      {
+        "key": "HFDL_CONNECTIONS",
+        "label": "HFDL connections",
+        "kind": "text",
+        "default": "udp://0.0.0.0:5556",
+        "required": false
+      },
+      {
+        "key": "ENABLE_ADSB",
+        "label": "Show ADS-B aircraft",
+        "kind": "select",
+        "default": "false",
+        "options": [
+          "true",
+          "false"
+        ],
+        "required": false,
+        "help": "Overlay aircraft from readsb/tar1090 inside ACARS Hub."
+      },
+      {
+        "key": "ADSB_URL",
+        "label": "ADS-B aircraft.json URL",
+        "kind": "text",
+        "default": "http://airwaves-readsb/tar1090/data/aircraft.json",
+        "required": false,
+        "help": "Use a readsb/tar1090 aircraft.json endpoint when ADS-B overlay is enabled."
+      },
+      {
+        "key": "ADSB_LAT",
+        "label": "ADS-B site latitude",
+        "kind": "text",
+        "default": "0",
+        "required": false
+      },
+      {
+        "key": "ADSB_LON",
+        "label": "ADS-B site longitude",
+        "kind": "text",
+        "default": "0",
+        "required": false
+      },
+      {
+        "key": "DB_SAVE_DAYS",
+        "label": "Message retention days",
+        "kind": "number",
+        "default": "7",
+        "required": false
+      },
+      {
+        "key": "DB_SAVEALL",
+        "label": "Save blank messages",
+        "kind": "select",
+        "default": "true",
+        "options": [
+          "true",
+          "false"
+        ],
+        "required": false
+      },
+      {
+        "key": "MIN_LOG_LEVEL",
+        "label": "Log level",
+        "kind": "select",
+        "default": "3",
+        "options": [
+          "3",
+          "4",
+          "5"
+        ],
+        "required": false,
+        "help": "3 is warnings/errors, 4 adds informational logs, 5 includes debug logs."
       },
       {
         "key": "TZ",
@@ -1096,8 +1359,9 @@
     ],
     "long_description": "ACARS Hub is the local web viewer for decoded ACARS, VDL2, and HFDL traffic. It is most useful after installing one or more aircraft datalink decoders or ACARS Router.",
     "install_notes": [
-      "Install ACARS, VDL2, or HFDL decoders first if you want live data immediately.",
-      "The web UI is exposed on port 8900."
+      "ACARS Hub receives decoded data; assign SDRs on source decoder apps such as acarsdec, dumpvdl2, and dumphfdl.",
+      "Install acarsdec with an SDR to receive classic ACARS. Airwaves defaults it to feed this hub at airwaves-acarshub:5550.",
+      "The web UI is exposed on port 8900. UDP input ports 5550, 5555, 5556, 5557, and 5558 are published for local or external decoders."
     ],
     "outputs": [
       {
@@ -1110,6 +1374,42 @@
         "kind": "messages",
         "label": "Searchable datalink archive",
         "description": "Live decoded message viewer."
+      },
+      {
+        "kind": "raw",
+        "label": "ACARS UDP input",
+        "protocol": "udp",
+        "port": 5550,
+        "description": "Input for acarsdec or acars_router ACARS JSON."
+      },
+      {
+        "kind": "raw",
+        "label": "VDLM2 UDP input",
+        "protocol": "udp",
+        "port": 5555,
+        "description": "Input for dumpvdl2 decoded JSON."
+      }
+    ],
+    "suggested_feeds": [
+      {
+        "id": "acarshub-acars-input",
+        "name": "ACARS Hub ACARS Input",
+        "feed_type": "integrated_option",
+        "protocol": "udp",
+        "host": "airwaves-acarshub",
+        "port": 5550,
+        "enabled": true,
+        "description": "Point local acarsdec at this input after assigning it an SDR."
+      },
+      {
+        "id": "acarshub-vdlm-input",
+        "name": "ACARS Hub VDLM2 Input",
+        "feed_type": "integrated_option",
+        "protocol": "udp",
+        "host": "airwaves-acarshub",
+        "port": 5555,
+        "enabled": true,
+        "description": "Point local dumpvdl2 or acars_router VDLM2 output at this input."
       }
     ],
     "links": [
