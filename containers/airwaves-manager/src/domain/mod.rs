@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+fn empty_json_object() -> serde_json::Value {
+    serde_json::Value::Object(serde_json::Map::new())
+}
+
 /// Container information as exposed by the API
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ContainerInfo {
@@ -107,6 +111,10 @@ pub struct SdrDevice {
     pub serial: Option<String>,
     pub status: String,
     pub assigned_to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configured_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configured_serial: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -143,6 +151,10 @@ pub struct AirwavesConfig {
     pub aggregators: serde_json::Value,
     #[serde(default)]
     pub apps: serde_json::Value,
+    /// Persisted hardware metadata and user labels. Physical USB identifiers
+    /// remain authoritative for device access; this is UI/configuration state.
+    #[serde(default = "empty_json_object")]
+    pub hardware: serde_json::Value,
     /// UI / user preferences (theme, etc). Free-form so the control app can
     /// extend it without a schema change; persisted and included in backups.
     #[serde(default)]

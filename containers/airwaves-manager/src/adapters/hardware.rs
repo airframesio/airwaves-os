@@ -48,6 +48,8 @@ impl HardwareAdapter {
                 serial: Some("00000101".to_string()),
                 status: "available".to_string(),
                 assigned_to: None,
+                configured_name: None,
+                configured_serial: None,
             },
             SdrDevice {
                 id: "0bda:2838-00000102-bus001-dev005".to_string(),
@@ -58,6 +60,8 @@ impl HardwareAdapter {
                 serial: Some("00000102".to_string()),
                 status: "available".to_string(),
                 assigned_to: None,
+                configured_name: None,
+                configured_serial: None,
             },
             SdrDevice {
                 id: "1d50:60a1-AIRSPY-MINI-bus002-dev003".to_string(),
@@ -68,6 +72,8 @@ impl HardwareAdapter {
                 serial: Some("AIRSPY-MINI".to_string()),
                 status: "available".to_string(),
                 assigned_to: None,
+                configured_name: None,
+                configured_serial: None,
             },
         ]
     }
@@ -216,6 +222,8 @@ impl HardwarePort for HardwareAdapter {
                         serial: usb.serial.clone(),
                         status: "available".to_string(),
                         assigned_to: None,
+                        configured_name: None,
+                        configured_serial: None,
                     }
                 })
             })

@@ -62,6 +62,7 @@ fn api_router(state: AppState) -> Router {
         // Hardware endpoints
         .route("/api/v1/hardware/devices", axum::routing::get(handlers::hardware::list_devices))
         .route("/api/v1/hardware/sdr", axum::routing::get(handlers::hardware::list_sdr))
+        .route("/api/v1/hardware/sdr/{id}", axum::routing::put(handlers::hardware::update_sdr))
         // Network endpoints
         .route("/api/v1/network/interfaces", axum::routing::get(handlers::network::list_interfaces))
         // WiFi endpoints
