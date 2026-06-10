@@ -16,6 +16,34 @@ pub struct DockerAdapter {
     client: Docker,
 }
 
+fn runtime_env_for_app(app: &CatalogApp) -> HashMap<String, String> {
+    let mut env = app.env.clone();
+
+    // The sdr-enthusiasts acarsdec image supports native RTL-SDR selection via
+    // RTL_SERIAL. With KerberosSDR-style multi-tuner devices, SoapySDR can open
+    // the selected exact USB node, but it logs alarming probe errors for the
+    // intentionally hidden sibling tuners. Use the native path for RTL serials
+    // and grant full USB bus access; the serial still pins the intended tuner.
+    if app.id == "acarsdec" {
+        if let Some(soapy) = env.get("SOAPYSDR").cloned() {
+            let driver =
+                crate::sdr::driver_from_sdr_value(&soapy).unwrap_or_else(|| "rtlsdr".to_string());
+            if driver.eq_ignore_ascii_case("rtlsdr") {
+                if let Some(serial) = crate::sdr::serial_from_sdr_value(&soapy) {
+                    env.remove("SOAPYSDR");
+                    env.insert("RTL_SERIAL".to_string(), serial);
+                    env.insert(
+                        crate::sdr::SDR_USB_ACCESS_ENV_KEY.to_string(),
+                        "full-bus".to_string(),
+                    );
+                }
+            }
+        }
+    }
+
+    env
+}
+
 impl DockerAdapter {
     pub async fn new() -> anyhow::Result<Self> {
         let client = Docker::connect_with_socket_defaults()?;
@@ -393,6 +421,7 @@ impl DockerPort for DockerAdapter {
         let mut labels = HashMap::new();
         labels.insert("managed-by".to_string(), "airwaves".to_string());
         labels.insert("airwaves-app-id".to_string(), app.id.clone());
+        let runtime_env = runtime_env_for_app(app);
 
         // Publish catalog-declared ports on the host.
         let mut port_bindings: HashMap<String, Option<Vec<bollard::models::PortBinding>>> =
@@ -412,28 +441,36 @@ impl DockerPort for DockerAdapter {
             }
         }
 
-        // SDR apps need USB access. When the UI recorded an exact Airwaves SDR
-        // id, map only that USB node so duplicate RTL-SDR serials and other
-        // decoder containers cannot contend for the whole bus.
-        let devices = if app.requires_sdr {
-            let selected_paths = crate::sdr::usb_device_paths_for_env(&app.env);
-            let paths = if selected_paths.is_empty() {
-                vec!["/dev/bus/usb".to_string()]
+        // SDR apps need USB access. Most apps get only the selected USB node
+        // when the UI recorded an exact Airwaves SDR id. Apps that need to
+        // enumerate the bus, such as acarsdec's native RTL path, get a bus
+        // bind plus the USB character-device cgroup rule.
+        let (devices, binds, device_cgroup_rules) = if app.requires_sdr {
+            let selected_paths = crate::sdr::usb_device_paths_for_env(&runtime_env);
+            if crate::sdr::requires_full_usb_bus_access(&runtime_env) || selected_paths.is_empty() {
+                (
+                    None,
+                    Some(vec!["/dev/bus/usb:/dev/bus/usb".to_string()]),
+                    Some(vec!["c 189:* rwm".to_string()]),
+                )
             } else {
-                selected_paths
-            };
-            Some(
-                paths
-                    .into_iter()
-                    .map(|path| bollard::models::DeviceMapping {
-                        path_on_host: Some(path.clone()),
-                        path_in_container: Some(path),
-                        cgroup_permissions: Some("rwm".to_string()),
-                    })
-                    .collect(),
-            )
+                (
+                    Some(
+                        selected_paths
+                            .into_iter()
+                            .map(|path| bollard::models::DeviceMapping {
+                                path_on_host: Some(path.clone()),
+                                path_in_container: Some(path),
+                                cgroup_permissions: Some("rwm".to_string()),
+                            })
+                            .collect(),
+                    ),
+                    None,
+                    None,
+                )
+            }
         } else {
-            None
+            (None, None, None)
         };
 
         let host_config = bollard::models::HostConfig {
@@ -448,6 +485,8 @@ impl DockerPort for DockerAdapter {
                 Some(port_bindings)
             },
             devices,
+            binds,
+            device_cgroup_rules,
             ..Default::default()
         };
 
@@ -456,10 +495,9 @@ impl DockerPort for DockerAdapter {
         // assignment, frequencies, gain, lat/lon, etc. actually reach the
         // container — without this the configuration is silently dropped.
         let env_vars: Vec<String> = {
-            let mut e: Vec<String> = app
-                .env
+            let mut e: Vec<String> = runtime_env
                 .iter()
-                .filter(|(k, _)| !crate::sdr::is_sdr_id_env_key(k))
+                .filter(|(k, _)| !crate::sdr::is_internal_sdr_env_key(k))
                 .map(|(k, v)| format!("{k}={v}"))
                 .collect();
             e.sort(); // stable ordering for reproducible container specs
@@ -477,7 +515,7 @@ impl DockerPort for DockerAdapter {
                     .iter()
                     .map(|arg| {
                         let mut out = arg.clone();
-                        for (k, v) in &app.env {
+                        for (k, v) in &runtime_env {
                             out = out.replace(&format!("{{{{{k}}}}}"), v);
                         }
                         out

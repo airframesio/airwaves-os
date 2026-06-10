@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::domain::{AirwavesConfig, CatalogApp, SdrDevice};
 
 pub const SDR_ID_ENV_PREFIX: &str = "AIRWAVES_SDR_ID__";
+pub const SDR_USB_ACCESS_ENV_KEY: &str = "AIRWAVES_SDR_USB_ACCESS";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SdrReference {
@@ -20,8 +21,42 @@ pub fn is_sdr_id_env_key(key: &str) -> bool {
     key.starts_with(SDR_ID_ENV_PREFIX)
 }
 
+pub fn is_internal_sdr_env_key(key: &str) -> bool {
+    is_sdr_id_env_key(key) || key == SDR_USB_ACCESS_ENV_KEY
+}
+
+pub fn requires_full_usb_bus_access(env: &HashMap<String, String>) -> bool {
+    env.get(SDR_USB_ACCESS_ENV_KEY)
+        .map(|value| {
+            let normalized = value.trim().replace('-', "_").to_ascii_lowercase();
+            matches!(normalized.as_str(), "full" | "full_bus" | "bus" | "all")
+        })
+        .unwrap_or(false)
+}
+
 pub fn serial_key(serial: &str) -> String {
     serial.trim().to_ascii_lowercase()
+}
+
+pub fn driver_from_sdr_value(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    for part in value.split(',') {
+        let Some((key, val)) = part.split_once('=') else {
+            continue;
+        };
+        if key.trim().eq_ignore_ascii_case("driver") {
+            let driver = val.trim();
+            if !driver.is_empty() {
+                return Some(driver.to_string());
+            }
+        }
+    }
+
+    None
 }
 
 pub fn serial_from_sdr_value(value: &str) -> Option<String> {
@@ -449,5 +484,27 @@ mod tests {
             refs[0].device_id.as_deref(),
             Some("0bda:2838-unknown-bus009-dev011")
         );
+    }
+
+    #[test]
+    fn extracts_soapy_driver() {
+        assert_eq!(
+            driver_from_sdr_value("driver=rtlsdr,serial=003").as_deref(),
+            Some("rtlsdr")
+        );
+        assert_eq!(
+            driver_from_sdr_value("serial=003, driver = airspy").as_deref(),
+            Some("airspy")
+        );
+        assert_eq!(driver_from_sdr_value("serial=003"), None);
+    }
+
+    #[test]
+    fn recognizes_full_usb_bus_access_flag() {
+        let env = HashMap::from([(SDR_USB_ACCESS_ENV_KEY.to_string(), "full-bus".to_string())]);
+        assert!(requires_full_usb_bus_access(&env));
+        assert!(is_internal_sdr_env_key(SDR_USB_ACCESS_ENV_KEY));
+        assert!(is_internal_sdr_env_key(&sdr_id_env_key("SOAPYSDR")));
+        assert!(!is_internal_sdr_env_key("SOAPYSDR"));
     }
 }
