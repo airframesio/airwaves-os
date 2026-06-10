@@ -355,6 +355,12 @@ main() {
                 *) log "Refusing host file with disallowed dest: ${hf_dest}"; continue ;;
             esac
             hf_dest="${hf_dest_canon}"
+            local self_path
+            self_path="$(realpath -m "${BASH_SOURCE[0]:-$0}")"
+            if [ "${hf_dest}" = "${self_path}" ]; then
+                log "Skipping currently running updater script -> ${hf_dest}"
+                continue
+            fi
             # Integrity is mandatory: a host file with no sha256 could let a
             # tampered/served-wrong file land as root. Skip (don't fail the
             # whole update) and log loudly.
