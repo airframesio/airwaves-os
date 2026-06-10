@@ -93,6 +93,33 @@ fail() {
     write_status "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 
+mark_unexpected_exit() {
+    local rc=$?
+    if [ "${STATE}" = "running" ]; then
+        STATE="failed"
+        ERROR="Updater exited unexpectedly during ${PHASE} (exit ${rc})"
+        log "ERROR: ${ERROR}"
+        write_status "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    fi
+}
+
+mark_interrupted() {
+    local sig="$1"
+    if [ "${STATE}" = "running" ]; then
+        STATE="failed"
+        ERROR="Updater interrupted by ${sig} during ${PHASE}"
+        log "ERROR: ${ERROR}"
+        write_status "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    fi
+    trap - EXIT
+    exit 128
+}
+
+trap mark_unexpected_exit EXIT
+trap 'mark_interrupted TERM' TERM
+trap 'mark_interrupted INT' INT
+trap 'mark_interrupted HUP' HUP
+
 run() {
     if [ "${DRYRUN}" = "1" ]; then
         log "[dry-run] $*"

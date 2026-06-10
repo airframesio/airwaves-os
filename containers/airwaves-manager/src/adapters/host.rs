@@ -114,6 +114,17 @@ impl HostAdapter {
         Some(count as u32)
     }
 
+    pub async fn is_update_service_active(&self) -> bool {
+        self.run_capture(vec![
+            "systemctl".into(),
+            "is-active".into(),
+            "airwaves-update.service".into(),
+        ])
+        .await
+        .map(|out| out.trim() == "active")
+        .unwrap_or(false)
+    }
+
     /// Refresh host-side bootstrap files from the repo before running an update,
     /// so already-deployed devices pick up out-of-band updater fixes without a
     /// manual bootstrap. Best-effort; the signed manifest performs the
