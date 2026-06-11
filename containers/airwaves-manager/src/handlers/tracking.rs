@@ -1,5 +1,6 @@
 use axum::extract::State;
 use axum::Json;
+use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use crate::ports::ConfigPort;
@@ -37,6 +38,47 @@ struct ReadsbResponse {
     messages: Option<u64>,
     #[serde(default)]
     now: Option<f64>,
+}
+
+/// Minimal readsb protobuf model for /data/aircraft.pb.
+///
+/// The full schema is larger; tracking only needs the fields that overlap with
+/// aircraft.json. Unknown fields are ignored by prost, so this stays compatible
+/// with newer readsb-protobuf images.
+#[derive(Clone, PartialEq, Message)]
+struct ReadsbAircraftsUpdate {
+    #[prost(uint64, tag = "1")]
+    now: u64,
+    #[prost(uint64, tag = "2")]
+    messages: u64,
+    #[prost(message, repeated, tag = "15")]
+    aircraft: Vec<ReadsbAircraftMeta>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct ReadsbAircraftMeta {
+    #[prost(uint32, tag = "1")]
+    addr: u32,
+    #[prost(string, tag = "2")]
+    flight: String,
+    #[prost(uint32, tag = "3")]
+    squawk: u32,
+    #[prost(int32, tag = "5")]
+    alt_baro: i32,
+    #[prost(double, tag = "8")]
+    lat: f64,
+    #[prost(double, tag = "9")]
+    lon: f64,
+    #[prost(uint64, tag = "10")]
+    messages: u64,
+    #[prost(uint64, tag = "11")]
+    seen: u64,
+    #[prost(float, tag = "12")]
+    rssi: f32,
+    #[prost(uint32, tag = "23")]
+    gs: u32,
+    #[prost(int32, tag = "27")]
+    track: i32,
 }
 
 /// Vehicle unified format for the frontend map
@@ -100,7 +142,11 @@ pub async fn get_vehicles(
                     };
                     vehicles.push(Vehicle {
                         id: ac.hex.clone(),
-                        callsign: ac.flight.unwrap_or_else(|| ac.hex.clone()).trim().to_string(),
+                        callsign: ac
+                            .flight
+                            .unwrap_or_else(|| ac.hex.clone())
+                            .trim()
+                            .to_string(),
                         vehicle_type: "aircraft".to_string(),
                         lat,
                         lng: lon,
@@ -159,7 +205,20 @@ pub async fn get_vehicles(
 
 /// Fetch aircraft from readsb container's HTTP endpoint
 async fn fetch_readsb_aircraft() -> Result<Vec<Aircraft>, AppError> {
-    // readsb exposes aircraft.json on port 8080 inside the Docker network
+    match fetch_readsb_aircraft_json().await {
+        Ok(aircraft) => Ok(aircraft),
+        Err(json_err) => match fetch_readsb_aircraft_protobuf().await {
+            Ok(aircraft) => Ok(aircraft),
+            Err(pb_err) => Err(AppError::Internal(format!(
+                "readsb aircraft unavailable: json={json_err}; protobuf={pb_err}"
+            ))),
+        },
+    }
+}
+
+async fn fetch_readsb_aircraft_json() -> Result<Vec<Aircraft>, AppError> {
+    // Some readsb/tar1090 deployments expose aircraft.json on port 8080 inside
+    // the Docker network.
     let url = "http://airwaves-readsb:8080/data/aircraft.json";
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(3))
@@ -178,6 +237,55 @@ async fn fetch_readsb_aircraft() -> Result<Vec<Aircraft>, AppError> {
         .map_err(|e| AppError::Internal(format!("readsb parse error: {}", e)))?;
 
     Ok(data.aircraft)
+}
+
+async fn fetch_readsb_aircraft_protobuf() -> Result<Vec<Aircraft>, AppError> {
+    // docker-readsb-protobuf exposes aircraft.pb instead of aircraft.json.
+    let url = "http://airwaves-readsb:8080/data/aircraft.pb";
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    let resp = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("readsb protobuf unreachable: {}", e)))?;
+
+    let bytes = resp
+        .error_for_status()
+        .map_err(|e| AppError::Internal(format!("readsb protobuf HTTP error: {}", e)))?
+        .bytes()
+        .await
+        .map_err(|e| AppError::Internal(format!("readsb protobuf read error: {}", e)))?;
+
+    let data = ReadsbAircraftsUpdate::decode(bytes)
+        .map_err(|e| AppError::Internal(format!("readsb protobuf parse error: {}", e)))?;
+
+    Ok(data
+        .aircraft
+        .into_iter()
+        .map(|ac| {
+            let squawk = if ac.squawk == 0 {
+                None
+            } else {
+                Some(format!("{:04o}", ac.squawk))
+            };
+            Aircraft {
+                hex: format!("{:06x}", ac.addr),
+                flight: (!ac.flight.trim().is_empty()).then_some(ac.flight),
+                lat: (ac.lat != 0.0).then_some(ac.lat),
+                lon: (ac.lon != 0.0).then_some(ac.lon),
+                alt_baro: (ac.alt_baro != 0).then_some(serde_json::json!(ac.alt_baro)),
+                gs: (ac.gs != 0).then_some(ac.gs as f64),
+                track: (ac.track != 0).then_some(ac.track as f64),
+                squawk,
+                seen: Some(ac.seen as f64 / 1000.0),
+                rssi: Some(ac.rssi as f64),
+            }
+        })
+        .collect())
 }
 
 /// Fetch ship positions from ais-catcher container
@@ -204,19 +312,30 @@ async fn fetch_ais_vessels() -> Result<Vec<Vehicle>, AppError> {
     let mut ships = Vec::new();
     if let Some(arr) = data.as_array() {
         for ship in arr {
-            let mmsi = ship["mmsi"].as_str().or(ship["mmsi"].as_u64().map(|_| "")).map(|s| s.to_string()).unwrap_or_default();
+            let mmsi = ship["mmsi"]
+                .as_str()
+                .or(ship["mmsi"].as_u64().map(|_| ""))
+                .map(|s| s.to_string())
+                .unwrap_or_default();
             let lat = ship["lat"].as_f64().or(ship["latitude"].as_f64());
             let lon = ship["lon"].as_f64().or(ship["longitude"].as_f64());
             if let (Some(lat), Some(lon)) = (lat, lon) {
                 ships.push(Vehicle {
                     id: mmsi.clone(),
-                    callsign: ship["shipname"].as_str().unwrap_or(&mmsi).trim().to_string(),
+                    callsign: ship["shipname"]
+                        .as_str()
+                        .unwrap_or(&mmsi)
+                        .trim()
+                        .to_string(),
                     vehicle_type: "ship".to_string(),
                     lat,
                     lng: lon,
                     altitude: 0.0,
                     speed: ship["speed"].as_f64().unwrap_or(0.0),
-                    heading: ship["heading"].as_f64().or(ship["course"].as_f64()).unwrap_or(0.0),
+                    heading: ship["heading"]
+                        .as_f64()
+                        .or(ship["course"].as_f64())
+                        .unwrap_or(0.0),
                     source: "ais-catcher".to_string(),
                 });
             }

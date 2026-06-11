@@ -139,6 +139,15 @@ impl UpdaterAdapter {
         fetched.unwrap_or_else(|| "unknown".to_string())
     }
 
+    async fn ensure_no_active_update(&self) -> Result<(), AppError> {
+        if self.host.is_update_service_active().await {
+            return Err(AppError::BadRequest(
+                "An Airwaves OS update is already running".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     /// True if `available` is a newer version than `installed`. Falls back to a
     /// string-inequality test when either side is not valid semver.
     fn is_newer(installed: &str, available: &str) -> bool {
@@ -362,6 +371,8 @@ impl UpdatePort for UpdaterAdapter {
     }
 
     async fn apply(&self, components: Vec<String>) -> Result<(), AppError> {
+        self.ensure_no_active_update().await?;
+
         // Resolve file URLs/hashes from a fresh manifest.
         let manifest = self.fetch_manifest().await?;
         let comp = |key: &str| manifest.components.get(key);
@@ -448,8 +459,8 @@ impl UpdatePort for UpdaterAdapter {
             serde_json::to_string_pretty(&queued).unwrap_or_default(),
         );
 
-        // Self-heal: refresh the host updater script before running, so devices
-        // pick up updater fixes (tag pinning, backups) automatically.
+        // Self-heal: refresh host bootstrap files before running, so devices
+        // pick up updater/service fixes automatically.
         let _ = self.host.refresh_updater_files().await;
 
         // Kick off the host-side updater (runs outside this container).
@@ -457,27 +468,56 @@ impl UpdatePort for UpdaterAdapter {
     }
 
     async fn progress(&self) -> UpdateProgress {
-        std::fs::read_to_string(format!("{UPDATE_DIR}/status.json"))
+        let mut progress = std::fs::read_to_string(format!("{UPDATE_DIR}/status.json"))
             .ok()
             .and_then(|c| serde_json::from_str(&c).ok())
             .unwrap_or_else(|| UpdateProgress {
                 state: "idle".to_string(),
                 phase: String::new(),
                 ..Default::default()
-            })
+            });
+        if progress.state == "running"
+            && progress.phase != "queued"
+            && !self.host.is_update_service_active().await
+        {
+            let message = format!(
+                "Updater service is no longer active; last recorded phase was {}",
+                progress.phase
+            );
+            progress.state = "failed".to_string();
+            progress.error = Some(message.clone());
+            progress.finished_at = Some(Self::now());
+            progress.log.push(format!(
+                "[{}] ERROR: {}",
+                chrono::Utc::now().format("%H:%M:%S"),
+                message
+            ));
+            let _ = std::fs::write(
+                format!("{UPDATE_DIR}/status.json"),
+                serde_json::to_string_pretty(&progress).unwrap_or_default(),
+            );
+        }
+        progress
     }
 }
 
 impl UpdaterAdapter {
-    /// Force-refresh = REPAIR at the installed version. Re-pull the images
-    /// currently pinned in docker-compose.yml and force-recreate the stack —
-    /// WITHOUT fetching the manifest, changing any image tags, or bumping
-    /// versions. This recovers a wedged/half-applied stack (e.g. a container
-    /// that won't come up) without turning into an upgrade.
+    /// Force-refresh = REPAIR at the installed version. Fetch the current
+    /// channel manifest only for host-file repairs, then re-pull the images
+    /// currently pinned in docker-compose.yml and force-recreate the stack
+    /// without changing any image tags or bumping versions.
     pub async fn refresh(&self) -> Result<(), AppError> {
+        self.ensure_no_active_update().await?;
+
+        let host_files = self
+            .fetch_manifest()
+            .await
+            .map(|manifest| manifest.host_files)
+            .unwrap_or_default();
         let request = UpdateRequest {
             requested_at: Self::now(),
-            components: vec!["recreate".into()],
+            components: vec![],
+            host_files,
             recreate: true,
             ..Default::default()
         };
@@ -503,6 +543,10 @@ impl UpdaterAdapter {
             format!("{UPDATE_DIR}/status.json"),
             serde_json::to_string_pretty(&queued).unwrap_or_default(),
         );
+
+        // Refresh the out-of-band updater/service files first; manifest host
+        // files then repair the broader base file set without changing pins.
+        let _ = self.host.refresh_updater_files().await;
 
         self.host.start_update_service().await
     }

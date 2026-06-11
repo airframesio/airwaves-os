@@ -1,11 +1,11 @@
 use bollard::container::{
     Config, CreateContainerOptions, ListContainersOptions, LogOutput, LogsOptions,
-    StartContainerOptions, StatsOptions, StopContainerOptions, RemoveContainerOptions,
+    RemoveContainerOptions, StartContainerOptions, StatsOptions, StopContainerOptions,
 };
 use bollard::system::EventsOptions;
 use bollard::Docker;
 use futures::StreamExt;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 
 use crate::domain::*;
@@ -14,6 +14,57 @@ use crate::ports::DockerPort;
 
 pub struct DockerAdapter {
     client: Docker,
+}
+
+fn runtime_env_for_app(app: &CatalogApp) -> HashMap<String, String> {
+    let mut env = app.env.clone();
+
+    // The sdr-enthusiasts acarsdec image supports native RTL-SDR selection via
+    // RTL_SERIAL. With KerberosSDR-style multi-tuner devices, SoapySDR can open
+    // the selected exact USB node, but it logs alarming probe errors for the
+    // intentionally hidden sibling tuners. Use the native path for RTL serials
+    // and grant full USB bus access; the serial still pins the intended tuner.
+    if app.id == "acarsdec" {
+        normalize_acarsdec_gain(&mut env);
+
+        if let Some(soapy) = env.get("SOAPYSDR").cloned() {
+            let driver =
+                crate::sdr::driver_from_sdr_value(&soapy).unwrap_or_else(|| "rtlsdr".to_string());
+            if driver.eq_ignore_ascii_case("rtlsdr") {
+                if let Some(serial) = crate::sdr::serial_from_sdr_value(&soapy) {
+                    env.remove("SOAPYSDR");
+                    env.insert("RTL_SERIAL".to_string(), serial);
+                    env.insert(
+                        crate::sdr::SDR_USB_ACCESS_ENV_KEY.to_string(),
+                        "full-bus".to_string(),
+                    );
+                }
+            }
+        }
+    }
+
+    env
+}
+
+fn normalize_acarsdec_gain(env: &mut HashMap<String, String>) {
+    let Some(gain) = env.get("GAIN").cloned() else {
+        return;
+    };
+
+    let normalized = gain.trim();
+    if normalized.is_empty() {
+        env.remove("GAIN");
+        return;
+    }
+
+    // docker-acarsdec uses -10 for AGC/autogain. The image rejects textual
+    // aliases such as "auto", which older Airwaves catalog defaults used.
+    if matches!(
+        normalized.to_ascii_lowercase().as_str(),
+        "auto" | "autogain" | "agc"
+    ) {
+        env.insert("GAIN".to_string(), "-10".to_string());
+    }
 }
 
 impl DockerAdapter {
@@ -29,7 +80,12 @@ impl DockerAdapter {
 impl DockerAdapter {
     /// Create a bridge network if it doesn't already exist (idempotent).
     async fn ensure_network(&self, name: &str) -> Result<(), AppError> {
-        if self.client.inspect_network::<String>(name, None).await.is_ok() {
+        if self
+            .client
+            .inspect_network::<String>(name, None)
+            .await
+            .is_ok()
+        {
             return Ok(());
         }
         match self
@@ -47,8 +103,7 @@ impl DockerAdapter {
             }
             // Race: another caller created it between inspect and create.
             Err(bollard::errors::Error::DockerResponseServerError {
-                status_code: 409,
-                ..
+                status_code: 409, ..
             }) => Ok(()),
             Err(e) => Err(AppError::Docker(e)),
         }
@@ -58,10 +113,7 @@ impl DockerAdapter {
     /// Docker socket). Returns None if the container/label is absent.
     pub async fn container_label(&self, name: &str, label: &str) -> Option<String> {
         let info = self.client.inspect_container(name, None).await.ok()?;
-        info.config?
-            .labels?
-            .get(label)
-            .cloned()
+        info.config?.labels?.get(label).cloned()
     }
 
     /// The tag portion of a running container's image reference, e.g. the
@@ -86,8 +138,14 @@ impl DockerAdapter {
     /// Returns a stream of Docker daemon events (container start/stop/die/etc.)
     pub async fn watch_events(
         &self,
-    ) -> Pin<Box<dyn futures::Stream<Item = Result<bollard::models::EventMessage, bollard::errors::Error>> + Send + '_>>
-    {
+    ) -> Pin<
+        Box<
+            dyn futures::Stream<
+                    Item = Result<bollard::models::EventMessage, bollard::errors::Error>,
+                > + Send
+                + '_,
+        >,
+    > {
         let opts = EventsOptions::<String> {
             filters: {
                 let mut f = HashMap::new();
@@ -131,19 +189,24 @@ impl DockerPort for DockerAdapter {
         let result: Vec<ContainerInfo> = containers
             .into_iter()
             .map(|c| {
-                let name = c.names
+                let name = c
+                    .names
                     .as_ref()
                     .and_then(|n| n.first())
                     .map(|n| n.trim_start_matches('/').to_string())
                     .unwrap_or_default();
 
-                let ports = c.ports
+                let ports = c
+                    .ports
                     .unwrap_or_default()
                     .into_iter()
                     .map(|p| PortBinding {
                         container_port: p.private_port,
                         host_port: p.public_port,
-                        protocol: p.typ.map(|t| format!("{:?}", t)).unwrap_or_else(|| "tcp".to_string()),
+                        protocol: p
+                            .typ
+                            .map(|t| format!("{:?}", t))
+                            .unwrap_or_else(|| "tcp".to_string()),
                     })
                     .collect();
 
@@ -162,6 +225,61 @@ impl DockerPort for DockerAdapter {
         Ok(result)
     }
 
+    async fn prune_unrecorded_app_containers(
+        &self,
+        recorded_ids: &HashSet<String>,
+    ) -> Result<Vec<String>, AppError> {
+        let opts = ListContainersOptions::<String> {
+            all: true,
+            ..Default::default()
+        };
+        let containers = self.client.list_containers(Some(opts)).await?;
+        let mut removed = Vec::new();
+
+        for container in containers {
+            let name = container
+                .names
+                .as_ref()
+                .and_then(|names| names.first())
+                .map(|name| name.trim_start_matches('/').to_string())
+                .unwrap_or_default();
+            if !name.starts_with("airwaves-")
+                || name == "airwaves-manager"
+                || name == "airwaves-gateway"
+            {
+                continue;
+            }
+
+            let Some(id) = container.id else {
+                continue;
+            };
+            let labels = container.labels.unwrap_or_default();
+            if labels.get("managed-by").map(String::as_str) != Some("airwaves") {
+                continue;
+            }
+            let app_id = labels
+                .get("airwaves-app-id")
+                .cloned()
+                .unwrap_or_else(|| name.trim_start_matches("airwaves-").to_string());
+            if recorded_ids.contains(&app_id) {
+                continue;
+            }
+
+            self.client
+                .remove_container(
+                    &id,
+                    Some(RemoveContainerOptions {
+                        force: true,
+                        ..Default::default()
+                    }),
+                )
+                .await?;
+            removed.push(name);
+        }
+
+        Ok(removed)
+    }
+
     async fn start_container(&self, id: &str) -> Result<(), AppError> {
         self.client
             .start_container(id, None::<StartContainerOptions<String>>)
@@ -178,7 +296,10 @@ impl DockerPort for DockerAdapter {
 
     async fn restart_container(&self, id: &str) -> Result<(), AppError> {
         self.client
-            .restart_container(id, Some(bollard::container::RestartContainerOptions { t: 10 }))
+            .restart_container(
+                id,
+                Some(bollard::container::RestartContainerOptions { t: 10 }),
+            )
             .await?;
         Ok(())
     }
@@ -231,7 +352,10 @@ impl DockerPort for DockerAdapter {
                 &id,
                 // one_shot:false so Docker takes two samples internally and
                 // populates precpu_stats, making the CPU% delta meaningful.
-                Some(StatsOptions { stream: false, one_shot: false }),
+                Some(StatsOptions {
+                    stream: false,
+                    one_shot: false,
+                }),
             );
 
             if let Some(Ok(s)) = stream.next().await {
@@ -261,6 +385,33 @@ impl DockerPort for DockerAdapter {
                 // Memory usage vs limit (bytes).
                 let memory_used = s.memory_stats.usage.unwrap_or(0);
                 let memory_limit = s.memory_stats.limit.unwrap_or(0);
+                let (network_rx_bytes, network_tx_bytes) = s
+                    .networks
+                    .as_ref()
+                    .map(|networks| {
+                        networks.values().fold((0_u64, 0_u64), |(rx, tx), n| {
+                            (rx.saturating_add(n.rx_bytes), tx.saturating_add(n.tx_bytes))
+                        })
+                    })
+                    .or_else(|| {
+                        s.network
+                            .map(|network| (network.rx_bytes, network.tx_bytes))
+                    })
+                    .unwrap_or((0, 0));
+                let (block_read_bytes, block_write_bytes) = s
+                    .blkio_stats
+                    .io_service_bytes_recursive
+                    .as_ref()
+                    .map(|entries| {
+                        entries.iter().fold((0_u64, 0_u64), |(read, write), e| {
+                            match e.op.as_str() {
+                                "Read" => (read.saturating_add(e.value), write),
+                                "Write" => (read, write.saturating_add(e.value)),
+                                _ => (read, write),
+                            }
+                        })
+                    })
+                    .unwrap_or((0, 0));
 
                 results.push(ContainerStats {
                     id: id[..12.min(id.len())].to_string(),
@@ -268,6 +419,11 @@ impl DockerPort for DockerAdapter {
                     cpu_percent: (cpu_percent * 10.0).round() / 10.0,
                     memory_used,
                     memory_limit,
+                    network_rx_bytes,
+                    network_tx_bytes,
+                    block_read_bytes,
+                    block_write_bytes,
+                    pids: s.num_procs,
                 });
             }
         }
@@ -309,10 +465,7 @@ impl DockerPort for DockerAdapter {
         // "port is already allocated" 500 (common when two ADS-B apps overlap).
         let wanted_ports: Vec<u16> = app.ports.iter().filter_map(|p| p.host_port).collect();
         if !wanted_ports.is_empty() {
-            let existing = self
-                .list_containers()
-                .await
-                .unwrap_or_default();
+            let existing = self.list_containers().await.unwrap_or_default();
             for ec in &existing {
                 if ec.name == container_name {
                     continue; // our own (about to be replaced)
@@ -346,6 +499,7 @@ impl DockerPort for DockerAdapter {
         let mut labels = HashMap::new();
         labels.insert("managed-by".to_string(), "airwaves".to_string());
         labels.insert("airwaves-app-id".to_string(), app.id.clone());
+        let runtime_env = runtime_env_for_app(app);
 
         // Publish catalog-declared ports on the host.
         let mut port_bindings: HashMap<String, Option<Vec<bollard::models::PortBinding>>> =
@@ -365,15 +519,36 @@ impl DockerPort for DockerAdapter {
             }
         }
 
-        // SDR apps need access to USB devices on the host.
-        let devices = if app.requires_sdr {
-            Some(vec![bollard::models::DeviceMapping {
-                path_on_host: Some("/dev/bus/usb".to_string()),
-                path_in_container: Some("/dev/bus/usb".to_string()),
-                cgroup_permissions: Some("rwm".to_string()),
-            }])
+        // SDR apps need USB access. Most apps get only the selected USB node
+        // when the UI recorded an exact Airwaves SDR id. Apps that need to
+        // enumerate the bus, such as acarsdec's native RTL path, get a bus
+        // bind plus the USB character-device cgroup rule.
+        let (devices, binds, device_cgroup_rules) = if app.requires_sdr {
+            let selected_paths = crate::sdr::usb_device_paths_for_env(&runtime_env);
+            if crate::sdr::requires_full_usb_bus_access(&runtime_env) || selected_paths.is_empty() {
+                (
+                    None,
+                    Some(vec!["/dev/bus/usb:/dev/bus/usb".to_string()]),
+                    Some(vec!["c 189:* rwm".to_string()]),
+                )
+            } else {
+                (
+                    Some(
+                        selected_paths
+                            .into_iter()
+                            .map(|path| bollard::models::DeviceMapping {
+                                path_on_host: Some(path.clone()),
+                                path_in_container: Some(path),
+                                cgroup_permissions: Some("rwm".to_string()),
+                            })
+                            .collect(),
+                    ),
+                    None,
+                    None,
+                )
+            }
         } else {
-            None
+            (None, None, None)
         };
 
         let host_config = bollard::models::HostConfig {
@@ -388,6 +563,8 @@ impl DockerPort for DockerAdapter {
                 Some(port_bindings)
             },
             devices,
+            binds,
+            device_cgroup_rules,
             ..Default::default()
         };
 
@@ -396,9 +573,9 @@ impl DockerPort for DockerAdapter {
         // assignment, frequencies, gain, lat/lon, etc. actually reach the
         // container — without this the configuration is silently dropped.
         let env_vars: Vec<String> = {
-            let mut e: Vec<String> = app
-                .env
+            let mut e: Vec<String> = runtime_env
                 .iter()
+                .filter(|(k, _)| !crate::sdr::is_internal_sdr_env_key(k))
                 .map(|(k, v)| format!("{k}={v}"))
                 .collect();
             e.sort(); // stable ordering for reproducible container specs
@@ -416,7 +593,7 @@ impl DockerPort for DockerAdapter {
                     .iter()
                     .map(|arg| {
                         let mut out = arg.clone();
-                        for (k, v) in &app.env {
+                        for (k, v) in &runtime_env {
                             out = out.replace(&format!("{{{{{k}}}}}"), v);
                         }
                         out
@@ -428,7 +605,11 @@ impl DockerPort for DockerAdapter {
         let config = Config {
             image: Some(app.image.clone()),
             labels: Some(labels),
-            env: if env_vars.is_empty() { None } else { Some(env_vars) },
+            env: if env_vars.is_empty() {
+                None
+            } else {
+                Some(env_vars)
+            },
             cmd,
             exposed_ports: if exposed_ports.is_empty() {
                 None
@@ -481,7 +662,8 @@ impl DockerPort for DockerAdapter {
 
     async fn uninstall_app(&self, id: &str) -> Result<(), AppError> {
         // Stop first
-        let _ = self.client
+        let _ = self
+            .client
             .stop_container(id, Some(StopContainerOptions { t: 5 }))
             .await;
 
@@ -497,5 +679,39 @@ impl DockerPort for DockerAdapter {
             .await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn acarsdec_with_gain(gain: &str) -> CatalogApp {
+        let mut app = CatalogApp {
+            id: "acarsdec".to_string(),
+            ..Default::default()
+        };
+        app.env.insert("GAIN".to_string(), gain.to_string());
+        app
+    }
+
+    #[test]
+    fn acarsdec_runtime_env_converts_auto_gain_aliases_to_agc_value() {
+        for alias in ["auto", "autogain", "AGC"] {
+            let env = runtime_env_for_app(&acarsdec_with_gain(alias));
+            assert_eq!(env.get("GAIN").map(String::as_str), Some("-10"));
+        }
+    }
+
+    #[test]
+    fn acarsdec_runtime_env_preserves_numeric_gain() {
+        let env = runtime_env_for_app(&acarsdec_with_gain("48"));
+        assert_eq!(env.get("GAIN").map(String::as_str), Some("48"));
+    }
+
+    #[test]
+    fn acarsdec_runtime_env_drops_blank_gain() {
+        let env = runtime_env_for_app(&acarsdec_with_gain("  "));
+        assert!(!env.contains_key("GAIN"));
     }
 }

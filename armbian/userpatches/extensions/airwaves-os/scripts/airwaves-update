@@ -25,6 +25,9 @@ BACKUP_DIR="${UPDATE_DIR}/backup"
 BACKUPS_DIR="${UPDATE_DIR}/backups"
 LOGFILE="/var/log/airwaves-update.log"
 HEALTH_TIMEOUT="${AIRWAVES_HEALTH_TIMEOUT:-120}"
+IMAGE_PULL_TIMEOUT="${AIRWAVES_IMAGE_PULL_TIMEOUT:-1500}"
+HEARTBEAT_LOG_INTERVAL="${AIRWAVES_HEARTBEAT_LOG_INTERVAL:-30}"
+STATUS_LOG_LINES="${AIRWAVES_STATUS_LOG_LINES:-200}"
 DRYRUN="${AIRWAVES_UPDATE_DRYRUN:-0}"
 
 mkdir -p "${UPDATE_DIR}" "${BACKUP_DIR}" "${BACKUPS_DIR}"
@@ -63,7 +66,7 @@ write_status() {
         --argjson percent "${PERCENT}" \
         --argjson reboot "${REBOOT_REQUIRED}" \
         --arg started "${STARTED_AT}" \
-        --slurpfile loglines <(jq -R . "${LOG_TMP}" 2>/dev/null) \
+        --slurpfile loglines <(tail -n "${STATUS_LOG_LINES}" "${LOG_TMP}" 2>/dev/null | jq -R .) \
         "{
             state: \$state,
             phase: \$phase,
@@ -90,6 +93,33 @@ fail() {
     write_status "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 
+mark_unexpected_exit() {
+    local rc=$?
+    if [ "${STATE}" = "running" ]; then
+        STATE="failed"
+        ERROR="Updater exited unexpectedly during ${PHASE} (exit ${rc})"
+        log "ERROR: ${ERROR}"
+        write_status "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    fi
+}
+
+mark_interrupted() {
+    local sig="$1"
+    if [ "${STATE}" = "running" ]; then
+        STATE="failed"
+        ERROR="Updater interrupted by ${sig} during ${PHASE}"
+        log "ERROR: ${ERROR}"
+        write_status "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    fi
+    trap - EXIT
+    exit 128
+}
+
+trap mark_unexpected_exit EXIT
+trap 'mark_interrupted TERM' TERM
+trap 'mark_interrupted INT' INT
+trap 'mark_interrupted HUP' HUP
+
 run() {
     if [ "${DRYRUN}" = "1" ]; then
         log "[dry-run] $*"
@@ -97,6 +127,54 @@ run() {
     fi
     log "\$ $*"
     "$@" >>"${LOGFILE}" 2>&1
+}
+
+run_with_heartbeat() {
+    # run_with_heartbeat <timeout_seconds> <heartbeat_message> <command> [args...]
+    #
+    # Long-running commands such as `docker compose pull` can sit on network or
+    # layer-unpack work without returning. Keep status.json fresh while they run,
+    # stream command output into the UI log, write visible heartbeat lines when
+    # the command is quiet, and fail cleanly before systemd kills the oneshot
+    # service with no final status.
+    local timeout_seconds="$1"
+    local heartbeat_message="$2"
+    shift 2
+    if [ "${DRYRUN}" = "1" ]; then
+        log "[dry-run] $*"
+        return 0
+    fi
+
+    log "\$ $*"
+    "$@" > >(tee -a "${LOGFILE}" >> "${LOG_TMP}") 2>&1 &
+    local pid=$!
+    local started now last_heartbeat elapsed rc=0
+    started="$(date +%s)"
+    last_heartbeat="${started}"
+
+    while kill -0 "${pid}" 2>/dev/null; do
+        sleep 5
+        now="$(date +%s)"
+        elapsed=$((now - started))
+        if [ "${timeout_seconds:-0}" -gt 0 ] && [ "${elapsed}" -ge "${timeout_seconds}" ]; then
+            log "Command timed out after ${timeout_seconds}s: $*"
+            kill "${pid}" 2>/dev/null || true
+            sleep 2
+            kill -9 "${pid}" 2>/dev/null || true
+            wait "${pid}" 2>/dev/null || true
+            write_status
+            return 124
+        fi
+        if [ "${HEARTBEAT_LOG_INTERVAL:-0}" -gt 0 ] && [ $((now - last_heartbeat)) -ge "${HEARTBEAT_LOG_INTERVAL}" ]; then
+            log "${heartbeat_message} (${elapsed}s elapsed; waiting for command output)"
+            last_heartbeat="${now}"
+        fi
+        write_status
+    done
+
+    wait "${pid}" || rc=$?
+    write_status
+    return "${rc}"
 }
 
 want() {
@@ -212,6 +290,7 @@ main() {
 
     phase "backing-up" 5
     log "Backing up current configuration before updating (so changes can be rolled back)..."
+    write_status
 
     # Snapshot config + current image digests for rollback. BACKUP_DIR is the
     # working copy used for automatic rollback within this run.
@@ -222,7 +301,7 @@ main() {
     : > "${BACKUP_DIR}/digests.txt"
     for cname in airwaves-manager airwaves-gateway; do
         local pre_id
-        pre_id="$(docker inspect -f '{{.Image}}' "${cname}" 2>/dev/null || true)"
+        pre_id="$(timeout 10s docker inspect -f '{{.Image}}' "${cname}" 2>/dev/null || true)"
         [ -n "${pre_id}" ] && echo "${cname} ${pre_id}" >> "${BACKUP_DIR}/digests.txt"
     done
 
@@ -238,6 +317,7 @@ main() {
         done
         cp -f "${BACKUP_DIR}/digests.txt" "${snap_dir}/digests.txt" 2>/dev/null || true
         log "Configuration backed up to ${snap_dir}"
+        write_status
         # Retain only the most recent 10 snapshots.
         ls -1dt "${BACKUPS_DIR}"/*/ 2>/dev/null | tail -n +11 | xargs -r rm -rf
     fi
@@ -377,10 +457,11 @@ main() {
             [ -n "${gw_img}" ] && [ -n "${gw_tag}" ] && pin_image_tag "${gw_img}" "${gw_tag}"
         fi
 
-        if ! run compose pull; then
+        log "Pulling container images; this can take several minutes on first boot or slow networks"
+        if ! run_with_heartbeat "${IMAGE_PULL_TIMEOUT}" "Still pulling container images" compose pull; then
             # Keep the error concise — the full log is already captured in the
             # status log array; embedding the tail here duplicated it in the UI.
-            fail "docker compose pull failed (see log below)"
+            fail "docker compose pull failed or timed out (see log below)"
             rollback_config
             return 1
         fi

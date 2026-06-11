@@ -5,6 +5,10 @@ use crate::error::AppError;
 #[allow(async_fn_in_trait)]
 pub trait DockerPort {
     async fn list_containers(&self) -> Result<Vec<ContainerInfo>, AppError>;
+    async fn prune_unrecorded_app_containers(
+        &self,
+        recorded_ids: &std::collections::HashSet<String>,
+    ) -> Result<Vec<String>, AppError>;
     async fn start_container(&self, id: &str) -> Result<(), AppError>;
     async fn stop_container(&self, id: &str) -> Result<(), AppError>;
     async fn restart_container(&self, id: &str) -> Result<(), AppError>;
