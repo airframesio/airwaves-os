@@ -31,8 +31,9 @@ on:
 
 env:
   # Armbian build framework
+  # Keep BUILD_REF in sync with the pin in armbian/build.sh (single source of truth).
   BUILD_REPOSITORY: armbian/build
-  BUILD_REF: v25.02
+  BUILD_REF: v26.2.1
 
   # Our userpatches
   USERPATCHES_REPOSITORY: airframesio/airwaves-os
@@ -280,11 +281,22 @@ jobs:
         if: always()
         run: echo "Logs available at above URL"
 
+      - name: Generate SHA256 checksums
+        run: |
+          cd output/images
+          for f in *.xz; do
+            [ -e "$f" ] || continue
+            sha256sum "$f" > "$f.sha256"
+          done
+          cat *.sha256
+
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.matrix_prep.outputs.images_release }}
-          files: output/images/*.xz
+          files: |
+            output/images/*.xz
+            output/images/*.xz.sha256
 
       - name: Cleanup
         if: always()

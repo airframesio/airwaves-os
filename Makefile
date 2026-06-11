@@ -1,6 +1,9 @@
 # Airwaves OS - Development Makefile
 
-ARMBIAN_BUILD_TAG ?= v25.02
+# The Armbian build framework tag is pinned in armbian/build.sh (single source
+# of truth, currently v26.2.1). Override for a one-off build with:
+#   make build-image ARMBIAN_BUILD_TAG=vX.Y.Z
+# (command-line variables are exported to the build script's environment).
 CONTROL_APP_REPO ?= https://github.com/airframesio/airwaves-os-control
 CONTROL_APP_LOCAL ?= ../airwaves-os-control
 
@@ -21,8 +24,8 @@ build-x86: ## Build for x86 UEFI (mini PC / server)
 build-rpi4: ## Build for Raspberry Pi 4B
 	$(MAKE) build-image BOARD=rpi4b RELEASE=noble
 
-build-rpi5: ## Build for Raspberry Pi 5
-	$(MAKE) build-image BOARD=rpi5b RELEASE=noble
+build-rpi5: ## Build for Raspberry Pi 5 (same rpi4b image; Armbian's rpi4b target covers Pi 3-5)
+	$(MAKE) build-image BOARD=rpi4b RELEASE=noble
 
 build-rock5b: ## Build for Rock 5B
 	$(MAKE) build-image BOARD=rock-5b RELEASE=bookworm

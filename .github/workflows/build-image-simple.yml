@@ -30,8 +30,8 @@ on:
           - legacy
           - edge
 
-env:
-  ARMBIAN_BUILD_TAG: v26.2.1
+# The Armbian build framework tag is pinned in armbian/build.sh (single source
+# of truth); this workflow invokes build.sh, so no override is needed here.
 
 jobs:
   build:
@@ -66,15 +66,28 @@ jobs:
       - name: List output
         run: ls -lh .armbian-build/output/images/ 2>/dev/null || echo "No images found"
 
+      - name: Generate SHA256 checksums
+        run: |
+          cd .armbian-build/output/images
+          for f in *.img.xz; do
+            [ -e "$f" ] || continue
+            sha256sum "$f" > "$f.sha256"
+          done
+          cat *.sha256
+
       - name: Upload image
         uses: actions/upload-artifact@v4
         with:
           name: airwaves-os-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}
-          path: .armbian-build/output/images/*.img.xz
+          path: |
+            .armbian-build/output/images/*.img.xz
+            .armbian-build/output/images/*.img.xz.sha256
           retention-days: 30
 
       - name: Upload to release
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         uses: softprops/action-gh-release@v2
         with:
-          files: .armbian-build/output/images/*.img.xz
+          files: |
+            .armbian-build/output/images/*.img.xz
+            .armbian-build/output/images/*.img.xz.sha256

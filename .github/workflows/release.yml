@@ -20,8 +20,9 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/airframesio
+  # Keep BUILD_REF in sync with the pin in armbian/build.sh (single source of truth).
   BUILD_REPOSITORY: armbian/build
-  BUILD_REF: v25.02
+  BUILD_REF: v26.2.1
   USERPATCHES_REPOSITORY: airframesio/airwaves-os
   USERPATCHES_DIR: armbian/userpatches
   CONTROL_APP_REPO: airframesio/airwaves-os-control
@@ -120,10 +121,18 @@ jobs:
             docker pull --platform "linux/${{ matrix.arch }}" "${{ env.IMAGE_PREFIX }}/${image}:latest"
             docker save "${{ env.IMAGE_PREFIX }}/${image}:latest" -o "${image}-${{ matrix.arch }}.tar"
           done
+      - name: Generate SHA256 checksums
+        run: |
+          for f in *.tar; do
+            sha256sum "$f" > "$f.sha256"
+          done
+          cat *.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: container-tarballs-${{ matrix.arch }}
-          path: "*.tar"
+          path: |
+            *.tar
+            *.tar.sha256
           retention-days: 7
 
   create-release:
@@ -158,4 +167,6 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: "Airwaves OS ${{ steps.version.outputs.tag }}"
           generate_release_notes: true
-          files: artifacts/*.tar
+          files: |
+            artifacts/*.tar
+            artifacts/*.tar.sha256
