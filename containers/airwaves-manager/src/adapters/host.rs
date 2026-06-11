@@ -114,55 +114,87 @@ impl HostAdapter {
         Some(count as u32)
     }
 
-    /// Refresh the host-side updater script + systemd unit from the repo before
-    /// running an update, so already-deployed devices pick up updater fixes
-    /// (tag pinning, backups, etc.) without a manual bootstrap. Best-effort.
+    /// True when the unit state means the updater is still doing work. The
+    /// updater unit is Type=oneshot without RemainAfterExit, so systemd
+    /// reports "activating" (not "active") for its entire run.
+    fn is_running_state(state: &str) -> bool {
+        matches!(state, "active" | "activating" | "reloading" | "deactivating")
+    }
+
+    pub async fn is_update_service_active(&self) -> bool {
+        // `systemctl is-active` exits non-zero for every state except
+        // "active" (run_capture discards output on non-zero exit), and the
+        // oneshot updater unit never reports "active" while running — use
+        // `show`, which always exits 0 and prints the raw ActiveState.
+        self.run_capture(vec![
+            "systemctl".into(),
+            "show".into(),
+            "-p".into(),
+            "ActiveState".into(),
+            "--value".into(),
+            "airwaves-update.service".into(),
+        ])
+        .await
+        .map(|out| Self::is_running_state(out.trim()))
+        .unwrap_or(false)
+    }
+
+    /// Refresh host-side bootstrap files from the repo before running an update,
+    /// so already-deployed devices pick up out-of-band updater fixes without a
+    /// manual bootstrap. Best-effort; the signed manifest performs the
+    /// integrity-checked sync once the host updater starts.
     pub async fn refresh_updater_files(&self) -> Result<(), AppError> {
         const RAW: &str = "https://raw.githubusercontent.com/airframesio/airwaves-os/main/armbian/userpatches/extensions/airwaves-os";
-        // Updater script.
-        let _ = self
-            .run(vec![
-                "curl".into(),
-                "-fsSL".into(),
-                format!("{RAW}/scripts/airwaves-update"),
-                "-o".into(),
-                "/opt/airwaves/scripts/airwaves-update".into(),
-            ])
-            .await;
-        let _ = self
-            .run(vec![
-                "chmod".into(),
-                "+x".into(),
-                "/opt/airwaves/scripts/airwaves-update".into(),
-            ])
-            .await;
-        // Growfs helper (also delivered via updates).
-        let _ = self
-            .run(vec![
-                "curl".into(),
-                "-fsSL".into(),
-                format!("{RAW}/scripts/airwaves-growfs"),
-                "-o".into(),
-                "/opt/airwaves/scripts/airwaves-growfs".into(),
-            ])
-            .await;
-        let _ = self
-            .run(vec![
-                "chmod".into(),
-                "+x".into(),
-                "/opt/airwaves/scripts/airwaves-growfs".into(),
-            ])
-            .await;
-        // systemd unit (in case it changed).
-        let _ = self
-            .run(vec![
-                "curl".into(),
-                "-fsSL".into(),
-                format!("{RAW}/config/templates/systemd-airwaves-update.service"),
-                "-o".into(),
-                "/etc/systemd/system/airwaves-update.service".into(),
-            ])
-            .await;
+        for (src, dest, executable) in [
+            (
+                "scripts/airwaves-update",
+                "/opt/airwaves/scripts/airwaves-update",
+                true,
+            ),
+            (
+                "scripts/airwaves-growfs",
+                "/opt/airwaves/scripts/airwaves-growfs",
+                true,
+            ),
+            (
+                "scripts/airwaves-init",
+                "/opt/airwaves/scripts/airwaves-init",
+                true,
+            ),
+            (
+                "config/templates/systemd-airwaves-update.service",
+                "/etc/systemd/system/airwaves-update.service",
+                false,
+            ),
+            (
+                "config/templates/systemd-airwaves-growfs.service",
+                "/etc/systemd/system/airwaves-growfs.service",
+                false,
+            ),
+            (
+                "config/templates/systemd-airwaves-init.service",
+                "/etc/systemd/system/airwaves-init.service",
+                false,
+            ),
+            (
+                "config/templates/systemd-airwaves-containers.service",
+                "/etc/systemd/system/airwaves-containers.service",
+                false,
+            ),
+        ] {
+            let _ = self
+                .run(vec![
+                    "curl".into(),
+                    "-fsSL".into(),
+                    format!("{RAW}/{src}"),
+                    "-o".into(),
+                    dest.into(),
+                ])
+                .await;
+            if executable {
+                let _ = self.run(vec!["chmod".into(), "+x".into(), dest.into()]).await;
+            }
+        }
         let _ = self.run(vec!["systemctl".into(), "daemon-reload".into()]).await;
         Ok(())
     }
@@ -320,5 +352,19 @@ mod tests {
         assert!(!valid_timezone("../etc/passwd"));
         assert!(!valid_timezone("foo;reboot"));
         assert!(!valid_timezone(""));
+    }
+
+    #[test]
+    fn update_service_running_states() {
+        // A Type=oneshot unit spends its whole run in "activating" — treating
+        // that as not-running made the progress watchdog fail every update
+        // mid-run ("last recorded phase was syncing-host-files").
+        assert!(HostAdapter::is_running_state("activating"));
+        assert!(HostAdapter::is_running_state("active"));
+        assert!(HostAdapter::is_running_state("reloading"));
+        assert!(HostAdapter::is_running_state("deactivating"));
+        assert!(!HostAdapter::is_running_state("inactive"));
+        assert!(!HostAdapter::is_running_state("failed"));
+        assert!(!HostAdapter::is_running_state(""));
     }
 }

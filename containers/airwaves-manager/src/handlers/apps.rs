@@ -3,8 +3,10 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::domain::CatalogApp;
-use crate::ports::{ConfigPort, DockerPort};
+use crate::ports::{ConfigPort, DockerPort, HardwarePort};
 use crate::{AppError, AppState};
+
+const ACARSDEC_FORWARD_TO_HUB_KEY: &str = "AIRWAVES_FORWARD_TO_ACARSHUB";
 
 /// Load the full app catalog: prefer /etc/airwaves/catalog.json, fall back to
 /// the built-in default set.
@@ -40,6 +42,16 @@ pub struct InstallRequest {
     pub image_tag: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct UpdateAppConfigRequest {
+    /// Environment overrides to persist and apply to the installed app.
+    #[serde(default)]
+    pub env: std::collections::HashMap<String, String>,
+    /// Optional image tag/version to use while recreating the app container.
+    #[serde(default)]
+    pub image_tag: Option<String>,
+}
+
 /// Replace the tag portion of an image reference, preserving any registry host
 /// (which may itself contain a ':port'). "ghcr.io/x/y:latest" + "v2" ->
 /// "ghcr.io/x/y:v2". A digest pin (containing '@') or empty tag is left as-is.
@@ -60,6 +72,98 @@ fn retag_image(image: &str, tag: &str) -> String {
     }
 }
 
+fn apply_app_overrides(
+    app: &mut CatalogApp,
+    env: std::collections::HashMap<String, String>,
+    image_tag: Option<String>,
+) {
+    for (k, v) in env {
+        app.env.insert(k, v);
+    }
+    if let Some(tag) = image_tag.as_deref() {
+        let tag = tag.trim();
+        if !tag.is_empty() {
+            app.image = retag_image(&app.image, tag);
+            app.version = tag.to_string();
+        }
+    }
+}
+
+fn is_local_acarshub_target(value: &str) -> bool {
+    let value = value.trim().to_ascii_lowercase();
+    matches!(
+        value.as_str(),
+        "airwaves-acarshub" | "acarshub" | "localhost" | "127.0.0.1"
+    )
+}
+
+fn clear_acarsdec_local_hub_output(env: &mut std::collections::HashMap<String, String>) {
+    // These empty values intentionally override docker-acarsdec image defaults.
+    // If omitted entirely, the image may fall back to its own bridge target.
+    env.insert("OUTPUT_SERVER".to_string(), String::new());
+    env.insert("OUTPUT_SERVER_PORT".to_string(), String::new());
+    env.insert("OUTPUT_SERVER_MODE".to_string(), String::new());
+    env.insert(ACARSDEC_FORWARD_TO_HUB_KEY.to_string(), "false".to_string());
+}
+
+fn configure_acarsdec_output_policy(
+    app: &mut CatalogApp,
+    acarshub_installed: bool,
+) -> Result<(), AppError> {
+    if app.id != "acarsdec" {
+        return Ok(());
+    }
+
+    if env_enabled(&app.env, ACARSDEC_FORWARD_TO_HUB_KEY) {
+        if !acarshub_installed {
+            return Err(AppError::BadRequest(
+                "Install ACARS Hub before enabling local ACARS Hub output for acarsdec."
+                    .to_string(),
+            ));
+        }
+        app.env
+            .insert("OUTPUT_SERVER".to_string(), "airwaves-acarshub".to_string());
+        app.env
+            .insert("OUTPUT_SERVER_PORT".to_string(), "5550".to_string());
+        app.env
+            .insert("OUTPUT_SERVER_MODE".to_string(), "udp".to_string());
+        return Ok(());
+    }
+
+    let output_server = app
+        .env
+        .get("OUTPUT_SERVER")
+        .map(|v| v.trim())
+        .unwrap_or_default();
+    if output_server.is_empty() || is_local_acarshub_target(output_server) {
+        clear_acarsdec_local_hub_output(&mut app.env);
+    }
+
+    Ok(())
+}
+
+fn repair_recorded_acarsdec_output_env(
+    env: &mut std::collections::HashMap<String, String>,
+    acarshub_installed: bool,
+) -> bool {
+    let before = env.clone();
+    let wants_hub = env_enabled(env, ACARSDEC_FORWARD_TO_HUB_KEY);
+    if wants_hub && acarshub_installed {
+        env.insert("OUTPUT_SERVER".to_string(), "airwaves-acarshub".to_string());
+        env.insert("OUTPUT_SERVER_PORT".to_string(), "5550".to_string());
+        env.insert("OUTPUT_SERVER_MODE".to_string(), "udp".to_string());
+    } else {
+        let output_server = env
+            .get("OUTPUT_SERVER")
+            .map(|v| v.trim())
+            .unwrap_or_default();
+        if wants_hub || output_server.is_empty() || is_local_acarshub_target(output_server) {
+            clear_acarsdec_local_hub_output(env);
+        }
+    }
+    *env != before
+}
+
 pub async fn install_app(
     State(state): State<AppState>,
     Json(req): Json<InstallRequest>,
@@ -74,16 +178,33 @@ pub async fn install_app(
     // (SDR assignment, frequencies, …) and an optional pinned image tag. Without
     // the env merge, the user's selections would be silently dropped at install.
     let mut app = app.clone();
-    for (k, v) in req.env {
-        app.env.insert(k, v);
+    apply_app_overrides(&mut app, req.env, req.image_tag);
+
+    let config = state.config.read_config().await?;
+    let recorded_ids = recorded_app_ids(&config);
+    let acarshub_installed = recorded_ids.iter().any(|id| id == "acarshub");
+    configure_acarsdec_output_policy(&mut app, acarshub_installed)?;
+
+    let mut bundled_apps = if app.id == "acarshub" {
+        prepare_acarshub_bundle(&catalog, &mut app)
+    } else {
+        Vec::new()
+    };
+
+    let devices = state.hardware.list_sdr_devices()?;
+    crate::sdr::enrich_app_sdr_metadata(&mut app, &devices);
+    for bundled_app in &mut bundled_apps {
+        crate::sdr::enrich_app_sdr_metadata(bundled_app, &devices);
     }
-    if let Some(tag) = req.image_tag.as_deref() {
-        let tag = tag.trim();
-        if !tag.is_empty() {
-            app.image = retag_image(&app.image, tag);
-            app.version = tag.to_string();
-        }
-    }
+
+    validate_sdr_assignments(
+        &state,
+        &[app.clone()],
+        &bundled_apps,
+        Some(&config),
+        Some(&devices),
+    )
+    .await?;
 
     let container = state.docker.install_app(&app).await?;
     // Record the install in config.json so the app set survives reboots and the
@@ -91,7 +212,388 @@ pub async fn install_app(
     if let Err(e) = record_installed_app(&state, &app).await {
         tracing::warn!("Installed {} but failed to record in config: {}", app.id, e);
     }
+
+    for bundled_app in bundled_apps {
+        let bundled_id = bundled_app.id.clone();
+        match state.docker.install_app(&bundled_app).await {
+            Ok(_) => {
+                if let Err(e) = record_installed_app(&state, &bundled_app).await {
+                    tracing::warn!(
+                        "Installed bundled {} but failed to record in config: {}",
+                        bundled_id,
+                        e
+                    );
+                }
+            }
+            Err(e) => {
+                return Err(AppError::Internal(format!(
+                    "Installed ACARS Hub, but failed to install bundled source app {bundled_id}: {e}"
+                )));
+            }
+        }
+    }
+
     Ok(Json(container))
+}
+
+pub async fn update_app_config(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateAppConfigRequest>,
+) -> Result<Json<crate::domain::ContainerInfo>, AppError> {
+    let requested_id = id
+        .strip_prefix("airwaves-")
+        .map(str::to_string)
+        .unwrap_or(id);
+    let catalog = load_catalog().await;
+    let app = catalog
+        .iter()
+        .find(|a| a.id == requested_id)
+        .ok_or_else(|| AppError::NotFound(format!("App '{requested_id}' not found in catalog")))?;
+
+    let config = state.config.read_config().await?;
+    let mut app = app.clone();
+    for (k, v) in recorded_app_env(&config, &requested_id) {
+        app.env.insert(k, v);
+    }
+    apply_app_overrides(&mut app, req.env, req.image_tag);
+    let recorded_ids = recorded_app_ids(&config);
+    let acarshub_installed = recorded_ids.iter().any(|id| id == "acarshub");
+    configure_acarsdec_output_policy(&mut app, acarshub_installed)?;
+
+    let mut bundled_apps = if app.id == "acarshub" {
+        prepare_acarshub_bundle(&catalog, &mut app)
+    } else {
+        Vec::new()
+    };
+
+    let devices = state.hardware.list_sdr_devices()?;
+    crate::sdr::enrich_app_sdr_metadata(&mut app, &devices);
+    for bundled_app in &mut bundled_apps {
+        crate::sdr::enrich_app_sdr_metadata(bundled_app, &devices);
+    }
+
+    validate_sdr_assignments(
+        &state,
+        &[app.clone()],
+        &bundled_apps,
+        Some(&config),
+        Some(&devices),
+    )
+    .await?;
+
+    let container = state.docker.install_app(&app).await?;
+    if let Err(e) = record_installed_app(&state, &app).await {
+        tracing::warn!("Updated {} but failed to record new config: {}", app.id, e);
+    }
+
+    for bundled_app in bundled_apps {
+        let bundled_id = bundled_app.id.clone();
+        match state.docker.install_app(&bundled_app).await {
+            Ok(_) => {
+                if let Err(e) = record_installed_app(&state, &bundled_app).await {
+                    tracing::warn!(
+                        "Updated bundled {} but failed to record new config: {}",
+                        bundled_id,
+                        e
+                    );
+                }
+            }
+            Err(e) => {
+                return Err(AppError::Internal(format!(
+                    "Updated ACARS Hub, but failed to update bundled source app {bundled_id}: {e}"
+                )));
+            }
+        }
+    }
+
+    Ok(Json(container))
+}
+
+fn env_enabled(env: &std::collections::HashMap<String, String>, key: &str) -> bool {
+    env.get(key)
+        .map(|v| {
+            let v = v.trim();
+            v.eq_ignore_ascii_case("true") || v == "1" || v.eq_ignore_ascii_case("yes")
+        })
+        .unwrap_or(false)
+}
+
+fn env_value(env: &std::collections::HashMap<String, String>, key: &str, default: &str) -> String {
+    env.get(key)
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+        .unwrap_or(default)
+        .to_string()
+}
+
+async fn validate_sdr_assignments(
+    state: &AppState,
+    primary_apps: &[CatalogApp],
+    bundled_apps: &[CatalogApp],
+    config: Option<&crate::domain::AirwavesConfig>,
+    devices: Option<&[crate::domain::SdrDevice]>,
+) -> Result<(), AppError> {
+    let owned_config;
+    let config = match config {
+        Some(config) => config,
+        None => {
+            owned_config = state.config.read_config().await?;
+            &owned_config
+        }
+    };
+    let owned_devices;
+    let devices = match devices {
+        Some(devices) => devices,
+        None => {
+            owned_devices = state.hardware.list_sdr_devices()?;
+            &owned_devices
+        }
+    };
+    let mut targets = primary_apps.to_vec();
+    targets.extend(bundled_apps.iter().cloned());
+    crate::sdr::validate_app_sdr_assignments(config, &targets, &devices)
+        .map_err(AppError::BadRequest)
+}
+
+fn copy_sdr_metadata(
+    source_env: &std::collections::HashMap<String, String>,
+    source_key: &str,
+    target_env: &mut std::collections::HashMap<String, String>,
+    target_key: &str,
+) {
+    let source_meta_key = crate::sdr::sdr_id_env_key(source_key);
+    let Some(device_id) = source_env
+        .get(&source_meta_key)
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+    else {
+        return;
+    };
+
+    target_env.insert(
+        crate::sdr::sdr_id_env_key(target_key),
+        device_id.to_string(),
+    );
+}
+
+fn prepare_acarshub_bundle(catalog: &[CatalogApp], hub: &mut CatalogApp) -> Vec<CatalogApp> {
+    let mut bundled = Vec::new();
+
+    if env_enabled(&hub.env, "ENABLE_LOCAL_ACARSDEC") {
+        hub.env
+            .insert("ENABLE_ACARS".to_string(), "true".to_string());
+        hub.env.insert(
+            "ACARS_CONNECTIONS".to_string(),
+            env_value(&hub.env, "ACARS_CONNECTIONS", "udp://0.0.0.0:5550"),
+        );
+
+        if let Some(source) = catalog.iter().find(|a| a.id == "acarsdec").cloned() {
+            let mut source = source;
+            source.env.insert(
+                "SOAPYSDR".to_string(),
+                env_value(&hub.env, "LOCAL_ACARSDEC_SDR", "driver=rtlsdr"),
+            );
+            copy_sdr_metadata(&hub.env, "LOCAL_ACARSDEC_SDR", &mut source.env, "SOAPYSDR");
+            source.env.insert(
+                "FREQUENCIES".to_string(),
+                env_value(
+                    &hub.env,
+                    "LOCAL_ACARSDEC_FREQUENCIES",
+                    "130.025;130.450;131.125;131.550",
+                ),
+            );
+            source.env.insert(
+                "FEED_ID".to_string(),
+                env_value(&hub.env, "LOCAL_ACARSDEC_FEED_ID", "airwaves-acarsdec"),
+            );
+            source
+                .env
+                .insert(ACARSDEC_FORWARD_TO_HUB_KEY.to_string(), "true".to_string());
+            source
+                .env
+                .insert("OUTPUT_SERVER".to_string(), "airwaves-acarshub".to_string());
+            source
+                .env
+                .insert("OUTPUT_SERVER_PORT".to_string(), "5550".to_string());
+            source
+                .env
+                .insert("OUTPUT_SERVER_MODE".to_string(), "udp".to_string());
+            source
+                .env
+                .insert("QUIET_LOGS".to_string(), "true".to_string());
+            source.env.insert(
+                "TZ".to_string(),
+                env_value(
+                    &hub.env,
+                    "TZ",
+                    source.env.get("TZ").map(String::as_str).unwrap_or("UTC"),
+                ),
+            );
+            bundled.push(source);
+        }
+    }
+
+    if env_enabled(&hub.env, "ENABLE_LOCAL_DUMPVDL2") {
+        hub.env
+            .insert("ENABLE_VDLM".to_string(), "true".to_string());
+        hub.env.insert(
+            "VDLM_CONNECTIONS".to_string(),
+            env_value(&hub.env, "VDLM_CONNECTIONS", "udp://0.0.0.0:5555"),
+        );
+
+        if let Some(source) = catalog.iter().find(|a| a.id == "dumpvdl2").cloned() {
+            let mut source = source;
+            source.env.insert(
+                "SOAPYSDR".to_string(),
+                env_value(&hub.env, "LOCAL_DUMPVDL2_SDR", "driver=rtlsdr"),
+            );
+            copy_sdr_metadata(&hub.env, "LOCAL_DUMPVDL2_SDR", &mut source.env, "SOAPYSDR");
+            source.env.insert(
+                "FREQUENCIES".to_string(),
+                env_value(
+                    &hub.env,
+                    "LOCAL_DUMPVDL2_FREQUENCIES",
+                    "136.650;136.800;136.975",
+                ),
+            );
+            source.env.insert(
+                "FEED_ID".to_string(),
+                env_value(&hub.env, "LOCAL_DUMPVDL2_FEED_ID", "airwaves-dumpvdl2"),
+            );
+            source
+                .env
+                .insert("SERVER".to_string(), "airwaves-acarshub".to_string());
+            source
+                .env
+                .insert("SERVER_PORT".to_string(), "5555".to_string());
+            source.env.remove("ZMQ_MODE");
+            source.env.remove("ZMQ_ENDPOINT");
+            source.env.insert(
+                "TZ".to_string(),
+                env_value(
+                    &hub.env,
+                    "TZ",
+                    source.env.get("TZ").map(String::as_str).unwrap_or("UTC"),
+                ),
+            );
+            bundled.push(source);
+        }
+    }
+
+    bundled
+}
+
+pub async fn migrate_acarsdec_output_policy(state: &AppState) -> Result<(), AppError> {
+    use crate::ports::{ConfigPort, DockerPort};
+
+    let mut config = state.config.read_config().await?;
+    let recorded_ids = recorded_app_ids(&config);
+    let acarshub_installed = recorded_ids.iter().any(|id| id == "acarshub");
+    let mut changed = false;
+    let mut recreate_acarsdec = false;
+
+    if let Some(apps) = config.apps.as_array_mut() {
+        for app in apps {
+            if app.get("id").and_then(|v| v.as_str()) != Some("acarsdec") {
+                continue;
+            }
+
+            let Some(env_value) = app.get_mut("env") else {
+                continue;
+            };
+            let mut env: std::collections::HashMap<String, String> =
+                serde_json::from_value(env_value.clone()).unwrap_or_default();
+            if repair_recorded_acarsdec_output_env(&mut env, acarshub_installed) {
+                *env_value =
+                    serde_json::to_value(env).map_err(|e| AppError::Internal(e.to_string()))?;
+                changed = true;
+                recreate_acarsdec = true;
+            }
+        }
+    }
+
+    if !changed {
+        return Ok(());
+    }
+
+    state.config.write_config(&config).await?;
+
+    if recreate_acarsdec {
+        let catalog = load_catalog().await;
+        if let Some(app) = catalog.iter().find(|a| a.id == "acarsdec") {
+            let mut app = app.clone();
+            for (k, v) in recorded_app_env(&config, "acarsdec") {
+                app.env.insert(k, v);
+            }
+            if let Err(e) = state.docker.install_app(&app).await {
+                tracing::warn!(
+                    "Migrated acarsdec output policy but failed to recreate container: {}",
+                    e
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn migrate_sdr_assignment_metadata(state: &AppState) -> Result<(), AppError> {
+    use crate::ports::{ConfigPort, DockerPort, HardwarePort};
+
+    let mut config = state.config.read_config().await?;
+    let devices = state.hardware.list_sdr_devices()?;
+    let mut changed_ids = Vec::new();
+
+    if let Some(apps) = config.apps.as_array_mut() {
+        for app in apps {
+            let Some(id) = app.get("id").and_then(|v| v.as_str()).map(str::to_string) else {
+                continue;
+            };
+            let Some(env_value) = app.get_mut("env") else {
+                continue;
+            };
+            let mut catalog_app = CatalogApp {
+                id: id.clone(),
+                env: serde_json::from_value(env_value.clone()).unwrap_or_default(),
+                ..Default::default()
+            };
+
+            if crate::sdr::enrich_app_sdr_metadata(&mut catalog_app, &devices) {
+                *env_value = serde_json::to_value(catalog_app.env)
+                    .map_err(|e| AppError::Internal(e.to_string()))?;
+                changed_ids.push(id);
+            }
+        }
+    }
+
+    if changed_ids.is_empty() {
+        return Ok(());
+    }
+
+    changed_ids.sort();
+    changed_ids.dedup();
+    state.config.write_config(&config).await?;
+
+    let catalog = load_catalog().await;
+    for id in changed_ids {
+        let Some(app) = catalog.iter().find(|a| a.id == id) else {
+            continue;
+        };
+        let mut app = app.clone();
+        for (k, v) in recorded_app_env(&config, &id) {
+            app.env.insert(k, v);
+        }
+        if let Err(e) = state.docker.install_app(&app).await {
+            tracing::warn!(
+                "Migrated SDR metadata for {} but failed to recreate container: {}",
+                id,
+                e
+            );
+        }
+    }
+
+    Ok(())
 }
 
 pub async fn uninstall_app(
@@ -174,18 +676,30 @@ pub fn recorded_app_ids(config: &crate::domain::AirwavesConfig) -> Vec<String> {
 }
 
 fn default_catalog() -> Vec<CatalogApp> {
+    let env = |pairs: &[(&str, &str)]| -> std::collections::HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+            .collect()
+    };
+
     // Minimal fallback catalog when /etc/airwaves/catalog.json is not present.
     // The full catalog is in the JSON file; this just ensures core apps are available.
     vec![
         CatalogApp {
             id: "ultrafeeder".to_string(),
             name: "ADS-B Ultrafeeder".to_string(),
-            description: "All-in-one ADS-B: readsb, tar1090, graphs1090, autogain, multi-feeder".to_string(),
+            description: "All-in-one ADS-B: readsb, tar1090, graphs1090, autogain, multi-feeder"
+                .to_string(),
             version: "latest".to_string(),
             category: "decoder".to_string(),
             image: "ghcr.io/sdr-enthusiasts/docker-adsb-ultrafeeder:latest".to_string(),
             icon: None,
-            ports: vec![crate::domain::PortBinding { container_port: 80, host_port: Some(8080), protocol: "tcp".to_string() }],
+            ports: vec![crate::domain::PortBinding {
+                container_port: 80,
+                host_port: Some(8080),
+                protocol: "tcp".to_string(),
+            }],
             requires_sdr: true,
             sdr_types: vec![crate::domain::SdrType::RtlSdr],
             ..Default::default()
@@ -200,7 +714,21 @@ fn default_catalog() -> Vec<CatalogApp> {
             icon: None,
             ports: vec![],
             requires_sdr: true,
-            sdr_types: vec![crate::domain::SdrType::RtlSdr, crate::domain::SdrType::Airspy],
+            sdr_types: vec![
+                crate::domain::SdrType::RtlSdr,
+                crate::domain::SdrType::Airspy,
+            ],
+            env: env(&[
+                ("SOAPYSDR", "driver=rtlsdr"),
+                ("FREQUENCIES", "130.025;130.450;131.125;131.550"),
+                ("FEED_ID", "airwaves-acarsdec"),
+                ("OUTPUT_SERVER", ""),
+                ("OUTPUT_SERVER_PORT", ""),
+                ("OUTPUT_SERVER_MODE", ""),
+                (ACARSDEC_FORWARD_TO_HUB_KEY, "false"),
+                ("QUIET_LOGS", "true"),
+                ("TZ", "UTC"),
+            ]),
             ..Default::default()
         },
         CatalogApp {
@@ -213,7 +741,18 @@ fn default_catalog() -> Vec<CatalogApp> {
             icon: None,
             ports: vec![],
             requires_sdr: true,
-            sdr_types: vec![crate::domain::SdrType::RtlSdr, crate::domain::SdrType::Airspy],
+            sdr_types: vec![
+                crate::domain::SdrType::RtlSdr,
+                crate::domain::SdrType::Airspy,
+            ],
+            env: env(&[
+                ("SOAPYSDR", "driver=rtlsdr"),
+                ("FREQUENCIES", "136.650;136.800;136.975"),
+                ("FEED_ID", "airwaves-dumpvdl2"),
+                ("SERVER", "airwaves-acarshub"),
+                ("SERVER_PORT", "5555"),
+                ("TZ", "UTC"),
+            ]),
             ..Default::default()
         },
         CatalogApp {
@@ -226,7 +765,11 @@ fn default_catalog() -> Vec<CatalogApp> {
             icon: None,
             ports: vec![],
             requires_sdr: true,
-            sdr_types: vec![crate::domain::SdrType::RtlSdr, crate::domain::SdrType::Airspy, crate::domain::SdrType::AirspyHf],
+            sdr_types: vec![
+                crate::domain::SdrType::RtlSdr,
+                crate::domain::SdrType::Airspy,
+                crate::domain::SdrType::AirspyHf,
+            ],
             ..Default::default()
         },
         CatalogApp {
@@ -237,9 +780,31 @@ fn default_catalog() -> Vec<CatalogApp> {
             category: "visualization".to_string(),
             image: "ghcr.io/sdr-enthusiasts/docker-acarshub:latest".to_string(),
             icon: None,
-            ports: vec![crate::domain::PortBinding { container_port: 80, host_port: Some(8900), protocol: "tcp".to_string() }],
+            ports: vec![crate::domain::PortBinding {
+                container_port: 80,
+                host_port: Some(8900),
+                protocol: "tcp".to_string(),
+            }],
             requires_sdr: false,
             sdr_types: vec![],
+            env: env(&[
+                ("TZ", "UTC"),
+                ("ENABLE_ACARS", "true"),
+                ("ACARS_CONNECTIONS", "udp://0.0.0.0:5550"),
+                ("ENABLE_LOCAL_ACARSDEC", "false"),
+                ("LOCAL_ACARSDEC_SDR", "driver=rtlsdr"),
+                (
+                    "LOCAL_ACARSDEC_FREQUENCIES",
+                    "130.025;130.450;131.125;131.550",
+                ),
+                ("LOCAL_ACARSDEC_FEED_ID", "airwaves-acarsdec"),
+                ("ENABLE_VDLM", "true"),
+                ("VDLM_CONNECTIONS", "udp://0.0.0.0:5555"),
+                ("ENABLE_LOCAL_DUMPVDL2", "false"),
+                ("LOCAL_DUMPVDL2_SDR", "driver=rtlsdr"),
+                ("LOCAL_DUMPVDL2_FREQUENCIES", "136.650;136.800;136.975"),
+                ("LOCAL_DUMPVDL2_FEED_ID", "airwaves-dumpvdl2"),
+            ]),
             ..Default::default()
         },
         CatalogApp {
@@ -250,10 +815,119 @@ fn default_catalog() -> Vec<CatalogApp> {
             category: "decoder".to_string(),
             image: "ghcr.io/jvde-github/ais-catcher:latest".to_string(),
             icon: None,
-            ports: vec![crate::domain::PortBinding { container_port: 8100, host_port: Some(8100), protocol: "tcp".to_string() }],
+            ports: vec![crate::domain::PortBinding {
+                container_port: 8100,
+                host_port: Some(8100),
+                protocol: "tcp".to_string(),
+            }],
             requires_sdr: true,
-            sdr_types: vec![crate::domain::SdrType::RtlSdr, crate::domain::SdrType::Airspy],
+            sdr_types: vec![
+                crate::domain::SdrType::RtlSdr,
+                crate::domain::SdrType::Airspy,
+            ],
             ..Default::default()
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn baked_catalog_parses() {
+        let raw = include_str!(
+            "../../../../armbian/userpatches/extensions/airwaves-os/config/catalog.json"
+        );
+        let apps: Vec<CatalogApp> =
+            serde_json::from_str(raw).expect("baked catalog.json failed to parse as CatalogApp");
+        assert!(!apps.is_empty());
+        for app in &apps {
+            assert!(!app.id.is_empty());
+            assert!(!app.image.is_empty(), "{}: empty image", app.id);
+        }
+    }
+
+    fn acarsdec_app(env: &[(&str, &str)]) -> CatalogApp {
+        let mut app = CatalogApp {
+            id: "acarsdec".to_string(),
+            ..Default::default()
+        };
+        for (key, value) in env {
+            app.env.insert((*key).to_string(), (*value).to_string());
+        }
+        app
+    }
+
+    #[test]
+    fn acarsdec_policy_clears_implicit_local_hub_output() {
+        let mut app = acarsdec_app(&[
+            ("OUTPUT_SERVER", "airwaves-acarshub"),
+            ("OUTPUT_SERVER_PORT", "5550"),
+            ("OUTPUT_SERVER_MODE", "tcp"),
+        ]);
+
+        configure_acarsdec_output_policy(&mut app, false).unwrap();
+
+        assert_eq!(app.env.get("OUTPUT_SERVER").map(String::as_str), Some(""));
+        assert_eq!(
+            app.env.get("OUTPUT_SERVER_PORT").map(String::as_str),
+            Some("")
+        );
+        assert_eq!(
+            app.env.get("OUTPUT_SERVER_MODE").map(String::as_str),
+            Some("")
+        );
+        assert_eq!(
+            app.env.get(ACARSDEC_FORWARD_TO_HUB_KEY).map(String::as_str),
+            Some("false")
+        );
+    }
+
+    #[test]
+    fn acarsdec_policy_requires_installed_hub_for_local_forwarding() {
+        let mut app = acarsdec_app(&[(ACARSDEC_FORWARD_TO_HUB_KEY, "true")]);
+
+        assert!(configure_acarsdec_output_policy(&mut app, false).is_err());
+    }
+
+    #[test]
+    fn acarsdec_policy_enables_explicit_local_hub_forwarding() {
+        let mut app = acarsdec_app(&[(ACARSDEC_FORWARD_TO_HUB_KEY, "true")]);
+
+        configure_acarsdec_output_policy(&mut app, true).unwrap();
+
+        assert_eq!(
+            app.env.get("OUTPUT_SERVER").map(String::as_str),
+            Some("airwaves-acarshub")
+        );
+        assert_eq!(
+            app.env.get("OUTPUT_SERVER_PORT").map(String::as_str),
+            Some("5550")
+        );
+        assert_eq!(
+            app.env.get("OUTPUT_SERVER_MODE").map(String::as_str),
+            Some("udp")
+        );
+    }
+
+    #[test]
+    fn acarsdec_policy_preserves_custom_output_target() {
+        let mut app = acarsdec_app(&[
+            ("OUTPUT_SERVER", "feed.example.net"),
+            ("OUTPUT_SERVER_PORT", "5550"),
+            ("OUTPUT_SERVER_MODE", "tcp"),
+        ]);
+
+        configure_acarsdec_output_policy(&mut app, false).unwrap();
+
+        assert_eq!(
+            app.env.get("OUTPUT_SERVER").map(String::as_str),
+            Some("feed.example.net")
+        );
+        assert_eq!(
+            app.env.get("OUTPUT_SERVER_MODE").map(String::as_str),
+            Some("tcp")
+        );
+    }
 }

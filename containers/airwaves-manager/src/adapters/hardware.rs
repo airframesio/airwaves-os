@@ -40,7 +40,7 @@ impl HardwareAdapter {
     fn simulated_sdr_devices() -> Vec<SdrDevice> {
         vec![
             SdrDevice {
-                id: "0bda:2838-00000101".to_string(),
+                id: "0bda:2838-00000101-bus001-dev004".to_string(),
                 name: "RTL-SDR Blog V4".to_string(),
                 device_type: SdrType::RtlSdr,
                 vendor_id: 0x0bda,
@@ -48,9 +48,11 @@ impl HardwareAdapter {
                 serial: Some("00000101".to_string()),
                 status: "available".to_string(),
                 assigned_to: None,
+                configured_name: None,
+                configured_serial: None,
             },
             SdrDevice {
-                id: "0bda:2838-00000102".to_string(),
+                id: "0bda:2838-00000102-bus001-dev005".to_string(),
                 name: "RTL-SDR Blog V3".to_string(),
                 device_type: SdrType::RtlSdr,
                 vendor_id: 0x0bda,
@@ -58,9 +60,11 @@ impl HardwareAdapter {
                 serial: Some("00000102".to_string()),
                 status: "available".to_string(),
                 assigned_to: None,
+                configured_name: None,
+                configured_serial: None,
             },
             SdrDevice {
-                id: "1d50:60a1-AIRSPY-MINI".to_string(),
+                id: "1d50:60a1-AIRSPY-MINI-bus002-dev003".to_string(),
                 name: "Airspy Mini".to_string(),
                 device_type: SdrType::Airspy,
                 vendor_id: 0x1d50,
@@ -68,6 +72,8 @@ impl HardwareAdapter {
                 serial: Some("AIRSPY-MINI".to_string()),
                 status: "available".to_string(),
                 assigned_to: None,
+                configured_name: None,
+                configured_serial: None,
             },
         ]
     }
@@ -75,25 +81,31 @@ impl HardwareAdapter {
     fn simulated_usb_devices() -> Vec<UsbDevice> {
         vec![
             UsbDevice {
-                vendor_id: 0x0bda, product_id: 0x2838,
+                vendor_id: 0x0bda,
+                product_id: 0x2838,
                 vendor_name: Some("Realtek Semiconductor Corp.".to_string()),
                 product_name: Some("RTL2838 DVB-T".to_string()),
                 serial: Some("00000101".to_string()),
-                bus: 1, address: 4,
+                bus: 1,
+                address: 4,
             },
             UsbDevice {
-                vendor_id: 0x0bda, product_id: 0x2838,
+                vendor_id: 0x0bda,
+                product_id: 0x2838,
                 vendor_name: Some("Realtek Semiconductor Corp.".to_string()),
                 product_name: Some("RTL2838 DVB-T".to_string()),
                 serial: Some("00000102".to_string()),
-                bus: 1, address: 5,
+                bus: 1,
+                address: 5,
             },
             UsbDevice {
-                vendor_id: 0x1d50, product_id: 0x60a1,
+                vendor_id: 0x1d50,
+                product_id: 0x60a1,
                 vendor_name: Some("OpenMoko, Inc.".to_string()),
                 product_name: Some("Airspy Mini".to_string()),
                 serial: Some("AIRSPY-MINI".to_string()),
-                bus: 2, address: 3,
+                bus: 2,
+                address: 3,
             },
         ]
     }
@@ -193,10 +205,12 @@ impl HardwarePort for HardwareAdapter {
             .filter_map(|usb| {
                 Self::classify_sdr(usb.vendor_id, usb.product_id).map(|(name, sdr_type)| {
                     let id = format!(
-                        "{:04x}:{:04x}-{}",
+                        "{:04x}:{:04x}-{}-bus{:03}-dev{:03}",
                         usb.vendor_id,
                         usb.product_id,
-                        usb.serial.as_deref().unwrap_or("unknown")
+                        usb.serial.as_deref().unwrap_or("unknown"),
+                        usb.bus,
+                        usb.address
                     );
 
                     SdrDevice {
@@ -208,6 +222,8 @@ impl HardwarePort for HardwareAdapter {
                         serial: usb.serial.clone(),
                         status: "available".to_string(),
                         assigned_to: None,
+                        configured_name: None,
+                        configured_serial: None,
                     }
                 })
             })

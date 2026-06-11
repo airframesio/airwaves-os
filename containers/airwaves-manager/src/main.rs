@@ -14,6 +14,7 @@ mod error;
 mod forwarding;
 mod handlers;
 mod ports;
+mod sdr;
 mod ws;
 
 pub use error::AppError;
@@ -61,6 +62,7 @@ fn api_router(state: AppState) -> Router {
         // Hardware endpoints
         .route("/api/v1/hardware/devices", axum::routing::get(handlers::hardware::list_devices))
         .route("/api/v1/hardware/sdr", axum::routing::get(handlers::hardware::list_sdr))
+        .route("/api/v1/hardware/sdr/{id}", axum::routing::put(handlers::hardware::update_sdr))
         // Network endpoints
         .route("/api/v1/network/interfaces", axum::routing::get(handlers::network::list_interfaces))
         // WiFi endpoints
@@ -78,6 +80,10 @@ fn api_router(state: AppState) -> Router {
         // App catalog endpoints
         .route("/api/v1/apps/catalog", axum::routing::get(handlers::apps::list_catalog))
         .route("/api/v1/apps/install", axum::routing::post(handlers::apps::install_app))
+        .route(
+            "/api/v1/apps/{id}/config",
+            axum::routing::put(handlers::apps::update_app_config),
+        )
         .route("/api/v1/apps/{id}", axum::routing::delete(handlers::apps::uninstall_app))
         // Tracking (aircraft/ship positions from decoder containers)
         .route("/api/v1/tracking/vehicles", axum::routing::get(handlers::tracking::get_vehicles))
@@ -215,6 +221,14 @@ fn spawn_app_reconciler(state: AppState) {
         // Give Docker a moment to bring restart-policy containers back first.
         tokio::time::sleep(std::time::Duration::from_secs(20)).await;
 
+        if let Err(e) = handlers::apps::migrate_acarsdec_output_policy(&state).await {
+            tracing::warn!("App reconcile: failed ACARS decoder output migration: {}", e);
+        }
+
+        if let Err(e) = handlers::apps::migrate_sdr_assignment_metadata(&state).await {
+            tracing::warn!("App reconcile: failed SDR assignment migration: {}", e);
+        }
+
         let config = match state.config.read_config().await {
             Ok(c) => c,
             Err(e) => {
@@ -223,6 +237,20 @@ fn spawn_app_reconciler(state: AppState) {
             }
         };
         let recorded = handlers::apps::recorded_app_ids(&config);
+        let recorded_set: std::collections::HashSet<String> = recorded.iter().cloned().collect();
+        match state
+            .docker
+            .prune_unrecorded_app_containers(&recorded_set)
+            .await
+        {
+            Ok(removed) => {
+                for name in removed {
+                    tracing::info!("Reconcile: removed unrecorded app container {}", name);
+                }
+            }
+            Err(e) => tracing::warn!("App reconcile: failed to prune unrecorded apps: {}", e),
+        }
+
         if recorded.is_empty() {
             return;
         }

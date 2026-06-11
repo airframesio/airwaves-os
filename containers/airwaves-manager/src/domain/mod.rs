@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+fn empty_json_object() -> serde_json::Value {
+    serde_json::Value::Object(serde_json::Map::new())
+}
+
 /// Container information as exposed by the API
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ContainerInfo {
@@ -30,6 +34,21 @@ pub struct ContainerStats {
     pub memory_used: u64,
     /// Memory limit in bytes (0 if unknown/unlimited).
     pub memory_limit: u64,
+    /// Cumulative received network bytes across all container interfaces.
+    #[serde(default)]
+    pub network_rx_bytes: u64,
+    /// Cumulative transmitted network bytes across all container interfaces.
+    #[serde(default)]
+    pub network_tx_bytes: u64,
+    /// Cumulative block-device read bytes reported by Docker.
+    #[serde(default)]
+    pub block_read_bytes: u64,
+    /// Cumulative block-device write bytes reported by Docker.
+    #[serde(default)]
+    pub block_write_bytes: u64,
+    /// Number of active container processes, when reported by Docker.
+    #[serde(default)]
+    pub pids: u32,
 }
 
 /// System information
@@ -95,6 +114,10 @@ pub struct SdrDevice {
     pub serial: Option<String>,
     pub status: String,
     pub assigned_to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configured_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configured_serial: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -131,6 +154,10 @@ pub struct AirwavesConfig {
     pub aggregators: serde_json::Value,
     #[serde(default)]
     pub apps: serde_json::Value,
+    /// Persisted hardware metadata and user labels. Physical USB identifiers
+    /// remain authoritative for device access; this is UI/configuration state.
+    #[serde(default = "empty_json_object")]
+    pub hardware: serde_json::Value,
     /// UI / user preferences (theme, etc). Free-form so the control app can
     /// extend it without a schema change; persisted and included in backups.
     #[serde(default)]
@@ -190,6 +217,8 @@ pub struct CatalogApp {
     pub id: String,
     pub name: String,
     pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_description: Option<String>,
     pub version: String,
     pub category: String,
     pub image: String,
@@ -211,6 +240,75 @@ pub struct CatalogApp {
     /// install time. Empty = use the image's default command.
     #[serde(default)]
     pub command: Vec<String>,
+    #[serde(default)]
+    pub install_notes: Vec<String>,
+    #[serde(default)]
+    pub outputs: Vec<AppOutput>,
+    #[serde(default)]
+    pub suggested_feeds: Vec<SuggestedFeed>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_page: Option<AppValuePage>,
+    #[serde(default)]
+    pub bundled_features: Vec<AppBundledFeature>,
+    #[serde(default)]
+    pub links: Vec<AppLink>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AppOutput {
+    pub kind: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct SuggestedFeed {
+    pub id: String,
+    pub name: String,
+    pub feed_type: String,
+    pub protocol: String,
+    pub host: String,
+    pub port: u16,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AppValuePage {
+    pub label: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AppBundledFeature {
+    pub id: String,
+    pub kind: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entrypoint: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AppLink {
+    pub label: String,
+    pub url: String,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// One configurable field shown in the pre-install wizard.
@@ -493,7 +591,7 @@ pub struct UpdateRequest {
     pub host_files: Vec<HostFile>,
     /// Repair mode: re-pull the images CURRENTLY pinned in docker-compose.yml
     /// and force-recreate the stack at the installed versions, without changing
-    /// any tags or fetching the manifest. Used by "Force refresh".
+    /// any image tags. Used by "Force refresh".
     #[serde(default)]
     pub recreate: bool,
 }
