@@ -1,8 +1,8 @@
 //! Background forwarding service.
 //!
-//! Reads decoder container logs, parses decoded messages, and forwards
-//! them to the configured primary node. Also stores them in the local
-//! message buffer for the UI.
+//! Reads decoder container logs, parses decoded messages, and stores them in
+//! the local message buffer for the UI on every node. When forwarding is
+//! enabled, it additionally forwards them to a configured primary node.
 
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -21,6 +21,13 @@ const DECODER_PREFIXES: &[(&str, &str)] = &[
     ("airwaves-rtl-433", "ism"),
     ("airwaves-satdump", "satellite"),
 ];
+
+/// Whether collected messages should also be forwarded to a primary node.
+/// This gates ONLY forwarding — local collection into the buffer always runs,
+/// so the Live Messages page works on a standalone device.
+fn should_forward_to_primary(fwd: &ForwardingConfig) -> bool {
+    fwd.enabled && fwd.mode != ForwardingMode::Disabled && !fwd.target_ip.is_empty()
+}
 
 fn looks_like_service_log(line: &str) -> bool {
     let lower = line.to_ascii_lowercase();
@@ -156,11 +163,10 @@ pub fn spawn_forwarding_service(
                 decoders: vec![],
             });
 
-            if !fwd.enabled || fwd.mode == ForwardingMode::Disabled || fwd.target_ip.is_empty() {
-                // Forwarding disabled, sleep and check again
-                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-                continue;
-            }
+            // Collect local decoder messages into the buffer on every node, so
+            // the Live Messages page works on a standalone device. Forwarding to
+            // a primary is a separate, optional step gated below.
+            let forwarding_active = should_forward_to_primary(&fwd);
 
             // Get running decoder containers
             let containers = match docker.list_containers().await {
@@ -239,27 +245,29 @@ pub fn spawn_forwarding_service(
                 }
             }
 
-            // Forward to primary node
-            let url = format!(
-                "http://{}:{}/api/v1/messages/ingest",
-                fwd.target_ip, fwd.target_port
-            );
+            // Forward to a primary node only when forwarding is enabled.
+            if forwarding_active {
+                let url = format!(
+                    "http://{}:{}/api/v1/messages/ingest",
+                    fwd.target_ip, fwd.target_port
+                );
 
-            match client.post(&url).json(&messages).send().await {
-                Ok(resp) if resp.status().is_success() => {
-                    let mut s = stats.lock().unwrap_or_else(|e| e.into_inner());
-                    s.messages_forwarded += messages.len() as u64;
-                    s.last_forwarded = Some(chrono::Utc::now().to_rfc3339());
-                }
-                Ok(resp) => {
-                    tracing::warn!("Forward failed: HTTP {}", resp.status());
-                    let mut s = stats.lock().unwrap_or_else(|e| e.into_inner());
-                    s.messages_failed += messages.len() as u64;
-                }
-                Err(e) => {
-                    tracing::warn!("Forward failed: {}", e);
-                    let mut s = stats.lock().unwrap_or_else(|e| e.into_inner());
-                    s.messages_failed += messages.len() as u64;
+                match client.post(&url).json(&messages).send().await {
+                    Ok(resp) if resp.status().is_success() => {
+                        let mut s = stats.lock().unwrap_or_else(|e| e.into_inner());
+                        s.messages_forwarded += messages.len() as u64;
+                        s.last_forwarded = Some(chrono::Utc::now().to_rfc3339());
+                    }
+                    Ok(resp) => {
+                        tracing::warn!("Forward failed: HTTP {}", resp.status());
+                        let mut s = stats.lock().unwrap_or_else(|e| e.into_inner());
+                        s.messages_failed += messages.len() as u64;
+                    }
+                    Err(e) => {
+                        tracing::warn!("Forward failed: {}", e);
+                        let mut s = stats.lock().unwrap_or_else(|e| e.into_inner());
+                        s.messages_failed += messages.len() as u64;
+                    }
                 }
             }
 
@@ -270,7 +278,42 @@ pub fn spawn_forwarding_service(
 
 #[cfg(test)]
 mod tests {
-    use super::looks_like_decoded_message;
+    use super::{looks_like_decoded_message, should_forward_to_primary};
+    use crate::domain::{ForwardingConfig, ForwardingMode};
+
+    fn fwd(enabled: bool, mode: ForwardingMode, target: &str) -> ForwardingConfig {
+        ForwardingConfig {
+            enabled,
+            target_ip: target.to_string(),
+            target_port: 8080,
+            mode,
+            decoders: vec![],
+        }
+    }
+
+    #[test]
+    fn standalone_node_collects_but_does_not_forward() {
+        // The default standalone config must NOT forward — but local collection
+        // (which is no longer gated on this) keeps running so Live Messages works.
+        assert!(!should_forward_to_primary(&fwd(
+            false,
+            ForwardingMode::Disabled,
+            ""
+        )));
+        // Enabled but no target, or mode disabled: still no forwarding.
+        assert!(!should_forward_to_primary(&fwd(true, ForwardingMode::All, "")));
+        assert!(!should_forward_to_primary(&fwd(
+            true,
+            ForwardingMode::Disabled,
+            "10.0.0.2"
+        )));
+        // Fully configured: forward.
+        assert!(should_forward_to_primary(&fwd(
+            true,
+            ForwardingMode::All,
+            "10.0.0.2"
+        )));
+    }
 
     #[test]
     fn rejects_service_logs() {
