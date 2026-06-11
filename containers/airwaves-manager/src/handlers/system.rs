@@ -2,13 +2,16 @@ use axum::extract::State;
 use axum::Json;
 use serde::Serialize;
 
-use crate::ports::{DockerPort, HardwarePort, SystemPort};
+use crate::ports::{ConfigPort, DockerPort, HardwarePort, SystemPort};
 use crate::{AppError, AppState};
 
 pub async fn get_info(
     State(state): State<AppState>,
 ) -> Result<Json<crate::domain::SystemInfo>, AppError> {
-    let info = state.system.get_info()?;
+    let mut info = state.system.get_info()?;
+    if let Ok(config) = state.config.read_config().await {
+        info.device_id = config.device.id;
+    }
     Ok(Json(info))
 }
 
@@ -45,7 +48,10 @@ pub struct HardwareSummary {
 pub async fn get_overview(
     State(state): State<AppState>,
 ) -> Result<Json<SystemOverview>, AppError> {
-    let info = state.system.get_info()?;
+    let mut info = state.system.get_info()?;
+    if let Ok(config) = state.config.read_config().await {
+        info.device_id = config.device.id;
+    }
     let stats = state.system.get_stats()?;
 
     let containers = state.docker.list_containers().await.unwrap_or_default();

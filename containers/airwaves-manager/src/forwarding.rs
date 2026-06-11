@@ -32,10 +32,16 @@ pub fn spawn_forwarding_service(
     message_buffer: Arc<Mutex<VecDeque<DecodedMessage>>>,
 ) {
     tokio::spawn(async move {
-        let client = reqwest::Client::builder()
+        let client = match reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
             .build()
-            .expect("Failed to create HTTP client");
+        {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("Forwarding service disabled: failed to create HTTP client: {}", e);
+                return;
+            }
+        };
 
         let hostname = sysinfo::System::host_name().unwrap_or_else(|| "unknown".to_string());
 
@@ -130,7 +136,7 @@ pub fn spawn_forwarding_service(
 
             // Store locally
             {
-                let mut buffer = message_buffer.lock().unwrap();
+                let mut buffer = message_buffer.lock().unwrap_or_else(|e| e.into_inner());
                 for msg in &messages {
                     buffer.push_back(msg.clone());
                     if buffer.len() > 1000 {
@@ -147,18 +153,18 @@ pub fn spawn_forwarding_service(
 
             match client.post(&url).json(&messages).send().await {
                 Ok(resp) if resp.status().is_success() => {
-                    let mut s = stats.lock().unwrap();
+                    let mut s = stats.lock().unwrap_or_else(|e| e.into_inner());
                     s.messages_forwarded += messages.len() as u64;
                     s.last_forwarded = Some(chrono::Utc::now().to_rfc3339());
                 }
                 Ok(resp) => {
                     tracing::warn!("Forward failed: HTTP {}", resp.status());
-                    let mut s = stats.lock().unwrap();
+                    let mut s = stats.lock().unwrap_or_else(|e| e.into_inner());
                     s.messages_failed += messages.len() as u64;
                 }
                 Err(e) => {
                     tracing::warn!("Forward failed: {}", e);
-                    let mut s = stats.lock().unwrap();
+                    let mut s = stats.lock().unwrap_or_else(|e| e.into_inner());
                     s.messages_failed += messages.len() as u64;
                 }
             }

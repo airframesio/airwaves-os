@@ -153,6 +153,7 @@ impl SystemPort for SystemAdapter {
 
         Ok(SystemInfo {
             hostname,
+            device_id: String::new(),
             os,
             os_codename,
             architecture,

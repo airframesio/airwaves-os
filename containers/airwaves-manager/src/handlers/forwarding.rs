@@ -16,7 +16,7 @@ pub async fn ingest_messages(
 
     // Update stats
     {
-        let mut stats = state.forwarding_stats.lock().unwrap();
+        let mut stats = state.forwarding_stats.lock().unwrap_or_else(|e| e.into_inner());
         stats.messages_received += count as u64;
         stats.last_received = Some(chrono::Utc::now().to_rfc3339());
     }
@@ -32,7 +32,7 @@ pub async fn ingest_messages(
 
     // Store in message buffer for the UI
     {
-        let mut buffer = state.message_buffer.lock().unwrap();
+        let mut buffer = state.message_buffer.lock().unwrap_or_else(|e| e.into_inner());
         for msg in messages {
             buffer.push_back(msg);
             if buffer.len() > 1000 {
@@ -51,7 +51,7 @@ pub async fn ingest_messages(
 pub async fn get_messages(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<DecodedMessage>>, AppError> {
-    let buffer = state.message_buffer.lock().unwrap();
+    let buffer = state.message_buffer.lock().unwrap_or_else(|e| e.into_inner());
     let messages: Vec<DecodedMessage> = buffer.iter().cloned().collect();
     Ok(Json(messages))
 }
@@ -82,17 +82,12 @@ pub async fn set_forwarding_config(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let mut config = state.config.read_config().await?;
 
+    let fwd_value = serde_json::to_value(&fwd)?;
     if let Some(obj) = config.apps.as_object_mut() {
-        obj.insert(
-            "forwarding".to_string(),
-            serde_json::to_value(&fwd).unwrap(),
-        );
+        obj.insert("forwarding".to_string(), fwd_value);
     } else {
         let mut obj = serde_json::Map::new();
-        obj.insert(
-            "forwarding".to_string(),
-            serde_json::to_value(&fwd).unwrap(),
-        );
+        obj.insert("forwarding".to_string(), fwd_value);
         config.apps = serde_json::Value::Object(obj);
     }
 
@@ -108,7 +103,11 @@ pub async fn set_forwarding_config(
 pub async fn get_forwarding_stats(
     State(state): State<AppState>,
 ) -> Result<Json<ForwardingStats>, AppError> {
-    let stats = state.forwarding_stats.lock().unwrap().clone();
+    let stats = state
+        .forwarding_stats
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     Ok(Json(stats))
 }
 
@@ -175,7 +174,7 @@ pub async fn simulate_messages(
 
     // Inject into the message buffer (same path as real ingest)
     {
-        let mut stats = state.forwarding_stats.lock().unwrap();
+        let mut stats = state.forwarding_stats.lock().unwrap_or_else(|e| e.into_inner());
         stats.messages_received += count as u64;
         stats.last_received = Some(chrono::Utc::now().to_rfc3339());
     }
@@ -189,7 +188,7 @@ pub async fn simulate_messages(
     }
 
     {
-        let mut buffer = state.message_buffer.lock().unwrap();
+        let mut buffer = state.message_buffer.lock().unwrap_or_else(|e| e.into_inner());
         for msg in messages {
             buffer.push_back(msg);
             if buffer.len() > 1000 {

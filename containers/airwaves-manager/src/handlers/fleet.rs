@@ -125,17 +125,12 @@ pub async fn pair_node(
     peers.retain(|p| p.ip != req.ip);
     peers.push(new_peer.clone());
 
+    let peers_value = serde_json::to_value(&peers)?;
     if let Some(obj) = config.apps.as_object_mut() {
-        obj.insert(
-            "fleet_peers".to_string(),
-            serde_json::to_value(&peers).unwrap(),
-        );
+        obj.insert("fleet_peers".to_string(), peers_value);
     } else {
         let mut obj = serde_json::Map::new();
-        obj.insert(
-            "fleet_peers".to_string(),
-            serde_json::to_value(&peers).unwrap(),
-        );
+        obj.insert("fleet_peers".to_string(), peers_value);
         config.apps = serde_json::Value::Object(obj);
     }
 
@@ -159,10 +154,7 @@ pub async fn unpair_node(
     peers.retain(|p| p.id != id && p.ip != id);
 
     if let Some(obj) = config.apps.as_object_mut() {
-        obj.insert(
-            "fleet_peers".to_string(),
-            serde_json::to_value(&peers).unwrap(),
-        );
+        obj.insert("fleet_peers".to_string(), serde_json::to_value(&peers)?);
     }
 
     state.config.write_config(&config).await?;
@@ -282,8 +274,15 @@ async fn fetch_remote_info(ip: &str) -> Result<RemoteInfo, AppError> {
         .await
         .map_err(|e| AppError::Internal(format!("Invalid response: {}", e)))?;
 
+    let hostname = resp["hostname"].as_str().unwrap_or("unknown").to_string();
+    let device_id = resp["device_id"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| hostname.clone());
+
     Ok(RemoteInfo {
-        hostname: resp["hostname"].as_str().unwrap_or("unknown").to_string(),
-        device_id: resp["hostname"].as_str().unwrap_or("unknown").to_string(),
+        hostname,
+        device_id,
     })
 }

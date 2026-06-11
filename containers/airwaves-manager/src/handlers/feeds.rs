@@ -28,21 +28,15 @@ pub async fn upsert_feed(
     Json(feed): Json<FeedConfig>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let mut config = state.config.read_config().await?;
+    let feed_value = serde_json::to_value(&feed)?;
 
-    let aggregators = config.aggregators.as_object_mut().ok_or_else(|| {
+    if let Some(obj) = config.aggregators.as_object_mut() {
+        obj.insert(feed.id.clone(), feed_value);
+    } else {
         // Initialize as empty object if not already
-        AppError::Internal("aggregators is not an object".to_string())
-    });
-
-    match aggregators {
-        Ok(obj) => {
-            obj.insert(feed.id.clone(), serde_json::to_value(&feed).unwrap());
-        }
-        Err(_) => {
-            let mut obj = serde_json::Map::new();
-            obj.insert(feed.id.clone(), serde_json::to_value(&feed).unwrap());
-            config.aggregators = serde_json::Value::Object(obj);
-        }
+        let mut obj = serde_json::Map::new();
+        obj.insert(feed.id.clone(), feed_value);
+        config.aggregators = serde_json::Value::Object(obj);
     }
 
     state.config.write_config(&config).await?;

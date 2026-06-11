@@ -36,6 +36,9 @@ pub struct ContainerStats {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemInfo {
     pub hostname: String,
+    /// Unique device ID (config `device.id`); empty when unavailable.
+    #[serde(default)]
+    pub device_id: String,
     /// Full OS name, e.g. "Debian GNU/Linux 13 (trixie)"
     pub os: String,
     /// OS codename, e.g. "trixie"
