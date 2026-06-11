@@ -13,6 +13,13 @@ Airwaves OS is a radio-focused operating system based on [Armbian](https://www.a
 
 **Website:** [airwavesos.com](https://airwavesos.com)
 
+## Documentation
+
+- [Getting Started](docs/GETTING_STARTED.md) — download, verify, flash, first boot, first app
+- [Troubleshooting](docs/TROUBLESHOOTING.md) — discovery, web UI, SDR, app, and update issues
+- [Deployment](docs/DEPLOYMENT.md) — VMs, disk sizing, UEFI boot
+- [Updates](docs/UPDATES.md) — update channels and the system updater
+
 ## Supported Hardware
 
 ### Tier 1 (actively tested)
@@ -24,6 +31,10 @@ Airwaves OS is a radio-focused operating system based on [Armbian](https://www.a
 | Rock 5B | arm64 | Debian Bookworm |
 | Orange Pi 5 | arm64 | Debian Bookworm |
 | x86 UEFI (mini PCs, servers) | amd64 | Debian Bookworm |
+
+> **Note:** Raspberry Pi 5 uses the **same image as the Pi 4B**. Armbian's
+> `rpi4b` board target covers all 64-bit Raspberry Pi models (3 through 5),
+> so there is no separate Pi 5 image — flash the `rpi4b` image.
 
 ### SDR Support
 
@@ -113,7 +124,9 @@ docker buildx build --platform linux/amd64,linux/arm64 -t airwaves-gateway .
    - Advertises itself via mDNS
 4. Access the web interface at `http://airwaves-XXXXXX.local`
 
-Default credentials: `airwaves` / `airwaves`
+Default credentials: `airwaves` / `airwaves` — **change them immediately** after
+first login. See [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) for the full
+walkthrough (downloading, checksum verification, flashing, first boot).
 
 ## Development
 
