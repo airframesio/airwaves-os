@@ -299,9 +299,10 @@
       "FEED_ID": "airwaves-acarsdec",
       "TZ": "UTC",
       "GAIN": "-10",
-      "OUTPUT_SERVER": "airwaves-acarshub",
-      "OUTPUT_SERVER_PORT": "5550",
-      "OUTPUT_SERVER_MODE": "udp",
+      "AIRWAVES_FORWARD_TO_ACARSHUB": "false",
+      "OUTPUT_SERVER": "",
+      "OUTPUT_SERVER_PORT": "",
+      "OUTPUT_SERVER_MODE": "",
       "QUIET_LOGS": "true"
     },
     "config_fields": [
@@ -339,27 +340,39 @@
         "required": false
       },
       {
+        "key": "AIRWAVES_FORWARD_TO_ACARSHUB",
+        "label": "Forward to local ACARS Hub",
+        "help": "Requires ACARS Hub to be installed. When true, Airwaves sends decoded ACARS messages to the local ACARS Hub UDP input.",
+        "kind": "select",
+        "default": "false",
+        "options": [
+          "false",
+          "true"
+        ],
+        "required": false
+      },
+      {
         "key": "OUTPUT_SERVER",
-        "label": "ACARS output host",
-        "help": "Local ACARS Hub is airwaves-acarshub. Use another hostname/IP to feed a remote hub or router.",
+        "label": "Custom output host",
+        "help": "Optional custom ACARS output host. Leave blank for standalone decoding or use the local ACARS Hub toggle above.",
         "kind": "text",
-        "default": "airwaves-acarshub",
+        "default": "",
         "required": false
       },
       {
         "key": "OUTPUT_SERVER_PORT",
-        "label": "ACARS output port",
-        "help": "ACARS Hub listens for ACARS JSON on UDP 5550 by default.",
+        "label": "Custom output port",
+        "help": "Destination port for the custom output host.",
         "kind": "number",
-        "default": "5550",
+        "default": "",
         "required": false
       },
       {
         "key": "OUTPUT_SERVER_MODE",
-        "label": "Output mode",
-        "help": "Use udp for direct local ACARS Hub input, or tcp/zmq when feeding acars_router.",
+        "label": "Custom output mode",
+        "help": "Protocol for the custom output host.",
         "kind": "select",
-        "default": "udp",
+        "default": "",
         "options": [
           "udp",
           "tcp",
@@ -391,7 +404,7 @@
     "install_notes": [
       "Choose one SDR and confirm its antenna is suitable for VHF airband.",
       "The default frequency set covers common ACARS channels; adjust for your region.",
-      "By default this decoder sends ACARS JSON to the local ACARS Hub container at airwaves-acarshub:5550."
+      "Standalone installs do not forward to ACARS Hub unless you enable that option or install the decoder through the ACARS Hub wizard."
     ],
     "outputs": [
       {
@@ -427,8 +440,8 @@
         "protocol": "udp",
         "host": "airwaves-acarshub",
         "port": 5550,
-        "enabled": true,
-        "description": "Send decoded ACARS messages to the local ACARS Hub app."
+        "enabled": false,
+        "description": "Send decoded ACARS messages to the local ACARS Hub app after installing ACARS Hub."
       }
     ],
     "links": [
@@ -1419,7 +1432,7 @@
     "long_description": "ACARS Hub is the local web viewer for decoded ACARS, VDL2, and HFDL traffic. It is most useful after installing one or more aircraft datalink decoders or ACARS Router.",
     "install_notes": [
       "ACARS Hub receives decoded data; assign SDRs on source decoder apps such as acarsdec, dumpvdl2, and dumphfdl.",
-      "Install acarsdec with an SDR to receive classic ACARS. Airwaves defaults it to feed this hub at airwaves-acarshub:5550.",
+      "Install acarsdec with an SDR to receive classic ACARS, then explicitly enable local ACARS Hub forwarding or install it through this wizard.",
       "The web UI is exposed on port 8900. UDP input ports 5550, 5555, 5556, 5557, and 5558 are published for local or external decoders."
     ],
     "outputs": [

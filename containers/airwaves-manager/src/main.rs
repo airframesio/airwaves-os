@@ -221,6 +221,10 @@ fn spawn_app_reconciler(state: AppState) {
         // Give Docker a moment to bring restart-policy containers back first.
         tokio::time::sleep(std::time::Duration::from_secs(20)).await;
 
+        if let Err(e) = handlers::apps::migrate_acarsdec_output_policy(&state).await {
+            tracing::warn!("App reconcile: failed ACARS decoder output migration: {}", e);
+        }
+
         let config = match state.config.read_config().await {
             Ok(c) => c,
             Err(e) => {
