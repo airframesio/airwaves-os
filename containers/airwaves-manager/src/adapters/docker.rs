@@ -1,9 +1,9 @@
+use bollard::Docker;
 use bollard::container::{
     Config, CreateContainerOptions, ListContainersOptions, LogOutput, LogsOptions,
     RemoveContainerOptions, StartContainerOptions, StatsOptions, StopContainerOptions,
 };
 use bollard::system::EventsOptions;
-use bollard::Docker;
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -25,6 +25,8 @@ fn runtime_env_for_app(app: &CatalogApp) -> HashMap<String, String> {
     // intentionally hidden sibling tuners. Use the native path for RTL serials
     // and grant full USB bus access; the serial still pins the intended tuner.
     if app.id == "acarsdec" {
+        normalize_acarsdec_gain(&mut env);
+
         if let Some(soapy) = env.get("SOAPYSDR").cloned() {
             let driver =
                 crate::sdr::driver_from_sdr_value(&soapy).unwrap_or_else(|| "rtlsdr".to_string());
@@ -42,6 +44,27 @@ fn runtime_env_for_app(app: &CatalogApp) -> HashMap<String, String> {
     }
 
     env
+}
+
+fn normalize_acarsdec_gain(env: &mut HashMap<String, String>) {
+    let Some(gain) = env.get("GAIN").cloned() else {
+        return;
+    };
+
+    let normalized = gain.trim();
+    if normalized.is_empty() {
+        env.remove("GAIN");
+        return;
+    }
+
+    // docker-acarsdec uses -10 for AGC/autogain. The image rejects textual
+    // aliases such as "auto", which older Airwaves catalog defaults used.
+    if matches!(
+        normalized.to_ascii_lowercase().as_str(),
+        "auto" | "autogain" | "agc"
+    ) {
+        env.insert("GAIN".to_string(), "-10".to_string());
+    }
 }
 
 impl DockerAdapter {
@@ -601,5 +624,39 @@ impl DockerPort for DockerAdapter {
             .await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn acarsdec_with_gain(gain: &str) -> CatalogApp {
+        let mut app = CatalogApp {
+            id: "acarsdec".to_string(),
+            ..Default::default()
+        };
+        app.env.insert("GAIN".to_string(), gain.to_string());
+        app
+    }
+
+    #[test]
+    fn acarsdec_runtime_env_converts_auto_gain_aliases_to_agc_value() {
+        for alias in ["auto", "autogain", "AGC"] {
+            let env = runtime_env_for_app(&acarsdec_with_gain(alias));
+            assert_eq!(env.get("GAIN").map(String::as_str), Some("-10"));
+        }
+    }
+
+    #[test]
+    fn acarsdec_runtime_env_preserves_numeric_gain() {
+        let env = runtime_env_for_app(&acarsdec_with_gain("48"));
+        assert_eq!(env.get("GAIN").map(String::as_str), Some("48"));
+    }
+
+    #[test]
+    fn acarsdec_runtime_env_drops_blank_gain() {
+        let env = runtime_env_for_app(&acarsdec_with_gain("  "));
+        assert!(!env.contains_key("GAIN"));
     }
 }

@@ -298,7 +298,7 @@
       "FREQUENCIES": "130.025;130.450;131.125;131.550",
       "FEED_ID": "airwaves-acarsdec",
       "TZ": "UTC",
-      "GAIN": "auto",
+      "GAIN": "-10",
       "OUTPUT_SERVER": "airwaves-acarshub",
       "OUTPUT_SERVER_PORT": "5550",
       "OUTPUT_SERVER_MODE": "udp",
@@ -333,9 +333,9 @@
       {
         "key": "GAIN",
         "label": "Gain (dB)",
-        "help": "Receiver gain. Leave default for automatic.",
+        "help": "Receiver gain in dB. Use -10 for automatic gain control.",
         "kind": "text",
-        "default": "auto",
+        "default": "-10",
         "required": false
       },
       {
