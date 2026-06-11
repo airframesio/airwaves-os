@@ -29,10 +29,10 @@
       "sha256": "3610e27c32a2090a3bb8474b160a75e316ff4d55bb891ad3685dd7f2ea5d48c3"
     },
     "catalog": {
-      "version": "5",
+      "version": "6",
       "severity": "nice-to-have",
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/a9f807d05dec06d47a7380c569cb4f8eb3b81784/armbian/userpatches/extensions/airwaves-os/config/catalog.json",
-      "sha256": "e349771a42f72d1ce2e66848aecac5ac96a2ab3ae874e77ca83b27d831b89f95"
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/a69710f79562a99c33b33be07eba6262486b3b5e/armbian/userpatches/extensions/airwaves-os/config/catalog.json",
+      "sha256": "d4f00cbceeea9d74c88eb4c6b646fbac835c47e3b3583bc49cf7fbf3ed8864a0"
     }
   },
   "os": {
