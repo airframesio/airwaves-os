@@ -347,6 +347,43 @@ fn references_for_app(app: &CatalogApp) -> Vec<SdrReference> {
         .collect()
 }
 
+pub fn enrich_app_sdr_metadata(app: &mut CatalogApp, devices: &[SdrDevice]) -> bool {
+    let mut by_serial: HashMap<String, Vec<&SdrDevice>> = HashMap::new();
+    for device in devices {
+        if let Some(serial) = device.serial.as_deref() {
+            by_serial
+                .entry(serial_key(serial))
+                .or_default()
+                .push(device);
+        }
+    }
+
+    let mut changed = false;
+    for reference in references_from_env(&app.env) {
+        if reference.device_id.is_some() {
+            continue;
+        }
+        let Some(serial) = reference.serial.as_deref() else {
+            continue;
+        };
+        let Some(matches) = by_serial.get(&serial_key(serial)) else {
+            continue;
+        };
+        if matches.len() != 1 {
+            continue;
+        }
+
+        let key = sdr_id_env_key(&reference.field_key);
+        let device_id = matches[0].id.clone();
+        if app.env.get(&key) != Some(&device_id) {
+            app.env.insert(key, device_id);
+            changed = true;
+        }
+    }
+
+    changed
+}
+
 fn references_conflict(a: &SdrReference, b: &SdrReference) -> bool {
     match (a.device_id.as_deref(), b.device_id.as_deref()) {
         (Some(left), Some(right)) => left == right,
@@ -365,7 +402,14 @@ pub fn validate_app_sdr_assignments(
     let target_ids: HashSet<String> = target_apps.iter().map(|app| app.id.clone()).collect();
     let mut target_refs = Vec::new();
     for app in target_apps {
-        target_refs.extend(references_for_app(app));
+        let refs = references_for_app(app);
+        if app.requires_sdr && refs.is_empty() {
+            return Err(format!(
+                "{} requires an SDR. Select a radio before installing or saving it.",
+                app.id
+            ));
+        }
+        target_refs.extend(refs);
     }
 
     let mut serial_counts: HashMap<String, usize> = HashMap::new();
@@ -470,6 +514,75 @@ mod tests {
         let refs = references_from_env(&env);
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0].serial.as_deref(), Some("002"));
+    }
+
+    #[test]
+    fn enriches_serial_assignment_with_exact_device_id() {
+        let mut app = CatalogApp {
+            id: "readsb".to_string(),
+            env: HashMap::from([("READSB_RTLSDR_DEVICE".to_string(), "003".to_string())]),
+            ..Default::default()
+        };
+        let devices = vec![SdrDevice {
+            id: "0bda:2838-003-bus009-dev008".to_string(),
+            name: "RTL-SDR".to_string(),
+            device_type: crate::domain::SdrType::RtlSdr,
+            vendor_id: 0x0bda,
+            product_id: 0x2838,
+            serial: Some("003".to_string()),
+            status: "available".to_string(),
+            assigned_to: None,
+            configured_name: None,
+            configured_serial: None,
+        }];
+
+        assert!(enrich_app_sdr_metadata(&mut app, &devices));
+        assert_eq!(
+            app.env
+                .get(&sdr_id_env_key("READSB_RTLSDR_DEVICE"))
+                .map(String::as_str),
+            Some("0bda:2838-003-bus009-dev008")
+        );
+    }
+
+    #[test]
+    fn does_not_enrich_duplicate_serial_assignment() {
+        let mut app = CatalogApp {
+            id: "readsb".to_string(),
+            env: HashMap::from([("READSB_RTLSDR_DEVICE".to_string(), "001".to_string())]),
+            ..Default::default()
+        };
+        let devices = vec![
+            SdrDevice {
+                id: "0bda:2838-001-bus009-dev011".to_string(),
+                name: "RTL-SDR".to_string(),
+                device_type: crate::domain::SdrType::RtlSdr,
+                vendor_id: 0x0bda,
+                product_id: 0x2838,
+                serial: Some("001".to_string()),
+                status: "ambiguous".to_string(),
+                assigned_to: None,
+                configured_name: None,
+                configured_serial: None,
+            },
+            SdrDevice {
+                id: "0bda:2838-001-bus009-dev012".to_string(),
+                name: "RTL-SDR".to_string(),
+                device_type: crate::domain::SdrType::RtlSdr,
+                vendor_id: 0x0bda,
+                product_id: 0x2838,
+                serial: Some("001".to_string()),
+                status: "ambiguous".to_string(),
+                assigned_to: None,
+                configured_name: None,
+                configured_serial: None,
+            },
+        ];
+
+        assert!(!enrich_app_sdr_metadata(&mut app, &devices));
+        assert!(!app
+            .env
+            .contains_key(&sdr_id_env_key("READSB_RTLSDR_DEVICE")));
     }
 
     #[test]
@@ -614,5 +727,46 @@ mod tests {
         assert!(
             validate_app_sdr_assignments(&config, &[hub, acarsdec, dumpvdl2], &devices).is_ok()
         );
+    }
+
+    #[test]
+    fn requires_explicit_sdr_reference_for_sdr_apps() {
+        let config = AirwavesConfig {
+            version: 1,
+            device: crate::domain::DeviceConfig {
+                id: "device".to_string(),
+                name: "Airwaves".to_string(),
+                hostname: "airwaves".to_string(),
+            },
+            station: crate::domain::StationConfig {
+                latitude: 0.0,
+                longitude: 0.0,
+                altitude_m: 0,
+                operator: String::new(),
+            },
+            network: crate::domain::NetworkConfig {
+                mode: "dhcp".to_string(),
+            },
+            services: crate::domain::ServicesConfig {
+                gateway: crate::domain::ServiceState { enabled: true },
+                manager: crate::domain::ServiceState { enabled: true },
+            },
+            aggregators: serde_json::Value::Null,
+            apps: serde_json::json!([]),
+            hardware: serde_json::json!({}),
+            preferences: serde_json::json!({}),
+        };
+        let app = CatalogApp {
+            id: "readsb".to_string(),
+            requires_sdr: true,
+            env: HashMap::from([
+                ("READSB_DEVICE_TYPE".to_string(), "rtlsdr".to_string()),
+                ("READSB_RTLSDR_DEVICE".to_string(), String::new()),
+            ]),
+            ..Default::default()
+        };
+
+        let err = validate_app_sdr_assignments(&config, &[app], &[]).unwrap_err();
+        assert!(err.contains("requires an SDR"));
     }
 }

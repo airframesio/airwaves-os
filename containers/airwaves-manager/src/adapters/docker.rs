@@ -1,11 +1,11 @@
-use bollard::Docker;
 use bollard::container::{
     Config, CreateContainerOptions, ListContainersOptions, LogOutput, LogsOptions,
     RemoveContainerOptions, StartContainerOptions, StatsOptions, StopContainerOptions,
 };
 use bollard::system::EventsOptions;
+use bollard::Docker;
 use futures::StreamExt;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 
 use crate::domain::*;
@@ -223,6 +223,61 @@ impl DockerPort for DockerAdapter {
             .collect();
 
         Ok(result)
+    }
+
+    async fn prune_unrecorded_app_containers(
+        &self,
+        recorded_ids: &HashSet<String>,
+    ) -> Result<Vec<String>, AppError> {
+        let opts = ListContainersOptions::<String> {
+            all: true,
+            ..Default::default()
+        };
+        let containers = self.client.list_containers(Some(opts)).await?;
+        let mut removed = Vec::new();
+
+        for container in containers {
+            let name = container
+                .names
+                .as_ref()
+                .and_then(|names| names.first())
+                .map(|name| name.trim_start_matches('/').to_string())
+                .unwrap_or_default();
+            if !name.starts_with("airwaves-")
+                || name == "airwaves-manager"
+                || name == "airwaves-gateway"
+            {
+                continue;
+            }
+
+            let Some(id) = container.id else {
+                continue;
+            };
+            let labels = container.labels.unwrap_or_default();
+            if labels.get("managed-by").map(String::as_str) != Some("airwaves") {
+                continue;
+            }
+            let app_id = labels
+                .get("airwaves-app-id")
+                .cloned()
+                .unwrap_or_else(|| name.trim_start_matches("airwaves-").to_string());
+            if recorded_ids.contains(&app_id) {
+                continue;
+            }
+
+            self.client
+                .remove_container(
+                    &id,
+                    Some(RemoveContainerOptions {
+                        force: true,
+                        ..Default::default()
+                    }),
+                )
+                .await?;
+            removed.push(name);
+        }
+
+        Ok(removed)
     }
 
     async fn start_container(&self, id: &str) -> Result<(), AppError> {

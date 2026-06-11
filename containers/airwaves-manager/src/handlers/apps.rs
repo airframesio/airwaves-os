@@ -185,13 +185,26 @@ pub async fn install_app(
     let acarshub_installed = recorded_ids.iter().any(|id| id == "acarshub");
     configure_acarsdec_output_policy(&mut app, acarshub_installed)?;
 
-    let bundled_apps = if app.id == "acarshub" {
+    let mut bundled_apps = if app.id == "acarshub" {
         prepare_acarshub_bundle(&catalog, &mut app)
     } else {
         Vec::new()
     };
 
-    validate_sdr_assignments(&state, &[app.clone()], &bundled_apps, Some(&config)).await?;
+    let devices = state.hardware.list_sdr_devices()?;
+    crate::sdr::enrich_app_sdr_metadata(&mut app, &devices);
+    for bundled_app in &mut bundled_apps {
+        crate::sdr::enrich_app_sdr_metadata(bundled_app, &devices);
+    }
+
+    validate_sdr_assignments(
+        &state,
+        &[app.clone()],
+        &bundled_apps,
+        Some(&config),
+        Some(&devices),
+    )
+    .await?;
 
     let container = state.docker.install_app(&app).await?;
     // Record the install in config.json so the app set survives reboots and the
@@ -248,13 +261,26 @@ pub async fn update_app_config(
     let acarshub_installed = recorded_ids.iter().any(|id| id == "acarshub");
     configure_acarsdec_output_policy(&mut app, acarshub_installed)?;
 
-    let bundled_apps = if app.id == "acarshub" {
+    let mut bundled_apps = if app.id == "acarshub" {
         prepare_acarshub_bundle(&catalog, &mut app)
     } else {
         Vec::new()
     };
 
-    validate_sdr_assignments(&state, &[app.clone()], &bundled_apps, Some(&config)).await?;
+    let devices = state.hardware.list_sdr_devices()?;
+    crate::sdr::enrich_app_sdr_metadata(&mut app, &devices);
+    for bundled_app in &mut bundled_apps {
+        crate::sdr::enrich_app_sdr_metadata(bundled_app, &devices);
+    }
+
+    validate_sdr_assignments(
+        &state,
+        &[app.clone()],
+        &bundled_apps,
+        Some(&config),
+        Some(&devices),
+    )
+    .await?;
 
     let container = state.docker.install_app(&app).await?;
     if let Err(e) = record_installed_app(&state, &app).await {
@@ -306,6 +332,7 @@ async fn validate_sdr_assignments(
     primary_apps: &[CatalogApp],
     bundled_apps: &[CatalogApp],
     config: Option<&crate::domain::AirwavesConfig>,
+    devices: Option<&[crate::domain::SdrDevice]>,
 ) -> Result<(), AppError> {
     let owned_config;
     let config = match config {
@@ -315,7 +342,14 @@ async fn validate_sdr_assignments(
             &owned_config
         }
     };
-    let devices = state.hardware.list_sdr_devices()?;
+    let owned_devices;
+    let devices = match devices {
+        Some(devices) => devices,
+        None => {
+            owned_devices = state.hardware.list_sdr_devices()?;
+            &owned_devices
+        }
+    };
     let mut targets = primary_apps.to_vec();
     targets.extend(bundled_apps.iter().cloned());
     crate::sdr::validate_app_sdr_assignments(config, &targets, &devices)
@@ -498,6 +532,64 @@ pub async fn migrate_acarsdec_output_policy(state: &AppState) -> Result<(), AppE
                     e
                 );
             }
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn migrate_sdr_assignment_metadata(state: &AppState) -> Result<(), AppError> {
+    use crate::ports::{ConfigPort, DockerPort, HardwarePort};
+
+    let mut config = state.config.read_config().await?;
+    let devices = state.hardware.list_sdr_devices()?;
+    let mut changed_ids = Vec::new();
+
+    if let Some(apps) = config.apps.as_array_mut() {
+        for app in apps {
+            let Some(id) = app.get("id").and_then(|v| v.as_str()).map(str::to_string) else {
+                continue;
+            };
+            let Some(env_value) = app.get_mut("env") else {
+                continue;
+            };
+            let mut catalog_app = CatalogApp {
+                id: id.clone(),
+                env: serde_json::from_value(env_value.clone()).unwrap_or_default(),
+                ..Default::default()
+            };
+
+            if crate::sdr::enrich_app_sdr_metadata(&mut catalog_app, &devices) {
+                *env_value = serde_json::to_value(catalog_app.env)
+                    .map_err(|e| AppError::Internal(e.to_string()))?;
+                changed_ids.push(id);
+            }
+        }
+    }
+
+    if changed_ids.is_empty() {
+        return Ok(());
+    }
+
+    changed_ids.sort();
+    changed_ids.dedup();
+    state.config.write_config(&config).await?;
+
+    let catalog = load_catalog().await;
+    for id in changed_ids {
+        let Some(app) = catalog.iter().find(|a| a.id == id) else {
+            continue;
+        };
+        let mut app = app.clone();
+        for (k, v) in recorded_app_env(&config, &id) {
+            app.env.insert(k, v);
+        }
+        if let Err(e) = state.docker.install_app(&app).await {
+            tracing::warn!(
+                "Migrated SDR metadata for {} but failed to recreate container: {}",
+                id,
+                e
+            );
         }
     }
 

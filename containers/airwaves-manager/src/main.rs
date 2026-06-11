@@ -225,6 +225,10 @@ fn spawn_app_reconciler(state: AppState) {
             tracing::warn!("App reconcile: failed ACARS decoder output migration: {}", e);
         }
 
+        if let Err(e) = handlers::apps::migrate_sdr_assignment_metadata(&state).await {
+            tracing::warn!("App reconcile: failed SDR assignment migration: {}", e);
+        }
+
         let config = match state.config.read_config().await {
             Ok(c) => c,
             Err(e) => {
@@ -233,6 +237,20 @@ fn spawn_app_reconciler(state: AppState) {
             }
         };
         let recorded = handlers::apps::recorded_app_ids(&config);
+        let recorded_set: std::collections::HashSet<String> = recorded.iter().cloned().collect();
+        match state
+            .docker
+            .prune_unrecorded_app_containers(&recorded_set)
+            .await
+        {
+            Ok(removed) => {
+                for name in removed {
+                    tracing::info!("Reconcile: removed unrecorded app container {}", name);
+                }
+            }
+            Err(e) => tracing::warn!("App reconcile: failed to prune unrecorded apps: {}", e),
+        }
+
         if recorded.is_empty() {
             return;
         }

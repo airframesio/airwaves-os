@@ -45,7 +45,7 @@
         "kind": "sdr",
         "format": "serial",
         "default": "",
-        "required": false
+        "required": true
       },
       {
         "key": "READSB_GAIN",
@@ -186,7 +186,7 @@
         "kind": "sdr",
         "format": "serial",
         "default": "",
-        "required": false
+        "required": true
       },
       {
         "key": "READSB_GAIN",
@@ -869,7 +869,7 @@
         "kind": "sdr",
         "format": "serial",
         "default": "",
-        "required": false
+        "required": true
       },
       {
         "key": "RTLSDRAIRBAND_GAIN",
@@ -1109,7 +1109,7 @@
         "kind": "sdr",
         "format": "serial",
         "default": "",
-        "required": false
+        "required": true
       },
       {
         "key": "TZ",
