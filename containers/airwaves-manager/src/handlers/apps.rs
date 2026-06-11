@@ -834,6 +834,20 @@ fn default_catalog() -> Vec<CatalogApp> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn baked_catalog_parses() {
+        let raw = include_str!(
+            "../../../../armbian/userpatches/extensions/airwaves-os/config/catalog.json"
+        );
+        let apps: Vec<CatalogApp> =
+            serde_json::from_str(raw).expect("baked catalog.json failed to parse as CatalogApp");
+        assert!(!apps.is_empty());
+        for app in &apps {
+            assert!(!app.id.is_empty());
+            assert!(!app.image.is_empty(), "{}: empty image", app.id);
+        }
+    }
+
     fn acarsdec_app(env: &[(&str, &str)]) -> CatalogApp {
         let mut app = CatalogApp {
             id: "acarsdec".to_string(),

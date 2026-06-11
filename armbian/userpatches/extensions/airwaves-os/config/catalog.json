@@ -1636,5 +1636,129 @@
         "url": "https://github.com/sdr-enthusiasts/docker-shipfeeder"
       }
     ]
+  },
+  {
+    "id": "plane-watch",
+    "name": "Plane.Watch Feeder",
+    "description": "Feeds ADS-B aircraft data to the Plane.Watch network. Connects to a local Beast source such as readsb or Ultrafeeder and forwards positions, with optional MLAT.",
+    "version": "latest",
+    "category": "feeder",
+    "image": "ghcr.io/plane-watch/docker-plane-watch:latest",
+    "icon": null,
+    "ports": [],
+    "requires_sdr": false,
+    "sdr_types": [],
+    "env": {
+      "API_KEY": "",
+      "BEASTHOST": "airwaves-readsb",
+      "BEASTPORT": "30005",
+      "LAT": "",
+      "LONG": "",
+      "ALT": "",
+      "ENABLE_MLAT": "true",
+      "TZ": "UTC"
+    },
+    "config_fields": [
+      {
+        "key": "API_KEY",
+        "label": "Plane.Watch API key",
+        "kind": "text",
+        "default": "",
+        "required": true,
+        "help": "Create a feeder at https://atc.plane.watch (Feeders -> New Feeder) to get your key."
+      },
+      {
+        "key": "BEASTHOST",
+        "label": "Beast source host",
+        "kind": "text",
+        "default": "airwaves-readsb",
+        "required": false,
+        "help": "Container providing Beast data (e.g. airwaves-readsb or airwaves-ultrafeeder)."
+      },
+      {
+        "key": "BEASTPORT",
+        "label": "Beast source port",
+        "kind": "number",
+        "default": "30005",
+        "required": false
+      },
+      {
+        "key": "LAT",
+        "label": "Latitude",
+        "kind": "text",
+        "default": "",
+        "required": false,
+        "help": "Antenna latitude in decimal degrees. Required for MLAT."
+      },
+      {
+        "key": "LONG",
+        "label": "Longitude",
+        "kind": "text",
+        "default": "",
+        "required": false,
+        "help": "Antenna longitude in decimal degrees. Required for MLAT."
+      },
+      {
+        "key": "ALT",
+        "label": "Antenna altitude",
+        "kind": "text",
+        "default": "",
+        "required": false,
+        "help": "Altitude with unit suffix, e.g. 100ft or 30m. Required for MLAT."
+      },
+      {
+        "key": "ENABLE_MLAT",
+        "label": "Enable MLAT",
+        "kind": "select",
+        "default": "true",
+        "options": [
+          "true",
+          "false"
+        ],
+        "required": false,
+        "help": "Multilateration: contributes receiver timing so Plane.Watch can position aircraft that do not broadcast ADS-B locations. Needs accurate latitude, longitude, and altitude."
+      },
+      {
+        "key": "TZ",
+        "label": "Timezone",
+        "kind": "text",
+        "default": "UTC",
+        "required": false
+      }
+    ],
+    "long_description": "Plane.Watch is a community flight tracking network. This feeder takes Beast-format ADS-B data from a local readsb or Ultrafeeder container and pushes it to Plane.Watch over TLS, optionally contributing MLAT timing data. It is a feeder/connector, not a decoder by itself.",
+    "install_notes": [
+      "Requires a running Beast source such as airwaves-readsb or airwaves-ultrafeeder.",
+      "Create a feeder at https://atc.plane.watch to obtain your API key before installing.",
+      "MLAT needs accurate antenna latitude, longitude, and altitude (with ft or m suffix)."
+    ],
+    "outputs": [
+      {
+        "kind": "tracking",
+        "label": "Forwarded ADS-B data",
+        "description": "ADS-B positions and MLAT timing fed to the Plane.Watch network."
+      }
+    ],
+    "suggested_feeds": [
+      {
+        "id": "planewatch-feed",
+        "name": "Plane.Watch ADS-B",
+        "feed_type": "dedicated_app",
+        "protocol": "tcp",
+        "host": "feed.push.plane.watch",
+        "port": 12345,
+        "description": "Track the Plane.Watch feed handled by the Plane.Watch Feeder app."
+      }
+    ],
+    "links": [
+      {
+        "label": "Plane.Watch",
+        "url": "https://plane.watch"
+      },
+      {
+        "label": "docker-plane-watch source",
+        "url": "https://github.com/plane-watch/docker-plane-watch"
+      }
+    ]
   }
 ]
