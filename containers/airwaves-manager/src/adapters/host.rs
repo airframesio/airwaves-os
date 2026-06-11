@@ -114,14 +114,28 @@ impl HostAdapter {
         Some(count as u32)
     }
 
+    /// True when the unit state means the updater is still doing work. The
+    /// updater unit is Type=oneshot without RemainAfterExit, so systemd
+    /// reports "activating" (not "active") for its entire run.
+    fn is_running_state(state: &str) -> bool {
+        matches!(state, "active" | "activating" | "reloading" | "deactivating")
+    }
+
     pub async fn is_update_service_active(&self) -> bool {
+        // `systemctl is-active` exits non-zero for every state except
+        // "active" (run_capture discards output on non-zero exit), and the
+        // oneshot updater unit never reports "active" while running — use
+        // `show`, which always exits 0 and prints the raw ActiveState.
         self.run_capture(vec![
             "systemctl".into(),
-            "is-active".into(),
+            "show".into(),
+            "-p".into(),
+            "ActiveState".into(),
+            "--value".into(),
             "airwaves-update.service".into(),
         ])
         .await
-        .map(|out| out.trim() == "active")
+        .map(|out| Self::is_running_state(out.trim()))
         .unwrap_or(false)
     }
 
@@ -338,5 +352,19 @@ mod tests {
         assert!(!valid_timezone("../etc/passwd"));
         assert!(!valid_timezone("foo;reboot"));
         assert!(!valid_timezone(""));
+    }
+
+    #[test]
+    fn update_service_running_states() {
+        // A Type=oneshot unit spends its whole run in "activating" — treating
+        // that as not-running made the progress watchdog fail every update
+        // mid-run ("last recorded phase was syncing-host-files").
+        assert!(HostAdapter::is_running_state("activating"));
+        assert!(HostAdapter::is_running_state("active"));
+        assert!(HostAdapter::is_running_state("reloading"));
+        assert!(HostAdapter::is_running_state("deactivating"));
+        assert!(!HostAdapter::is_running_state("inactive"));
+        assert!(!HostAdapter::is_running_state("failed"));
+        assert!(!HostAdapter::is_running_state(""));
     }
 }
