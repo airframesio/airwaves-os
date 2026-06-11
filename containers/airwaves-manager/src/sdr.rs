@@ -25,6 +25,10 @@ pub fn is_internal_sdr_env_key(key: &str) -> bool {
     is_sdr_id_env_key(key) || key == SDR_USB_ACCESS_ENV_KEY
 }
 
+fn is_bundle_planning_sdr_key(key: &str) -> bool {
+    matches!(key, "LOCAL_ACARSDEC_SDR" | "LOCAL_DUMPVDL2_SDR")
+}
+
 pub fn requires_full_usb_bus_access(env: &HashMap<String, String>) -> bool {
     env.get(SDR_USB_ACCESS_ENV_KEY)
         .map(|value| {
@@ -118,6 +122,9 @@ pub fn references_from_env(env: &HashMap<String, String>) -> Vec<SdrReference> {
         if is_sdr_id_env_key(key) {
             continue;
         }
+        if is_bundle_planning_sdr_key(key) {
+            continue;
+        }
 
         let serial = serial_from_sdr_value(value).or_else(|| {
             (key_allows_bare_serial(key) && looks_like_bare_serial(value))
@@ -150,6 +157,9 @@ pub fn references_from_env(env: &HashMap<String, String>) -> Vec<SdrReference> {
         let Some(field_key) = key.strip_prefix(SDR_ID_ENV_PREFIX) else {
             continue;
         };
+        if is_bundle_planning_sdr_key(field_key) {
+            continue;
+        }
         let device_id = value.trim();
         if device_id.is_empty() || fields_with_metadata.contains(field_key) {
             continue;
@@ -506,5 +516,103 @@ mod tests {
         assert!(is_internal_sdr_env_key(SDR_USB_ACCESS_ENV_KEY));
         assert!(is_internal_sdr_env_key(&sdr_id_env_key("SOAPYSDR")));
         assert!(!is_internal_sdr_env_key("SOAPYSDR"));
+    }
+
+    #[test]
+    fn ignores_acarshub_local_decoder_planning_fields() {
+        let hub_env = HashMap::from([
+            (
+                "LOCAL_ACARSDEC_SDR".to_string(),
+                "driver=rtlsdr,serial=001".to_string(),
+            ),
+            (
+                sdr_id_env_key("LOCAL_ACARSDEC_SDR"),
+                "0bda:2838-001-bus009-dev011".to_string(),
+            ),
+            (
+                "LOCAL_DUMPVDL2_SDR".to_string(),
+                "driver=rtlsdr,serial=002".to_string(),
+            ),
+        ]);
+        assert!(references_from_env(&hub_env).is_empty());
+
+        let config = AirwavesConfig {
+            version: 1,
+            device: crate::domain::DeviceConfig {
+                id: "device".to_string(),
+                name: "Airwaves".to_string(),
+                hostname: "airwaves".to_string(),
+            },
+            station: crate::domain::StationConfig {
+                latitude: 0.0,
+                longitude: 0.0,
+                altitude_m: 0,
+                operator: String::new(),
+            },
+            network: crate::domain::NetworkConfig {
+                mode: "dhcp".to_string(),
+            },
+            services: crate::domain::ServicesConfig {
+                gateway: crate::domain::ServiceState { enabled: true },
+                manager: crate::domain::ServiceState { enabled: true },
+            },
+            aggregators: serde_json::Value::Null,
+            apps: serde_json::json!([]),
+            hardware: serde_json::json!({}),
+            preferences: serde_json::json!({}),
+        };
+        let devices = vec![
+            SdrDevice {
+                id: "0bda:2838-001-bus009-dev011".to_string(),
+                name: "RTL-SDR".to_string(),
+                device_type: crate::domain::SdrType::RtlSdr,
+                vendor_id: 0x0bda,
+                product_id: 0x2838,
+                serial: Some("001".to_string()),
+                status: "available".to_string(),
+                assigned_to: None,
+                configured_name: None,
+                configured_serial: None,
+            },
+            SdrDevice {
+                id: "0bda:2838-002-bus009-dev009".to_string(),
+                name: "RTL-SDR".to_string(),
+                device_type: crate::domain::SdrType::RtlSdr,
+                vendor_id: 0x0bda,
+                product_id: 0x2838,
+                serial: Some("002".to_string()),
+                status: "available".to_string(),
+                assigned_to: None,
+                configured_name: None,
+                configured_serial: None,
+            },
+        ];
+        let hub = CatalogApp {
+            id: "acarshub".to_string(),
+            env: hub_env,
+            ..Default::default()
+        };
+        let acarsdec = CatalogApp {
+            id: "acarsdec".to_string(),
+            requires_sdr: true,
+            env: HashMap::from([(
+                "SOAPYSDR".to_string(),
+                "driver=rtlsdr,serial=001".to_string(),
+            )]),
+            ..Default::default()
+        };
+        let dumpvdl2 = CatalogApp {
+            id: "dumpvdl2".to_string(),
+            requires_sdr: true,
+            env: HashMap::from([(
+                "SOAPYSDR".to_string(),
+                "driver=rtlsdr,serial=002".to_string(),
+            )]),
+            ..Default::default()
+        };
+
+        assert!(
+            validate_app_sdr_assignments(&config, &[hub, acarsdec, dumpvdl2], &devices).is_ok()
+        );
     }
 }
