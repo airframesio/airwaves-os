@@ -303,7 +303,7 @@
       "OUTPUT_SERVER": "",
       "OUTPUT_SERVER_PORT": "",
       "OUTPUT_SERVER_MODE": "",
-      "QUIET_LOGS": "true"
+      "QUIET_LOGS": "false"
     },
     "config_fields": [
       {
