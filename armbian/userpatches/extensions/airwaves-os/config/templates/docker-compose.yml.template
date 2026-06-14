@@ -35,6 +35,10 @@ services:
     networks:
       - airwaves-core
       - airwaves-apps
+    ports:
+      # Decoded-message ingest (acars_router JSON dialect). Local decoders push
+      # here over the app network; the host mapping also lets LAN feeders submit.
+      - "5555:5555/udp"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/airwaves:/etc/airwaves

@@ -303,7 +303,8 @@
       "OUTPUT_SERVER": "",
       "OUTPUT_SERVER_PORT": "",
       "OUTPUT_SERVER_MODE": "",
-      "QUIET_LOGS": "false"
+      "QUIET_LOGS": "false",
+      "ACARSDEC_COMMAND_EXTRA": "--output json:udp:host=airwaves-manager,port=5555"
     },
     "config_fields": [
       {
