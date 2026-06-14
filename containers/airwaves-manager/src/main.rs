@@ -163,6 +163,14 @@ async fn main() -> anyhow::Result<()> {
         state.message_buffer.clone(),
     );
 
+    // Spawn the UDP ingest listener: local decoders push decoded messages here
+    // (over the network), which populates the Live Messages buffer.
+    forwarding::spawn_message_ingest(
+        state.message_buffer.clone(),
+        state.forwarding_stats.clone(),
+        state.events_tx.clone(),
+    );
+
     let app = api_router(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));

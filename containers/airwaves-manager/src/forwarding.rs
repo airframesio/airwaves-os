@@ -7,9 +7,17 @@
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
+use tokio::sync::broadcast;
+
 use crate::adapters::{ConfigAdapter, DockerAdapter};
 use crate::domain::{DecodedMessage, ForwardingConfig, ForwardingMode, ForwardingStats};
 use crate::ports::{ConfigPort, DockerPort};
+use crate::ws::Event;
+
+/// UDP port the manager listens on for decoded messages pushed by local
+/// decoders. Decoders are configured with an output pointing at
+/// `airwaves-manager:<this port>` in the acars_router JSON dialect.
+pub const MESSAGE_INGEST_PORT: u16 = 5555;
 
 /// Known decoder container prefixes and their message type
 const DECODER_PREFIXES: &[(&str, &str)] = &[
@@ -276,9 +284,207 @@ pub fn spawn_forwarding_service(
     });
 }
 
+/// Background UDP listener that ingests decoded messages pushed by local
+/// decoders (acars_router JSON dialect), parses them, and stores them in the
+/// shared message buffer that the Live Messages page reads. This is the
+/// network-ingest path: decoders emit over the network rather than to stdout,
+/// so log-tailing alone cannot see them.
+pub fn spawn_message_ingest(
+    buffer: Arc<Mutex<VecDeque<DecodedMessage>>>,
+    stats: Arc<Mutex<ForwardingStats>>,
+    events_tx: broadcast::Sender<Event>,
+) {
+    tokio::spawn(async move {
+        let bind = format!("0.0.0.0:{MESSAGE_INGEST_PORT}");
+        let sock = match tokio::net::UdpSocket::bind(&bind).await {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!("Message ingest: failed to bind {bind}: {e}");
+                return;
+            }
+        };
+        tracing::info!("Message ingest listening on udp/{MESSAGE_INGEST_PORT}");
+        let hostname = sysinfo::System::host_name().unwrap_or_else(|| "unknown".to_string());
+        let mut buf = vec![0u8; 65535];
+        loop {
+            let n = match sock.recv_from(&mut buf).await {
+                Ok((n, _)) => n,
+                Err(e) => {
+                    tracing::warn!("Message ingest recv error: {e}");
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    continue;
+                }
+            };
+            let Ok(text) = std::str::from_utf8(&buf[..n]) else {
+                continue;
+            };
+            // A datagram may contain one JSON object or several newline-separated.
+            for line in text.lines() {
+                let Some(msg) = parse_ingested_message(line, &hostname) else {
+                    continue;
+                };
+                let _ = events_tx.send(Event::MessageReceived {
+                    source_node: msg.source_node.clone(),
+                    decoder: msg.decoder.clone(),
+                    message_type: msg.message_type.clone(),
+                });
+                {
+                    let mut s = stats.lock().unwrap_or_else(|e| e.into_inner());
+                    s.messages_received += 1;
+                    s.last_received = Some(chrono::Utc::now().to_rfc3339());
+                }
+                {
+                    let mut b = buffer.lock().unwrap_or_else(|e| e.into_inner());
+                    b.push_back(msg);
+                    if b.len() > 1000 {
+                        b.pop_front();
+                    }
+                }
+            }
+        }
+    });
+}
+
+/// Parse one JSON line from the ingest socket into a DecodedMessage. Handles the
+/// acars_router dialects: flat acarsdec ACARS, nested `vdl2`/`hfdl` objects, and
+/// AIS-Catcher AIS. Returns None for anything unrecognized.
+fn parse_ingested_message(line: &str, hostname: &str) -> Option<DecodedMessage> {
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+    let json: serde_json::Value = serde_json::from_str(line).ok()?;
+
+    let (decoder, msg_type): (&str, &str) = if json.get("vdl2").is_some() {
+        ("dumpvdl2", "vdl2")
+    } else if json.get("hfdl").is_some() {
+        ("dumphfdl", "hfdl")
+    } else if json.get("mmsi").is_some()
+        || json.get("class").and_then(|c| c.as_str()) == Some("AIS")
+    {
+        ("ais-catcher", "ais")
+    } else if json.get("label").is_some()
+        || json.get("text").is_some()
+        || json.get("tail").is_some()
+        || json.get("mode").is_some()
+    {
+        ("acarsdec", "acars")
+    } else {
+        return None;
+    };
+
+    let frequency = ingest_frequency(&json, msg_type);
+    let signal_level = ingest_level(&json, msg_type);
+    let timestamp = ingest_timestamp(&json);
+    let raw = ingest_raw_text(&json, msg_type, line);
+
+    Some(DecodedMessage {
+        id: uuid::Uuid::new_v4().to_string(),
+        timestamp,
+        source_node: hostname.to_string(),
+        decoder: decoder.to_string(),
+        message_type: msg_type.to_string(),
+        frequency,
+        signal_level,
+        raw,
+        metadata: json,
+    })
+}
+
+fn ingest_frequency(json: &serde_json::Value, msg_type: &str) -> Option<String> {
+    let mhz = match msg_type {
+        // dumpvdl2 / dumphfdl report frequency in Hz, nested under their object.
+        "vdl2" => json.pointer("/vdl2/freq").and_then(serde_json::Value::as_f64)? / 1e6,
+        "hfdl" => json.pointer("/hfdl/freq").and_then(serde_json::Value::as_f64)? / 1e6,
+        // acarsdec reports MHz already.
+        "acars" => json.get("freq").and_then(serde_json::Value::as_f64)?,
+        _ => return None,
+    };
+    Some(format!("{mhz:.3} MHz"))
+}
+
+fn ingest_level(json: &serde_json::Value, msg_type: &str) -> Option<f64> {
+    match msg_type {
+        "vdl2" => json.pointer("/vdl2/sig_level").and_then(serde_json::Value::as_f64),
+        "hfdl" => json.pointer("/hfdl/sig_level").and_then(serde_json::Value::as_f64),
+        _ => json
+            .get("level")
+            .or_else(|| json.get("sig_level"))
+            .and_then(serde_json::Value::as_f64),
+    }
+}
+
+fn ingest_timestamp(json: &serde_json::Value) -> String {
+    if let Some(ts) = json.get("timestamp").and_then(serde_json::Value::as_f64) {
+        let secs = ts.trunc() as i64;
+        let nanos = (ts.fract() * 1e9) as u32;
+        if let Some(dt) = chrono::DateTime::<chrono::Utc>::from_timestamp(secs, nanos) {
+            return dt.to_rfc3339();
+        }
+    }
+    chrono::Utc::now().to_rfc3339()
+}
+
+fn js_str(v: Option<&serde_json::Value>) -> &str {
+    v.and_then(serde_json::Value::as_str).unwrap_or("")
+}
+
+fn ingest_raw_text(json: &serde_json::Value, msg_type: &str, line: &str) -> String {
+    let s = js_str;
+    let summary = match msg_type {
+        "acars" => {
+            let label = s(json.get("label"));
+            let tail = s(json.get("tail"));
+            let flight = s(json.get("flight"));
+            let text = s(json.get("text"));
+            let mut parts = vec!["ACARS".to_string()];
+            if !label.is_empty() {
+                parts.push(format!("label:{label}"));
+            }
+            if !tail.is_empty() {
+                parts.push(format!("tail:{tail}"));
+            }
+            if !flight.is_empty() {
+                parts.push(format!("flight:{flight}"));
+            }
+            if !text.is_empty() {
+                parts.push(text.to_string());
+            }
+            parts.join(" ")
+        }
+        "vdl2" => {
+            let text = s(json.pointer("/vdl2/avlc/acars/msg_text"));
+            if text.is_empty() {
+                "VDL2 frame".to_string()
+            } else {
+                format!("VDL2 ACARS {text}")
+            }
+        }
+        "ais" => {
+            let mmsi = json
+                .get("mmsi")
+                .map(|v| v.to_string())
+                .unwrap_or_default();
+            format!("AIS MMSI:{mmsi}")
+        }
+        _ => String::new(),
+    };
+    let summary = summary.trim().to_string();
+    // Fall back to the compact JSON when no human-readable text was extracted,
+    // so the row is never blank. Full structured data is kept in metadata.
+    let out = if summary.is_empty() || summary == "ACARS" {
+        line.to_string()
+    } else {
+        summary
+    };
+    out.chars().take(500).collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{looks_like_decoded_message, should_forward_to_primary};
+    use super::{
+        looks_like_decoded_message, parse_ingested_message, should_forward_to_primary,
+    };
     use crate::domain::{ForwardingConfig, ForwardingMode};
 
     fn fwd(enabled: bool, mode: ForwardingMode, target: &str) -> ForwardingConfig {
@@ -313,6 +519,45 @@ mod tests {
             ForwardingMode::All,
             "10.0.0.2"
         )));
+    }
+
+    #[test]
+    fn ingest_parses_acarsdec_json() {
+        let line = r#"{"timestamp":1623948123.5,"station_id":"airwaves-acarsdec","freq":131.55,"level":-23.1,"mode":"2","label":"H1","tail":"N123AB","flight":"UA0123","text":"POSRPT KSFO"}"#;
+        let m = parse_ingested_message(line, "airwaves-first").expect("acars parses");
+        assert_eq!(m.decoder, "acarsdec");
+        assert_eq!(m.message_type, "acars");
+        assert_eq!(m.frequency.as_deref(), Some("131.550 MHz"));
+        assert_eq!(m.signal_level, Some(-23.1));
+        assert!(m.raw.contains("N123AB") && m.raw.contains("POSRPT"));
+        assert!(m.timestamp.starts_with("2021-")); // epoch 1623948123 -> 2021
+    }
+
+    #[test]
+    fn ingest_parses_vdl2_json_with_hz_frequency() {
+        let line = r#"{"vdl2":{"freq":136975000,"sig_level":-30.2,"avlc":{"acars":{"msg_text":"CPDLC WILCO"}}}}"#;
+        let m = parse_ingested_message(line, "airwaves-first").expect("vdl2 parses");
+        assert_eq!(m.decoder, "dumpvdl2");
+        assert_eq!(m.message_type, "vdl2");
+        assert_eq!(m.frequency.as_deref(), Some("136.975 MHz"));
+        assert_eq!(m.signal_level, Some(-30.2));
+        assert!(m.raw.contains("CPDLC"));
+    }
+
+    #[test]
+    fn ingest_parses_ais_json() {
+        let line = r#"{"class":"AIS","type":1,"mmsi":507319468,"lat":37.5,"lon":-122.4,"speed":20.1}"#;
+        let m = parse_ingested_message(line, "airwaves-first").expect("ais parses");
+        assert_eq!(m.decoder, "ais-catcher");
+        assert_eq!(m.message_type, "ais");
+        assert!(m.raw.contains("507319468"));
+    }
+
+    #[test]
+    fn ingest_rejects_garbage_and_non_messages() {
+        assert!(parse_ingested_message("not json", "h").is_none());
+        assert!(parse_ingested_message("", "h").is_none());
+        assert!(parse_ingested_message(r#"{"unrelated":true}"#, "h").is_none());
     }
 
     #[test]
