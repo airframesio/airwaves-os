@@ -29,10 +29,10 @@
       "sha256": "0b2d94681c8c30a7a301455a6b9fe6a7ea408b9bb81e5d4c8c1dbd45537bdc4b"
     },
     "catalog": {
-      "version": "9",
+      "version": "10",
       "severity": "nice-to-have",
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/f3b84f117aad95cf89747e68244b2b0c4855a5aa/armbian/userpatches/extensions/airwaves-os/config/catalog.json",
-      "sha256": "87f062ddbc168ca6aa3711800888f0e957da4a97e7fb75ac0a34e9431663ecda"
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/5e660153b8f14d4bea9a67b90c5fa77da10c3324/armbian/userpatches/extensions/airwaves-os/config/catalog.json",
+      "sha256": "ace0a78a156e2b3c185eb339e105c295c172d36c36053c4bea59675a2b580bd8"
     }
   },
   "os": {
@@ -86,9 +86,9 @@
       "sha256": "47e2ae9953a29cbc2294b78f9a84ab0edd70bb9fd7631b23a75e5e74a73830b5"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/f3b84f117aad95cf89747e68244b2b0c4855a5aa/armbian/userpatches/extensions/airwaves-os/config/catalog.json",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/5e660153b8f14d4bea9a67b90c5fa77da10c3324/armbian/userpatches/extensions/airwaves-os/config/catalog.json",
       "dest": "/opt/airwaves/config/catalog.json",
-      "sha256": "87f062ddbc168ca6aa3711800888f0e957da4a97e7fb75ac0a34e9431663ecda"
+      "sha256": "ace0a78a156e2b3c185eb339e105c295c172d36c36053c4bea59675a2b580bd8"
     },
     {
       "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/config/templates/config.json.template",
