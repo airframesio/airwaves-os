@@ -1,0 +1,289 @@
+#!/bin/bash
+#
+# airwaves-install — install the running (live USB) Airwaves OS system onto an
+# internal disk. Reuses Armbian's proven disk approach (GPT + FAT32 ESP + ext4
+# root, rsync the running rootfs, grub-install in a chroot) but replaces the
+# interactive dialog UI with a structured status.json (same shape as
+# airwaves-update) so the console wizard, web UI, and any other front-end can
+# render branded, structured progress.
+#
+# Scope: x86 UEFI (the live USB installer target). ARM/u-boot boards install via
+# Armbian's own armbian-install for now; this path is enabled per-arch later.
+#
+# SAFETY: destructive disk operations only run when AIRWAVES_INSTALL_APPLY=1.
+# Without it, the script performs all preflight checks and prints the plan
+# (dry-run). Front-ends pass APPLY=1 only after explicit user confirmation.
+#
+# Usage:
+#   airwaves-install --list-json                 # list candidate target disks (JSON)
+#   airwaves-install --target /dev/nvme0n1       # dry-run plan for that disk
+#   AIRWAVES_INSTALL_APPLY=1 airwaves-install --target /dev/nvme0n1   # real install
+#
+set -uo pipefail
+
+STATUS_DIR="/etc/airwaves/install"
+STATUS="${STATUS_DIR}/status.json"
+LOG_TMP="$(mktemp /tmp/airwaves-install.log.XXXXXX)"
+STATUS_LOG_LINES=200
+
+STATE="running"
+PHASE="preflight"
+PERCENT=0
+ERROR=""
+REBOOT_REQUIRED="false"
+STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+TARGET=""
+APPLY="${AIRWAVES_INSTALL_APPLY:-0}"
+
+mkdir -p "${STATUS_DIR}"
+
+log() {
+    local line
+    line="[$(date -u +%H:%M:%S)] $*"
+    echo "${line}" >&2
+    echo "${line}" >> "${LOG_TMP}"
+}
+
+write_status() {
+    local finished="${1:-}"
+    local finished_field="null"
+    [ -n "${finished}" ] && finished_field="\"${finished}\""
+    local err_field="null"
+    [ -n "${ERROR}" ] && err_field="$(jq -Rn --arg e "${ERROR}" '$e')"
+    jq -Rn \
+        --arg state "${STATE}" \
+        --arg phase "${PHASE}" \
+        --argjson percent "${PERCENT}" \
+        --argjson reboot "${REBOOT_REQUIRED}" \
+        --arg started "${STARTED_AT}" \
+        --arg target "${TARGET}" \
+        --slurpfile loglines <(tail -n "${STATUS_LOG_LINES}" "${LOG_TMP}" 2>/dev/null | jq -R .) \
+        "{
+            state: \$state,
+            phase: \$phase,
+            percent: \$percent,
+            target: \$target,
+            reboot_required: \$reboot,
+            error: ${err_field},
+            started_at: \$started,
+            finished_at: ${finished_field},
+            log: \$loglines
+        }" > "${STATUS}.tmp" 2>/dev/null && mv "${STATUS}.tmp" "${STATUS}"
+}
+
+phase() {
+    PHASE="$1"
+    PERCENT="${2:-$PERCENT}"
+    log "==> ${PHASE} (${PERCENT}%)"
+    write_status
+}
+
+fail() {
+    STATE="failed"
+    ERROR="$1"
+    log "ERROR: ${ERROR}"
+    write_status "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    exit 1
+}
+
+# ---- source / target discovery (mirrors armbian-install) -------------------
+
+discover_source() {
+    ROOT_UUID="$(sed -e 's/^.*root=//' -e 's/ .*$//' < /proc/cmdline)"
+    ROOT_PART="$(blkid | tr -d '":' | grep -w "${ROOT_UUID#UUID=}" | awk '{print $1}' | head -1)"
+    [ -z "${ROOT_PART}" ] && ROOT_PART="$(findmnt -no SOURCE / 2>/dev/null)"
+    SOURCE_DISK_NAME="$(lsblk -ndo pkname "${ROOT_PART}" 2>/dev/null)"
+    SOURCE_DISK="/dev/${SOURCE_DISK_NAME}"
+}
+
+# Candidate internal target disks: real disks, not removable, not the source
+# (USB) device, not optical. One JSON object per disk.
+list_targets_json() {
+    discover_source
+    local rows="[]"
+    while read -r name size model rm type; do
+        [ "${type}" != "disk" ] && continue
+        [ "${rm}" = "1" ] && continue                 # skip removable (the USB)
+        [ "/dev/${name}" = "${SOURCE_DISK}" ] && continue
+        case "${name}" in sr*|loop*|ram*) continue;; esac
+        rows="$(jq -c \
+            --arg dev "/dev/${name}" \
+            --arg size "${size}" \
+            --arg model "${model}" \
+            '. + [{device:$dev, size:$size, model:($model|gsub("^ +| +$";""))}]' \
+            <<<"${rows}")"
+    done < <(lsblk -dno NAME,SIZE,MODEL,RM,TYPE)
+    echo "${rows}"
+}
+
+# ---- preflight guards ------------------------------------------------------
+
+preflight() {
+    phase "preflight" 5
+    command -v jq >/dev/null   || fail "jq is required"
+    command -v parted >/dev/null || fail "parted is required"
+    command -v rsync >/dev/null  || fail "rsync is required"
+    [ -d /sys/firmware/efi ] || fail "Not booted in UEFI mode; only UEFI x86 install is supported"
+    [ -n "${TARGET}" ] || fail "No target disk specified"
+    [ -b "${TARGET}" ] || fail "Target ${TARGET} is not a block device"
+
+    discover_source
+    [ "${TARGET}" = "${SOURCE_DISK}" ] && fail "Refusing to install onto the source/boot device ${TARGET}"
+
+    # Target must be a whole disk, not a partition.
+    local ttype
+    ttype="$(lsblk -ndo TYPE "${TARGET}")"
+    [ "${ttype}" = "disk" ] || fail "Target ${TARGET} is not a whole disk (type=${ttype})"
+
+    # Target must not have mounted partitions.
+    if lsblk -nro MOUNTPOINT "${TARGET}" | grep -q .; then
+        fail "Target ${TARGET} has mounted partitions; refusing to proceed"
+    fi
+
+    log "Source (live) disk: ${SOURCE_DISK}"
+    log "Target disk:        ${TARGET}"
+    if [ "${APPLY}" != "1" ]; then
+        log "DRY-RUN: set AIRWAVES_INSTALL_APPLY=1 to perform the install."
+    fi
+}
+
+# partition suffix: nvme0n1 -> p1, sda -> 1
+part() { case "$1" in *[0-9]) echo "$1p$2";; *) echo "$1$2";; esac; }
+
+# ---- partition + format (Armbian uefi layout: ESP + ext4 root) -------------
+
+partition_target() {
+    phase "partitioning" 15
+    local esp root
+    esp="$(part "${TARGET}" 1)"
+    root="$(part "${TARGET}" 2)"
+    if [ "${APPLY}" != "1" ]; then
+        log "[dry-run] wipefs ${TARGET}; parted gpt; ESP(${esp},fat32,512MiB); root(${root},ext4,rest)"
+        return 0
+    fi
+    wipefs -a "${TARGET}" >>"${LOG_TMP}" 2>&1
+    parted -s "${TARGET}" -- mklabel gpt >>"${LOG_TMP}" 2>&1 || fail "parted mklabel failed"
+    parted -s "${TARGET}" -- mkpart "ESP" fat32 1MiB 513MiB >>"${LOG_TMP}" 2>&1 || fail "parted ESP failed"
+    parted -s "${TARGET}" -- set 1 esp on >>"${LOG_TMP}" 2>&1
+    parted -s "${TARGET}" -- mkpart "airwaves-root" ext4 513MiB 100% >>"${LOG_TMP}" 2>&1 || fail "parted root failed"
+    partprobe "${TARGET}" >>"${LOG_TMP}" 2>&1
+    sleep 2
+
+    phase "formatting" 25
+    mkfs.vfat -F32 -n AIRWAVES-EFI "${esp}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.vfat failed"
+    mkfs.ext4 -qF -L airwaves-root "${root}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.ext4 failed"
+}
+
+# ---- copy rootfs (rsync with live progress) --------------------------------
+
+copy_rootfs() {
+    phase "copying-rootfs" 30
+    local root esp
+    esp="$(part "${TARGET}" 1)"
+    root="$(part "${TARGET}" 2)"
+    TMP="$(mktemp -d /mnt/airwaves-install.XXXXXX)"
+
+    cat > /tmp/airwaves-install-exclude <<'EOF'
+/dev/*
+/proc/*
+/sys/*
+/tmp/*
+/run/*
+/mnt/*
+/media/*
+/lost+found
+/var/log.hdd/*
+/swapfile
+/etc/airwaves/install/*
+EOF
+
+    if [ "${APPLY}" != "1" ]; then
+        log "[dry-run] rsync / -> ${root} (excludes pseudo-fs); would stream progress 30→80%"
+        PERCENT=80; write_status
+        rmdir "${TMP}" 2>/dev/null || true
+        return 0
+    fi
+
+    mount "${root}" "${TMP}" || fail "mount ${root} failed"
+    echo "${TMP}" >/tmp/airwaves-install-mnt
+
+    local todo
+    todo="$(rsync -anx --delete --stats --exclude-from=/tmp/airwaves-install-exclude / "${TMP}" 2>/dev/null | awk '/Number of files:/{gsub(/[.,]/,"",$4); print $4; exit}')"
+    [ -z "${todo}" ] && todo=1
+    local progress=/tmp/airwaves-install-progress; echo 0 >"${progress}"; local done=/tmp/airwaves-install-done; echo no >"${done}"
+    {
+        rsync -ax --delete --exclude-from=/tmp/airwaves-install-exclude / "${TMP}" \
+            | stdbuf -oL awk -v todo="${todo}" '{p=int(50*NR/todo); if(p>50)p=50; print p; fflush()}' > "${progress}"
+        echo "${PIPESTATUS[0]}" > "${done}"
+    } &
+    local rc=""
+    while [ -z "${rc}" ]; do
+        sleep 2
+        local p; p="$(tail -n1 "${progress}" 2>/dev/null)"; [ -n "${p}" ] && PERCENT=$((30 + p)) && write_status
+        local d; d="$(cat "${done}" 2>/dev/null)"; [ "${d}" != "no" ] && rc="${d}"
+    done
+    [ "${rc}" = "0" ] || fail "rootfs copy (rsync) failed with code ${rc}"
+    PERCENT=80; write_status
+}
+
+# ---- bootloader (grub-install in chroot) + fstab ---------------------------
+
+install_bootloader() {
+    phase "bootloader" 90
+    local esp root root_uuid esp_uuid
+    esp="$(part "${TARGET}" 1)"
+    root="$(part "${TARGET}" 2)"
+
+    if [ "${APPLY}" != "1" ]; then
+        log "[dry-run] mount ESP, write fstab (root+ESP UUIDs), chroot grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Airwaves, grub-mkconfig"
+        return 0
+    fi
+
+    root_uuid="$(blkid -s UUID -o value "${root}")"
+    esp_uuid="$(blkid -s UUID -o value "${esp}")"
+    [ -n "${root_uuid}" ] || fail "could not read target root UUID"
+
+    mkdir -p "${TMP}/boot/efi"
+    mount "${esp}" "${TMP}/boot/efi" || fail "mount ESP failed"
+
+    # fstab on the target
+    cat > "${TMP}/etc/fstab" <<EOF
+UUID=${root_uuid}  /          ext4  defaults,noatime,errors=remount-ro  0  1
+UUID=${esp_uuid}   /boot/efi  vfat  umask=0077                          0  2
+EOF
+
+    # bind mounts for chroot
+    for d in dev dev/pts proc sys run; do mount --bind "/${d}" "${TMP}/${d}"; done
+    chroot "${TMP}" /bin/bash -c "grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Airwaves --removable" >>"${LOG_TMP}" 2>&1 \
+        || { sync; chroot "${TMP}" /bin/bash -c "grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Airwaves" >>"${LOG_TMP}" 2>&1; } \
+        || fail "grub-install failed"
+    chroot "${TMP}" /bin/bash -c "update-grub || grub-mkconfig -o /boot/grub/grub.cfg" >>"${LOG_TMP}" 2>&1 || fail "grub-mkconfig failed"
+
+    phase "finalizing" 95
+    sync
+    for d in run sys proc dev/pts dev; do umount -l "${TMP}/${d}" 2>/dev/null; done
+    umount -l "${TMP}/boot/efi" 2>/dev/null
+    umount -l "${TMP}" 2>/dev/null
+    REBOOT_REQUIRED="true"
+}
+
+# ---- main ------------------------------------------------------------------
+
+case "${1:-}" in
+    --list-json) list_targets_json; exit 0 ;;
+    --target)    TARGET="${2:-}" ;;
+    "")          fail "usage: airwaves-install --target <disk> | --list-json" ;;
+    *)           TARGET="${1}" ;;
+esac
+
+write_status
+preflight
+partition_target
+copy_rootfs
+install_bootloader
+
+STATE="success"
+PHASE="done"
+PERCENT=100
+log "Install complete. Reboot and remove the USB drive to boot from ${TARGET}."
+write_status "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
