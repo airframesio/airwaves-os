@@ -1,0 +1,109 @@
+#!/bin/bash
+#
+# airwaves-firstrun — first-run console wizard shown on tty1 of the live USB.
+#
+# When Airwaves OS is booted from removable media (the USB installer), this
+# offers a branded choice: run live, or install to an internal disk. The
+# install path drives airwaves-install and renders its structured status.json
+# as a progress gauge. On an installed system (root on a non-removable disk)
+# it exits immediately so the normal console login proceeds.
+#
+set -uo pipefail
+
+INSTALL="/opt/airwaves/scripts/airwaves-install"
+STATUS="/etc/airwaves/install/status.json"
+
+# Only run as the live-USB wizard. If the root disk is not removable (i.e. we
+# booted from an installed internal disk), do nothing and let getty take over.
+root_src="$(findmnt -no SOURCE / 2>/dev/null)"
+root_disk="$(lsblk -ndo pkname "${root_src}" 2>/dev/null)"
+removable="$(cat "/sys/block/${root_disk}/removable" 2>/dev/null || echo 0)"
+[ "${removable}" = "1" ] || exit 0
+
+# Need a real TTY and dialog; otherwise bail out quietly (never block boot).
+[ -t 0 ] || exit 0
+command -v dialog >/dev/null || exit 0
+
+export DIALOGRC=/dev/null
+BT="Airwaves OS Installer"
+
+banner() {
+    clear
+    command -v toilet >/dev/null && toilet -f standard -F border "Airwaves OS" 2>/dev/null || echo "=== Airwaves OS ==="
+    echo "Radio software that just works."
+    echo
+}
+
+main_menu() {
+    dialog --backtitle "${BT}" --no-cancel --title "Welcome to Airwaves OS" \
+        --menu "\nYou are running Airwaves OS live from USB.\n\nChoose how to proceed:" 14 64 2 \
+        live    "Run live now (no changes to any disk)" \
+        install "Install Airwaves OS to an internal disk" \
+        3>&1 1>&2 2>&3
+}
+
+pick_disk() {
+    local json rows=() dev size model
+    json="$("${INSTALL}" --list-json 2>/dev/null)"
+    local n; n="$(echo "${json}" | jq 'length' 2>/dev/null || echo 0)"
+    if [ "${n}" -eq 0 ] 2>/dev/null; then
+        dialog --backtitle "${BT}" --msgbox "\nNo internal disks were found to install onto.\n\nAttach an internal drive (NVMe/SATA) and try again, or choose Run live." 10 60
+        return 1
+    fi
+    while read -r dev size model; do
+        rows+=("${dev}" "${size} ${model}")
+    done < <(echo "${json}" | jq -r '.[] | "\(.device) \(.size) \(.model // "disk")"')
+    dialog --backtitle "${BT}" --title "Select target disk" \
+        --menu "\nWARNING: the selected disk will be ERASED.\n" 16 70 6 "${rows[@]}" \
+        3>&1 1>&2 2>&3
+}
+
+run_install() {
+    local target="$1"
+    dialog --backtitle "${BT}" --title "Confirm install" --defaultno \
+        --yesno "\nThis will ERASE ALL DATA on:\n\n    ${target}\n\nand install Airwaves OS onto it.\n\nContinue?" 12 60 || return 1
+
+    rm -f "${STATUS}"
+    # Run the installer in the background; render its status.json as a gauge.
+    AIRWAVES_INSTALL_APPLY=1 "${INSTALL}" --target "${target}" >/var/log/airwaves-install.log 2>&1 &
+    local pid=$!
+
+    (
+        local pct=0 phase="starting" state="running"
+        while kill -0 "${pid}" 2>/dev/null; do
+            if [ -f "${STATUS}" ]; then
+                pct="$(jq -r '.percent // 0' "${STATUS}" 2>/dev/null || echo "${pct}")"
+                phase="$(jq -r '.phase // "working"' "${STATUS}" 2>/dev/null || echo "${phase}")"
+            fi
+            echo "XXX"; echo "${pct}"; echo "Installing to ${target}\n\nStep: ${phase}"; echo "XXX"
+            sleep 2
+        done
+        echo "100"
+    ) | dialog --backtitle "${BT}" --title "Installing Airwaves OS" --gauge "\nPreparing..." 12 64 0
+
+    wait "${pid}"; local rc=$?
+    state="$(jq -r '.state // "unknown"' "${STATUS}" 2>/dev/null || echo unknown)"
+    if [ "${rc}" -eq 0 ] && [ "${state}" = "success" ]; then
+        dialog --backtitle "${BT}" --title "Install complete" \
+            --yesno "\nAirwaves OS was installed to ${target}.\n\nRemove the USB drive and reboot now?" 10 60 \
+            && { clear; reboot; }
+        return 0
+    else
+        local err; err="$(jq -r '.error // "see /var/log/airwaves-install.log"' "${STATUS}" 2>/dev/null)"
+        dialog --backtitle "${BT}" --title "Install failed" --msgbox "\nThe install did not complete.\n\n${err}\n\nLog: /var/log/airwaves-install.log" 12 64
+        return 1
+    fi
+}
+
+banner
+while true; do
+    choice="$(main_menu)" || { clear; exit 0; }
+    case "${choice}" in
+        live) clear; echo "Continuing live. Open http://${HOSTNAME}.local in a browser."; sleep 1; exit 0 ;;
+        install)
+            target="$(pick_disk)" || continue
+            [ -n "${target}" ] || continue
+            run_install "${target}" && exit 0
+            ;;
+    esac
+done

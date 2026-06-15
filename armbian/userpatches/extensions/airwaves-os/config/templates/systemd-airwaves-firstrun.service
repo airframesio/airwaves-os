@@ -1,0 +1,23 @@
+[Unit]
+Description=Airwaves OS First-Run Console Wizard (live USB)
+Documentation=https://airwavesos.com
+After=multi-user.target systemd-user-sessions.service
+Conflicts=getty@tty1.service
+Before=getty@tty1.service
+
+[Service]
+Type=oneshot
+# The wizard exits immediately on an installed (non-removable root) system,
+# so getty@tty1 then starts normally. On the live USB it owns tty1 until the
+# user chooses to run live or completes an install.
+ExecStart=/opt/airwaves/scripts/airwaves-firstrun
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target
