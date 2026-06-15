@@ -30,6 +30,22 @@ const DECODER_PREFIXES: &[(&str, &str)] = &[
     ("airwaves-satdump", "satellite"),
 ];
 
+/// The device's hostname for tagging decoded messages. Prefers the host's
+/// /etc/hostname (the manager runs in a container, so `sysinfo` would return
+/// the container ID); falls back to the container hostname, then "airwaves".
+fn device_hostname() -> String {
+    let host_root = std::env::var("HOST_ROOT").ok().filter(|s| !s.is_empty());
+    if let Some(root) = host_root {
+        if let Ok(name) = std::fs::read_to_string(format!("{root}/etc/hostname")) {
+            let name = name.trim();
+            if !name.is_empty() {
+                return name.to_string();
+            }
+        }
+    }
+    sysinfo::System::host_name().unwrap_or_else(|| "airwaves".to_string())
+}
+
 /// Whether collected messages should also be forwarded to a primary node.
 /// This gates ONLY forwarding — local collection into the buffer always runs,
 /// so the Live Messages page works on a standalone device.
@@ -149,7 +165,7 @@ pub fn spawn_forwarding_service(
             }
         };
 
-        let hostname = sysinfo::System::host_name().unwrap_or_else(|| "unknown".to_string());
+        let hostname = device_hostname();
         let mut seen_log_lines: VecDeque<String> = VecDeque::new();
         let mut seen_log_set: HashSet<String> = HashSet::new();
 
@@ -304,7 +320,7 @@ pub fn spawn_message_ingest(
             }
         };
         tracing::info!("Message ingest listening on udp/{MESSAGE_INGEST_PORT}");
-        let hostname = sysinfo::System::host_name().unwrap_or_else(|| "unknown".to_string());
+        let hostname = device_hostname();
         let mut buf = vec![0u8; 65535];
         loop {
             let n = match sock.recv_from(&mut buf).await {
@@ -542,6 +558,16 @@ mod tests {
         assert_eq!(m.frequency.as_deref(), Some("136.975 MHz"));
         assert_eq!(m.signal_level, Some(-30.2));
         assert!(m.raw.contains("CPDLC"));
+    }
+
+    #[test]
+    fn ingest_parses_hfdl_json_with_hz_frequency() {
+        let line = r#"{"hfdl":{"freq":8927000,"sig_level":-18.4,"lpdu":{"hfnpdu":{"acars":{"tail":"N400UA"}}}}}"#;
+        let m = parse_ingested_message(line, "airwaves-first").expect("hfdl parses");
+        assert_eq!(m.decoder, "dumphfdl");
+        assert_eq!(m.message_type, "hfdl");
+        assert_eq!(m.frequency.as_deref(), Some("8.927 MHz"));
+        assert_eq!(m.signal_level, Some(-18.4));
     }
 
     #[test]
