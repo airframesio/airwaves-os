@@ -592,7 +592,8 @@
     ],
     "env": {
       "SOAPYSDR": "driver=rtlsdr",
-      "TZ": "UTC"
+      "TZ": "UTC",
+      "DUMP_HFDL_COMMAND_EXTRA": "--output decoded:json:udp:address=airwaves-manager,port=5555"
     },
     "config_fields": [
       {
