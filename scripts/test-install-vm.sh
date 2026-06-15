@@ -52,8 +52,15 @@ done
 # Writable varstore + writable copy of the image (so the test is non-destructive).
 cp "${OVMF_CODE}" "${WORK}/OVMF_VARS.fd" 2>/dev/null || qemu-img create -f raw "${WORK}/OVMF_VARS.fd" 4M
 USB_IMG="${WORK}/usb.img"
-log "Copying image to a scratch USB disk (${IMAGE})..."
-cp "${IMAGE}" "${USB_IMG}"
+case "${IMAGE}" in
+    *.img.xz|*.xz)
+        log "Decompressing image to a scratch USB disk (${IMAGE})..."
+        command -v xz >/dev/null || die "xz not installed (brew install xz)"
+        xz -dc "${IMAGE}" > "${USB_IMG}" ;;
+    *)
+        log "Copying image to a scratch USB disk (${IMAGE})..."
+        cp "${IMAGE}" "${USB_IMG}" ;;
+esac
 TARGET_IMG="${WORK}/internal.qcow2"
 qemu-img create -f qcow2 "${TARGET_IMG}" "${TARGET_SIZE}" >/dev/null
 log "Work dir: ${WORK}"
