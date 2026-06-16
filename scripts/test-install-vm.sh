@@ -18,7 +18,7 @@
 #
 set -euo pipefail
 
-IMAGE=""; RAM=2560; TARGET_SIZE="16G"; OVERLAY_DIR=""; WEB_MODE=""
+IMAGE=""; RAM=2560; TARGET_SIZE="16G"; OVERLAY_DIR=""; WEB_MODE=""; SMOKE_MODE=""
 SSH_PORT=2222; API_PORT=18080; PW="airwaves"
 WORK="$(mktemp -d /tmp/airwaves-vmtest.XXXXXX)"
 DEFAULT_OVERLAY="$(cd "$(dirname "$0")/.." && pwd)/armbian/userpatches/extensions/airwaves-os/scripts"
@@ -36,6 +36,7 @@ while [ $# -gt 0 ]; do
         --overlay) OVERLAY_DIR="$DEFAULT_OVERLAY"; shift 1;;
         --overlay-scripts) OVERLAY_DIR="${2:-$DEFAULT_OVERLAY}"; shift 2;;
         --web) WEB_MODE=1; shift 1;;   # drive the install via the manager web API
+        --smoke) SMOKE_MODE=1; shift 1;;  # just verify the manager + install API come up natively
         *) die "unknown arg: $1";;
     esac
 done
@@ -106,7 +107,27 @@ P1=$(boot "${WORK}/boot1.log" \
     -drive "file=${USB_IMG},format=raw,if=none,id=u0" -device usb-ehci -device "usb-storage,drive=u0,bootindex=0" \
     -drive "file=${TARGET_IMG},format=qcow2,if=virtio")
 
-if [ -n "${WEB_MODE}" ]; then
+if [ -n "${SMOKE_MODE}" ]; then
+    # Smoke test for a published image: assert the manager comes up NATIVELY on
+    # first boot (no manual pin) and the install API answers. /system/disks only
+    # exists in 1.0.37+, so if it responds the channel alias resolved to a
+    # current image (e.g. stable -> :stable -> 1.0.37), not a stale :latest.
+    log "Smoke: waiting for the manager to come up natively (first-boot pull is slow)..."
+    up=""
+    for i in $(seq 1 180); do
+        sleep 10
+        curl -fsS -m4 "http://localhost:${API_PORT}/api/v1/system/overview" >/dev/null 2>&1 && { up=1; log "  manager up (~$((i*10))s)"; break; }
+    done
+    [ -n "${up}" ] || { tail -20 "${WORK}/boot1.log" 2>/dev/null; die "manager never came up on first boot"; }
+    if curl -fsS -m10 "http://localhost:${API_PORT}/api/v1/system/disks" >/dev/null 2>&1; then
+        disks="$(curl -fsS -m10 "http://localhost:${API_PORT}/api/v1/system/disks" 2>/dev/null)"
+        log "SMOKE PASS: manager up natively and /system/disks responded: ${disks}"
+        kill "${P1}" 2>/dev/null || true
+        exit 0
+    fi
+    tail -20 "${WORK}/boot1.log" 2>/dev/null
+    die "SMOKE FAIL: /system/disks absent — manager is older than 1.0.37 (channel alias did not resolve to a current image)"
+elif [ -n "${WEB_MODE}" ]; then
     # Drive the install entirely through the manager's web API (the same path
     # the control-app "Install to Disk" wizard uses). Requires the manager
     # container to be up, which on first boot means pulling it (slow on TCG).
