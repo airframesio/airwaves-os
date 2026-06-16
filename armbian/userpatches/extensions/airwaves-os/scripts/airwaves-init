@@ -9,10 +9,36 @@ AIRWAVES_CONFIG="/etc/airwaves/config.json"
 AIRWAVES_IMAGES_DIR="/opt/airwaves/images"
 AIRWAVES_MARKER="/opt/airwaves/.needs-first-run"
 AIRWAVES_INITIALIZED="/opt/airwaves/.initialized"
+AIRWAVES_VERSIONS="/etc/airwaves/.versions.json"
+AIRWAVES_COMPOSE="/etc/airwaves/docker-compose.yml"
 
 log() {
     echo "[airwaves-init] $*"
     logger -t airwaves-init "$*"
+}
+
+channel_alias() {
+    # Map the device's release channel to the moving image tag CI publishes:
+    # dev/beta builds push :dev/:beta, stable releases push :latest. Honoring
+    # the channel here means a dev-channel image boots dev images on first boot
+    # instead of whatever :latest (stable) happens to be.
+    local ch="stable"
+    [ -f "$AIRWAVES_VERSIONS" ] && ch="$(jq -r '.channel // "stable"' "$AIRWAVES_VERSIONS" 2>/dev/null || echo stable)"
+    case "$ch" in
+        dev)  echo "dev" ;;
+        beta) echo "beta" ;;
+        *)    echo "latest" ;;   # stable (and anything unknown) track :latest
+    esac
+}
+
+pin_compose_to_alias() {
+    # The compose template ships :latest; rewrite the airwaves image tags to the
+    # channel alias so `docker compose up` runs the same images we just pulled.
+    # For a stable device (alias=latest) this is a no-op.
+    local alias="$1"
+    [ -f "$AIRWAVES_COMPOSE" ] || return 0
+    sed -i -E "s#(ghcr\.io/airframesio/airwaves-(gateway|manager)):[^\"'[:space:]]+#\\1:${alias}#g" "$AIRWAVES_COMPOSE"
+    log "Pinned compose airwaves images -> :${alias}"
 }
 
 generate_device_id() {
@@ -84,18 +110,24 @@ load_prebaked_containers() {
         return 0
     fi
 
-    # No tarballs - pull from GHCR registry
+    # No tarballs - pull from GHCR registry for this device's release channel.
     log "No pre-baked images found, pulling from registry..."
     local registry="ghcr.io/airframesio"
+    local alias
+    alias="$(channel_alias)"
+    log "Release channel image tag: :${alias}"
 
     for image in airwaves-gateway airwaves-manager; do
-        log "Pulling ${registry}/${image}:latest..."
-        if docker pull "${registry}/${image}:latest"; then
+        log "Pulling ${registry}/${image}:${alias}..."
+        if docker pull "${registry}/${image}:${alias}"; then
             log "Pulled: ${image}"
         else
             log "WARNING: Failed to pull ${image} - will retry on next boot"
         fi
     done
+
+    # Keep the compose file's image tags aligned with what we just pulled.
+    pin_compose_to_alias "${alias}"
 
     log "Container pull complete"
 }
