@@ -101,18 +101,21 @@ discover_source() {
 list_targets_json() {
     discover_source
     local rows="[]"
-    while read -r name size model rm type; do
+    # MODEL is read LAST because it is frequently empty (virtio, some NVMe); a
+    # blank middle column would shift positional fields and drop the disk.
+    while read -r name rm type size model; do
         [ "${type}" != "disk" ] && continue
         [ "${rm}" = "1" ] && continue                 # skip removable (the USB)
         [ "/dev/${name}" = "${SOURCE_DISK}" ] && continue
-        case "${name}" in sr*|loop*|ram*) continue;; esac
+        # Skip optical, virtual, and pseudo block devices (never install targets).
+        case "${name}" in sr*|loop*|ram*|zram*|fd*|dm-*|md*|nbd*) continue;; esac
         rows="$(jq -c \
             --arg dev "/dev/${name}" \
             --arg size "${size}" \
             --arg model "${model}" \
             '. + [{device:$dev, size:$size, model:($model|gsub("^ +| +$";""))}]' \
             <<<"${rows}")"
-    done < <(lsblk -dno NAME,SIZE,MODEL,RM,TYPE)
+    done < <(lsblk -dno NAME,RM,TYPE,SIZE,MODEL)
     echo "${rows}"
 }
 
@@ -166,12 +169,25 @@ partition_target() {
     parted -s "${TARGET}" -- mkpart "ESP" fat32 1MiB 513MiB >>"${LOG_TMP}" 2>&1 || fail "parted ESP failed"
     parted -s "${TARGET}" -- set 1 esp on >>"${LOG_TMP}" 2>&1
     parted -s "${TARGET}" -- mkpart "airwaves-root" ext4 513MiB 100% >>"${LOG_TMP}" 2>&1 || fail "parted root failed"
-    partprobe "${TARGET}" >>"${LOG_TMP}" 2>&1
-    sleep 2
+
+    # Wait for the kernel to create the partition device nodes (parted + udev
+    # can lag; mkfs against a not-yet-present node fails).
+    partprobe "${TARGET}" >>"${LOG_TMP}" 2>&1 || true
+    command -v udevadm >/dev/null && udevadm settle --timeout=10 >>"${LOG_TMP}" 2>&1 || true
+    local n
+    for n in $(seq 1 15); do
+        [ -b "${esp}" ] && [ -b "${root}" ] && break
+        sleep 1
+        partprobe "${TARGET}" >>"${LOG_TMP}" 2>&1 || true
+    done
+    [ -b "${esp}" ]  || fail "ESP partition ${esp} never appeared: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
+    [ -b "${root}" ] || fail "root partition ${root} never appeared: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
 
     phase "formatting" 25
-    mkfs.vfat -F32 -n AIRWAVES-EFI "${esp}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.vfat failed"
-    mkfs.ext4 -qF -L airwaves-root "${root}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.ext4 failed"
+    command -v mkfs.vfat >/dev/null || fail "mkfs.vfat not found (dosfstools missing from image)"
+    # FAT volume labels are limited to 11 characters.
+    mkfs.vfat -F32 -n AIRWAVES "${esp}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.vfat failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
+    mkfs.ext4 -qF -L airwaves-root "${root}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.ext4 failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
 }
 
 # ---- copy rootfs (rsync with live progress) --------------------------------
