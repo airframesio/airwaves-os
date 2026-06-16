@@ -36,4 +36,11 @@ function post_family_tweaks__airwaves_installer_setup() {
 			"${SDCARD}"/etc/systemd/system/airwaves-firstrun.service
 		chroot_sdcard systemctl --no-reload enable airwaves-firstrun.service
 	fi
+
+	# Put the installer on PATH so users can run `sudo airwaves-install` to get
+	# the TUI installer (bare invocation) or drive it via flags. The manager
+	# still calls the script by its absolute /opt path.
+	run_host_command_logged mkdir -p "${SDCARD}"/usr/local/sbin
+	run_host_command_logged ln -sf /opt/airwaves/scripts/airwaves-install \
+		"${SDCARD}"/usr/local/sbin/airwaves-install
 }

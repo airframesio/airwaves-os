@@ -477,7 +477,14 @@ EOF
 case "${1:-}" in
     --list-json) list_targets_json; exit 0 ;;
     --target)    TARGET="${2:-}" ;;
-    "")          fail "usage: airwaves-install --target <disk> | --list-json" ;;
+    "")
+        # Bare interactive invocation (a user typed `airwaves-install` at a
+        # console) -> launch the friendly TUI installer. Non-interactive callers
+        # (e.g. the manager) always pass --target/--list-json and skip this.
+        if [ -t 0 ] && command -v dialog >/dev/null 2>&1 && [ -x /opt/airwaves/scripts/airwaves-firstrun ]; then
+            exec /opt/airwaves/scripts/airwaves-firstrun --install
+        fi
+        fail "usage: airwaves-install --target <disk> | --list-json" ;;
     *)           TARGET="${1}" ;;
 esac
 
