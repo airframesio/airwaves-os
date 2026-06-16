@@ -1,0 +1,136 @@
+#!/bin/bash
+#
+# airwaves-tui — the persistent Airwaves OS console menu shown on the main VT
+# (tty1). Renders a live status header and offers Install / Upgrade / Repair /
+# Open a shell / Reboot / Power off.
+#
+# It is launched from the tty1 autologin session (see /etc/profile.d/
+# zz-airwaves-tui.sh + the getty@tty1 autologin drop-in) and LOOPS FOREVER —
+# every action returns to the menu, and it never exits on its own. If it ever
+# does die (crash, or the user drops to a shell that then exits), getty simply
+# respawns the autologin session and relaunches it, so tty1 can never become a
+# dead end. The serial console and SSH get a normal shell, not this menu.
+#
+set -uo pipefail
+
+FIRSTRUN="/opt/airwaves/scripts/airwaves-firstrun"   # the install sub-flow (--install)
+API="http://localhost/api/v1"                         # manager API via the gateway
+VERSIONS="/etc/airwaves/.versions.json"
+RELEASE="/etc/airwaves-release"
+BT="Airwaves OS"
+export DIALOGRC=/dev/null
+export TERM="${TERM:-linux}"
+
+api_up() { curl -fsS -m3 "${API}/system/overview" >/dev/null 2>&1; }
+
+primary_ip() {
+    local f intf tmp
+    for f in /sys/class/net/*; do
+        intf="$(basename "$f")"
+        case "$intf" in lo|docker0|br-*|veth*|dummy*) continue;; esac
+        tmp="$(ip -4 addr show dev "$intf" 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)"
+        [ -n "$tmp" ] && { printf '%s' "$tmp"; return; }
+    done
+}
+
+is_live() {
+    local rd
+    rd="$(lsblk -ndo pkname "$(findmnt -no SOURCE / 2>/dev/null)" 2>/dev/null)"
+    [ "$(cat "/sys/block/${rd}/removable" 2>/dev/null || echo 0)" = "1" ]
+}
+
+svc() {
+    local s
+    s="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$1" 2>/dev/null)" || s="down"
+    printf '%s' "${s:-down}"
+}
+
+header() {
+    local ver="?" cn="" ch host ip mode
+    # shellcheck disable=SC1090
+    [ -f "$RELEASE" ] && . "$RELEASE" 2>/dev/null
+    ver="${AIRWAVES_VERSION:-?}"; cn="${AIRWAVES_CODENAME:-}"
+    ch="$(jq -r '.channel // "stable"' "$VERSIONS" 2>/dev/null || echo stable)"
+    host="$(hostname 2>/dev/null)"; ip="$(primary_ip)"
+    if is_live; then mode="LIVE USB"; else mode="INSTALLED"; fi
+    printf 'Airwaves OS v%s %s    [%s]    channel: %s\n' "$ver" "$cn" "$mode" "$ch"
+    printf 'Web UI:  http://%s.local' "$host"; [ -n "$ip" ] && printf '   http://%s' "$ip"; printf '\n'
+    printf 'Login:   airwaves / airwaves\n'
+    printf 'Stack:   manager=%s  gateway=%s' "$(svc airwaves-manager)" "$(svc airwaves-gateway)"
+}
+
+# Render the manager's update progress as a dialog gauge until it finishes.
+update_gauge() {
+    (
+        local p pct phase state
+        for _ in $(seq 1 1200); do
+            p="$(curl -fsS -m4 "${API}/system/update/progress" 2>/dev/null)"
+            pct="$(printf '%s' "$p" | jq -r '.percent // 0' 2>/dev/null || echo 0)"
+            phase="$(printf '%s' "$p" | jq -r '.phase // "working"' 2>/dev/null || echo working)"
+            state="$(printf '%s' "$p" | jq -r '.state // "running"' 2>/dev/null || echo running)"
+            echo "XXX"; echo "${pct:-0}"; printf '%s\nStep: %s\n' "$1" "$phase"; echo "XXX"
+            case "$state" in success|failed|rolled_back) break;; esac
+            sleep 2
+        done
+        echo 100
+    ) | dialog --backtitle "$BT" --title "$1" --gauge "\nStarting..." 10 64 0
+}
+
+apply_update() {   # $1 = upgrade | repair
+    if ! api_up; then
+        dialog --backtitle "$BT" --title "Manager unavailable" \
+            --msgbox "\nThe manager service isn't responding, so an online ${1} can't run.\n\nUse 'Open a shell' to investigate, or the web UI." 11 62
+        return
+    fi
+    if [ "$1" = repair ]; then
+        curl -fsS -m10 -X POST "${API}/system/update/refresh" >/dev/null 2>&1
+    else
+        curl -fsS -m10 -X POST "${API}/system/update/apply" \
+            -H 'Content-Type: application/json' \
+            -d '{"components":["manager","gateway","compose","catalog"]}' >/dev/null 2>&1
+    fi
+    update_gauge "${1^} in progress"
+    local prog st err
+    prog="$(curl -fsS -m4 "${API}/system/update/progress" 2>/dev/null)"
+    st="$(printf '%s' "$prog" | jq -r '.state // "unknown"' 2>/dev/null || echo unknown)"
+    if [ "$st" = success ]; then
+        dialog --backtitle "$BT" --msgbox "\n${1^} completed successfully." 8 50
+    else
+        err="$(printf '%s' "$prog" | jq -r '.error // "see /var/log/airwaves-update.log"' 2>/dev/null)"
+        dialog --backtitle "$BT" --title "${1^} did not complete" --msgbox "\nState: ${st}\n\n${err}" 12 64
+    fi
+}
+
+open_shell() {
+    clear
+    echo "Airwaves OS shell — type 'exit' to return to the console menu."
+    echo
+    AIRWAVES_TUI_SHELL=1 bash -l || true
+}
+
+# If dialog is somehow unavailable, never trap the user: drop to a shell.
+command -v dialog >/dev/null 2>&1 || { echo "dialog not available; opening a shell."; exec bash -l; }
+
+while true; do
+    items=()
+    if is_live; then items+=( install "Install Airwaves OS to an internal disk" ); fi
+    items+=( upgrade  "Upgrade to the latest for this channel" )
+    items+=( repair   "Repair (re-pull + recreate the app stack)" )
+    items+=( shell    "Open a shell" )
+    items+=( reboot   "Reboot" )
+    items+=( poweroff "Power off" )
+
+    choice="$(dialog --backtitle "$BT" --no-cancel --title "Airwaves OS Console" \
+        --menu "$(header)\n" 22 74 9 "${items[@]}" 3>&1 1>&2 2>&3)" || { sleep 1; continue; }
+
+    case "$choice" in
+        install)  clear; "$FIRSTRUN" --install || true ;;
+        upgrade)  apply_update upgrade ;;
+        repair)   dialog --backtitle "$BT" --defaultno \
+                      --yesno "\nRepair re-pulls and recreates the app containers (no version change). Continue?" 9 62 \
+                      && apply_update repair ;;
+        shell)    open_shell ;;
+        reboot)   dialog --backtitle "$BT" --defaultno --yesno "\nReboot now?" 7 36 && { clear; systemctl reboot; } ;;
+        poweroff) dialog --backtitle "$BT" --defaultno --yesno "\nPower off now?" 7 36 && { clear; systemctl poweroff; } ;;
+    esac
+done

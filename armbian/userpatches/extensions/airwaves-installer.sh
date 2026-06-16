@@ -27,15 +27,33 @@ function user_config__airwaves_installer_packages() {
 }
 
 function post_family_tweaks__airwaves_installer_setup() {
-	display_alert "Enabling Airwaves first-run console wizard" "${EXTENSION}" "info"
+	display_alert "Setting up Airwaves console TUI on tty1" "${EXTENSION}" "info"
 
-	# The first-run wizard unit (scripts are copied by airwaves-base's
-	# pre_install_kernel_debs hook, which copies the whole scripts/ dir).
-	if [ -f "${SDCARD}"/opt/airwaves/config/templates/systemd-airwaves-firstrun.service ]; then
-		run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/templates/systemd-airwaves-firstrun.service \
-			"${SDCARD}"/etc/systemd/system/airwaves-firstrun.service
-		chroot_sdcard systemctl --no-reload enable airwaves-firstrun.service
+	# Console model: a persistent TUI (airwaves-tui) owns tty1 via a getty
+	# AUTOLOGIN session, not a oneshot wizard. The old firstrun oneshot
+	# Conflicts=getty@tty1 + TTYVHangup left tty1 DEAD after the user chose "Run
+	# live" (no shell). getty's respawn now guarantees tty1 always has the TUI;
+	# if it ever exits, getty relaunches it. (Scripts are copied to
+	# /opt/airwaves/scripts by airwaves-base's pre_install hook.)
+	run_host_command_logged chmod +x "${SDCARD}"/opt/airwaves/scripts/airwaves-tui || true
+
+	# getty@tty1 autologin drop-in.
+	run_host_command_logged mkdir -p "${SDCARD}"/etc/systemd/system/getty@tty1.service.d
+	if [ -f "${SDCARD}"/opt/airwaves/config/templates/getty-tty1-autologin.conf ]; then
+		run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/templates/getty-tty1-autologin.conf \
+			"${SDCARD}"/etc/systemd/system/getty@tty1.service.d/airwaves-tui.conf
 	fi
+
+	# Launch the TUI from the tty1 login session only (serial/SSH get a shell).
+	if [ -f "${SDCARD}"/opt/airwaves/config/profile.d-airwaves-tui.sh ]; then
+		run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/profile.d-airwaves-tui.sh \
+			"${SDCARD}"/etc/profile.d/zz-airwaves-tui.sh
+	fi
+
+	# Retire the old first-run oneshot service if it was ever installed (the TUI
+	# replaces it; the airwaves-firstrun SCRIPT remains for the --install flow).
+	run_host_command_logged rm -f "${SDCARD}"/etc/systemd/system/airwaves-firstrun.service
+	chroot_sdcard systemctl --no-reload disable airwaves-firstrun.service 2>/dev/null || true
 
 	# Put the installer on PATH so users can run `sudo airwaves-install` to get
 	# the TUI installer (bare invocation) or drive it via flags. The manager
