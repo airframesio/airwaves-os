@@ -54,6 +54,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Persist Armbian's compiled kernel/u-boot packages, the debootstrap base
+      # rootfs, and ccache across runs. The big win is output/debs: Armbian
+      # content-hashes each kernel artifact from its config + patches, so on an
+      # unchanged kernel it finds the cached .deb and SKIPS the ~1h45m compile.
+      # This is a performance hint only — if the kernel actually changed, the
+      # hash differs and Armbian rebuilds, so a stale cache can never ship the
+      # wrong kernel. restore-keys lets script-only changes (which bump the key
+      # via userpatches/** but leave the kernel untouched) still reuse the debs.
+      - name: Cache Armbian kernel + rootfs
+        uses: actions/cache@v4
+        with:
+          path: |
+            .armbian-build/output/debs
+            .armbian-build/cache/rootfs
+            .armbian-build/cache/ccache
+          key: armbian-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}-${{ github.event.inputs.branch }}-${{ hashFiles('armbian/build.sh', 'armbian/userpatches/**') }}
+          restore-keys: |
+            armbian-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}-${{ github.event.inputs.branch }}-
+            armbian-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}-
+
       - name: Build image
         env:
           BOARD: ${{ github.event.inputs.board }}
@@ -65,6 +85,17 @@ jobs:
 
       - name: List output
         run: ls -lh .armbian-build/output/images/ 2>/dev/null || echo "No images found"
+
+      # The build runs under sudo, so the cached dirs are root-owned. The
+      # actions/cache post-step saves as the runner user and can't read them
+      # otherwise. This runs in the main phase (before the cache post-step), so
+      # ownership is fixed by the time the cache is saved.
+      - name: Fix cache ownership for save
+        if: always()
+        run: |
+          sudo mkdir -p .armbian-build/output/debs .armbian-build/cache/rootfs .armbian-build/cache/ccache
+          sudo chown -R "$(id -u):$(id -g)" \
+            .armbian-build/output/debs .armbian-build/cache/rootfs .armbian-build/cache/ccache || true
 
       - name: Generate SHA256 checksums
         run: |
