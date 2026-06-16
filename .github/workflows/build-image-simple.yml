@@ -98,6 +98,31 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" \
             .armbian-build/output/debs .armbian-build/cache/rootfs .armbian-build/cache/ccache || true
 
+      # Stamp the Airwaves OS version into the image filename. We can't do this
+      # via Armbian's REVISION (it feeds base-files' package version, which must
+      # outrank stock Debian), so rename the output here: replace the REVISION
+      # field with the Airwaves version (bare on a release tag, <version>-<sha>
+      # otherwise). Must run before the checksum step so .sha256 matches.
+      - name: Stamp Airwaves version into image filename
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" .armbian-build/output/images 2>/dev/null || true
+          cd .armbian-build/output/images 2>/dev/null || { echo "no images dir"; exit 0; }
+          VER="$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' \
+            "$GITHUB_WORKSPACE/containers/airwaves-manager/Cargo.toml" | head -1)"
+          case "$GITHUB_REF" in
+            refs/tags/v*) AWVER="${GITHUB_REF#refs/tags/v}" ;;
+            *)            AWVER="${VER:-dev}-$(git -C "$GITHUB_WORKSPACE" rev-parse --short HEAD)" ;;
+          esac
+          echo "Airwaves version for filename: ${AWVER}"
+          shopt -s nullglob
+          for f in Airwaves_OS_*.img.xz Airwaves_OS_*.img; do
+            rest="${f#Airwaves_OS_}"        # <REVISION>_<board>_...
+            tail="${rest#*_}"              # <board>_...  (drops the REVISION field)
+            new="Airwaves_OS_${AWVER}_${tail}"
+            [ "$f" = "$new" ] && continue
+            mv -f "$f" "$new" && echo "renamed: $f -> $new"
+          done
+
       - name: Generate SHA256 checksums
         run: |
           # The image is built under sudo, so the output dir is root-owned;
