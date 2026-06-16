@@ -138,12 +138,20 @@ if [ -n "${WEB_MODE}" ]; then
     done
     [ -n "${have}" ] || die "/system/disks never answered after pinning the dev manager"
 
-    disks="$(curl -fsS -m8 "http://localhost:${API_PORT}/api/v1/system/disks")" || die "GET /system/disks failed"
+    disks="$(curl -fsS -m20 "http://localhost:${API_PORT}/api/v1/system/disks")" || die "GET /system/disks failed"
     dev="$(echo "${disks}" | jq -r '.[0].device // empty')"
     [ -n "${dev}" ] || { echo "${disks}"; die "no install target offered by /system/disks"; }
     log "Installing to ${dev} via POST /system/install..."
-    curl -fsS -m10 -X POST "http://localhost:${API_PORT}/api/v1/system/install" \
-        -H 'Content-Type: application/json' -d "{\"device\":\"${dev}\"}" >/dev/null || die "POST /system/install failed"
+    # The POST does two nsenter round-trips (validate the target, then spawn the
+    # installer), each seconds-slow under TCG emulation, so give it room. If curl
+    # still gives up, the server may have started anyway — fall through to the
+    # progress poll, which is the real success signal, instead of failing hard.
+    if curl -fsS -m90 -X POST "http://localhost:${API_PORT}/api/v1/system/install" \
+        -H 'Content-Type: application/json' -d "{\"device\":\"${dev}\"}" >/dev/null; then
+        log "POST /system/install accepted."
+    else
+        log "WARNING: POST /system/install did not return cleanly; checking progress in case it started anyway..."
+    fi
 
     st=""
     for i in $(seq 1 220); do  # up to ~37 min for the install
