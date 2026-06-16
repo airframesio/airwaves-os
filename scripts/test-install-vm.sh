@@ -49,8 +49,14 @@ for c in edk2-x86_64-code.fd OVMF_CODE.fd; do
     [ -f "${QEMU_SHARE}/${c}" ] && OVMF_CODE="${QEMU_SHARE}/${c}" && break
 done
 [ -n "${OVMF_CODE}" ] || die "OVMF UEFI firmware not found under ${QEMU_SHARE}"
-# Writable varstore + writable copy of the image (so the test is non-destructive).
-cp "${OVMF_CODE}" "${WORK}/OVMF_VARS.fd" 2>/dev/null || qemu-img create -f raw "${WORK}/OVMF_VARS.fd" 4M
+# Writable UEFI variable store: copy the vars TEMPLATE (not the code file) so
+# the firmware can boot and persist boot entries.
+OVMF_VARS_SRC=""
+for v in edk2-x86_64-vars.fd edk2-i386-vars.fd OVMF_VARS.fd; do
+    [ -f "${QEMU_SHARE}/${v}" ] && OVMF_VARS_SRC="${QEMU_SHARE}/${v}" && break
+done
+[ -n "${OVMF_VARS_SRC}" ] || die "OVMF UEFI vars template not found under ${QEMU_SHARE}"
+cp "${OVMF_VARS_SRC}" "${WORK}/OVMF_VARS.fd"
 USB_IMG="${WORK}/usb.img"
 case "${IMAGE}" in
     *.img.xz|*.xz)
