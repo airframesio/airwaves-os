@@ -72,6 +72,23 @@ exit [lindex $result 3]
 EXP
 sshx() { expect "${WORK}/ssh.exp" "$1" "$2" "${SSH_PORT}" "${PW}"; }   # $1=user $2=cmd
 
+# Discover the working SSH login and set SSH_USER + SUDO. The image may allow
+# root login or only the unprivileged 'airwaves' user (then we sudo with -S).
+discover_ssh() {
+    log "Waiting for SSH + discovering login (root vs airwaves)..."
+    SSH_USER=""; SUDO=""
+    for i in $(seq 1 40); do
+        sleep 15
+        out="$(sshx root 'echo PROBE_$(id -u)' 2>/dev/null || true)"
+        if echo "$out" | grep -q "PROBE_0"; then SSH_USER=root; SUDO=""; log "  ssh root OK (after ~$((i*15))s)"; return 0; fi
+        if echo "$out" | grep -qiE "permission denied"; then
+            a="$(sshx airwaves 'echo PROBE_$(id -u)' 2>/dev/null || true)"
+            if echo "$a" | grep -qE "PROBE_[0-9]+"; then SSH_USER=airwaves; SUDO="echo ${PW} | sudo -S "; log "  ssh airwaves OK (root login disabled)"; return 0; fi
+        fi
+    done
+    return 1
+}
+
 boot() {  # $1=serial-log  $2..=extra qemu args
     local sl="$1"; shift
     qemu-system-x86_64 -machine q35 -cpu qemu64 -m "${RAM}" \
@@ -101,6 +118,26 @@ if [ -n "${WEB_MODE}" ]; then
     done
     [ -n "${up}" ] || { tail -20 "${WORK}/boot1.log" 2>/dev/null; die "manager never came up on the live USB"; }
 
+    # The image's compose pulls airwaves-manager:latest, which tracks the stable
+    # channel and predates the install API. The install endpoints under test live
+    # in the dev channel (1.0.37+). Repoint the manager to the dev-pinned tag from
+    # releases/dev.json over SSH and restart it — what a dev-channel device runs
+    # after an update — so the web installer path actually exists to be tested.
+    MGR_TAG="$(python3 -c "import json;print(json.load(open('$(cd "$(dirname "$0")/.." && pwd)/releases/dev.json'))['components']['manager']['tag'])" 2>/dev/null)"
+    [ -n "${MGR_TAG}" ] || die "could not read manager tag from releases/dev.json"
+    DEV_MGR="ghcr.io/airframesio/airwaves-manager:${MGR_TAG}"
+    discover_ssh || { tail -8 "${WORK}/boot1.log" 2>/dev/null; die "SSH never came up (needed to pin the dev manager)"; }
+    log "Pinning manager to ${DEV_MGR} and restarting..."
+    sshx "${SSH_USER}" "${SUDO}bash -c 'docker pull ${DEV_MGR} && sed -i \"s#image: ghcr.io/airframesio/airwaves-manager:.*#image: ${DEV_MGR}#\" /etc/airwaves/docker-compose.yml && cd /etc/airwaves && docker compose up -d'" \
+        || die "failed to pin/restart the dev manager"
+    log "Waiting for the install API (/system/disks) on the dev manager..."
+    have=""
+    for i in $(seq 1 90); do
+        sleep 8
+        curl -fsS -m6 "http://localhost:${API_PORT}/api/v1/system/disks" >/dev/null 2>&1 && { have=1; log "  install API up (~$((i*8))s after pin)"; break; }
+    done
+    [ -n "${have}" ] || die "/system/disks never answered after pinning the dev manager"
+
     disks="$(curl -fsS -m8 "http://localhost:${API_PORT}/api/v1/system/disks")" || die "GET /system/disks failed"
     dev="$(echo "${disks}" | jq -r '.[0].device // empty')"
     [ -n "${dev}" ] || { echo "${disks}"; die "no install target offered by /system/disks"; }
@@ -127,18 +164,7 @@ if [ -n "${WEB_MODE}" ]; then
     done
 else
 
-log "Waiting for SSH + discovering login (root vs airwaves)..."
-SSH_USER=""; SUDO=""
-for i in $(seq 1 40); do
-    sleep 15
-    out="$(sshx root 'echo PROBE_$(id -u)' 2>/dev/null || true)"
-    if echo "$out" | grep -q "PROBE_0"; then SSH_USER=root; SUDO=""; log "  ssh root OK (after ~$((i*15))s)"; break; fi
-    if echo "$out" | grep -qiE "permission denied"; then
-        a="$(sshx airwaves 'echo PROBE_$(id -u)' 2>/dev/null || true)"
-        if echo "$a" | grep -qE "PROBE_[0-9]+"; then SSH_USER=airwaves; SUDO="echo ${PW} | sudo -S "; log "  ssh airwaves OK (root login disabled)"; break; fi
-    fi
-done
-[ -n "${SSH_USER}" ] || { tail -8 "${WORK}/boot1.log" 2>/dev/null; die "SSH never became usable"; }
+discover_ssh || { tail -8 "${WORK}/boot1.log" 2>/dev/null; die "SSH never became usable"; }
 
 if [ -n "${OVERLAY_DIR}" ]; then
     log "Overlaying working-tree scripts via SSH (base64-in-command)..."
