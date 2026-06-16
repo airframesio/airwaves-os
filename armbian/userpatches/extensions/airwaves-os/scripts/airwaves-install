@@ -211,6 +211,14 @@ copy_rootfs() {
 /var/log.hdd/*
 /swapfile
 /etc/airwaves/install/*
+# Don't copy the live Docker/containerd store: it's being written while we
+# rsync (docker is running), so the copy is inconsistent and the target's
+# content store ends up with dangling layer references ("blob not found").
+# The installed system pulls the app images fresh on first boot, same as the
+# live USB does.
+/var/lib/docker/*
+/var/lib/containerd/*
+/var/lib/docker.hdd/*
 EOF
 
     if [ "${APPLY}" != "1" ]; then

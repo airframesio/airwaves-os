@@ -130,6 +130,10 @@ for i in $(seq 1 30); do
 done
 
 # ---- Phase 2: boot from internal disk ALONE, assert manager answers ---------
+# Use a FRESH UEFI varstore: phase 1's vars point at the (now-absent) USB boot
+# entry, so reusing them drops OVMF to the UEFI shell instead of discovering the
+# installed disk's removable bootloader (/EFI/BOOT/BOOTX64.EFI).
+cp "${OVMF_VARS_SRC}" "${WORK}/OVMF_VARS.fd"
 log "Phase 2: booting from the internal disk only..."
 P2=$(boot "${WORK}/boot2.log" -drive "file=${TARGET_IMG},format=qcow2,if=virtio")
 ok=""
