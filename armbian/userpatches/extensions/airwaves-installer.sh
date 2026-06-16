@@ -13,10 +13,13 @@ function user_config__airwaves_installer_packages() {
 	display_alert "Adding installer packages for Airwaves OS" "${EXTENSION}" "info"
 	# Disk + filesystem + UI tooling used by airwaves-install / airwaves-firstrun.
 	# (rsync, jq, util-linux are pulled in elsewhere/by base; listed where needed.)
+	# These cover all platforms: ARM u-boot boards write the bootloader via the
+	# board's existing u-boot package (write_uboot_platform + dd), and Raspberry
+	# Pi stages its FAT firmware partition with dosfstools — no extra packages.
 	add_packages_to_rootfs parted gdisk dosfstools e2fsprogs rsync dialog
 
-	# x86 UEFI install needs GRUB for amd64. ARM boards use u-boot (out of scope
-	# for the wizard for now), so only add GRUB on amd64.
+	# Only x86 UEFI needs GRUB. ARM boards boot via u-boot (raw sectors) or the
+	# Pi GPU firmware, so GRUB is added on amd64 only.
 	if [[ "${ARCH}" == "amd64" ]]; then
 		display_alert "Adding GRUB EFI packages for x86 installer" "${EXTENSION}" "info"
 		add_packages_to_rootfs grub-efi-amd64 grub-efi-amd64-bin grub2-common efibootmgr

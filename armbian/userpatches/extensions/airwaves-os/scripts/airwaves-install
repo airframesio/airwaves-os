@@ -1,14 +1,18 @@
 #!/bin/bash
 #
-# airwaves-install — install the running (live USB) Airwaves OS system onto an
-# internal disk. Reuses Armbian's proven disk approach (GPT + FAT32 ESP + ext4
-# root, rsync the running rootfs, grub-install in a chroot) but replaces the
-# interactive dialog UI with a structured status.json (same shape as
-# airwaves-update) so the console wizard, web UI, and any other front-end can
-# render branded, structured progress.
+# airwaves-install — install the running (live USB / SD) Airwaves OS system onto
+# an internal disk (NVMe / eMMC / SATA / USB-SSD). Reuses Armbian's proven
+# per-platform disk approach but replaces the interactive dialog UI with a
+# structured status.json (same shape as airwaves-update) so the console wizard,
+# web UI, and any other front-end can render branded, structured progress.
 #
-# Scope: x86 UEFI (the live USB installer target). ARM/u-boot boards install via
-# Armbian's own armbian-install for now; this path is enabled per-arch later.
+# Supported platforms (auto-detected):
+#   - uefi-x86   : GPT + FAT32 ESP + ext4 root, grub-install in a chroot.
+#   - uboot      : Rockchip rk3588 (Rock 5B, Orange Pi 5) and other u-boot ARM
+#                  boards. ext4 root starting at 16MiB; the bootloader is written
+#                  to raw sectors via Armbian's on-device write_uboot_platform.
+#   - rpi        : Raspberry Pi (bcm2711). FAT32 /boot/firmware + ext4 root; the
+#                  GPU firmware boots the kernel directly (no grub/u-boot).
 #
 # SAFETY: destructive disk operations only run when AIRWAVES_INSTALL_APPLY=1.
 # Without it, the script performs all preflight checks and prints the plan
@@ -34,6 +38,15 @@ REBOOT_REQUIRED="false"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 TARGET=""
 APPLY="${AIRWAVES_INSTALL_APPLY:-0}"
+
+# Set by detect_platform / the partition step.
+PLATFORM=""
+ARCH=""
+BOARD=""
+BOARDFAMILY=""
+ROOT_DEV=""    # target root partition device
+BOOT_DEV=""    # target ESP/firmware partition device (empty for uboot)
+TMP=""
 
 mkdir -p "${STATUS_DIR}"
 
@@ -86,6 +99,30 @@ fail() {
     exit 1
 }
 
+# ---- platform detection ----------------------------------------------------
+
+detect_platform() {
+    ARCH="$(uname -m)"
+    if [ -r /etc/armbian-release ]; then
+        BOARD="$(awk -F= '/^BOARD=/{gsub(/"/,"",$2);print $2}' /etc/armbian-release 2>/dev/null)"
+        BOARDFAMILY="$(awk -F= '/^BOARDFAMILY=/{gsub(/"/,"",$2);print $2}' /etc/armbian-release 2>/dev/null)"
+    fi
+
+    # x86 + UEFI: the live-USB installer target.
+    if [ "${ARCH}" = "x86_64" ] && [ -d /sys/firmware/efi ]; then
+        PLATFORM="uefi-x86"; return 0
+    fi
+    # Raspberry Pi: GPU firmware boots from a FAT partition (no u-boot/grub).
+    case "${BOARDFAMILY}" in bcm27*|bcm28*) PLATFORM="rpi"; return 0 ;; esac
+    case "${BOARD}" in rpi*|raspberrypi*) PLATFORM="rpi"; return 0 ;; esac
+    # Rockchip and other u-boot boards: bootloader lives in raw sectors and is
+    # written by the on-device write_uboot_platform (from the u-boot package).
+    if [ -f /usr/lib/u-boot/platform_install.sh ]; then PLATFORM="uboot"; return 0; fi
+    case "${BOARDFAMILY}" in rockchip*|sunxi*|meson*|rk*) PLATFORM="uboot"; return 0 ;; esac
+
+    PLATFORM="unknown"
+}
+
 # ---- source / target discovery (mirrors armbian-install) -------------------
 
 discover_source() {
@@ -96,8 +133,9 @@ discover_source() {
     SOURCE_DISK="/dev/${SOURCE_DISK_NAME}"
 }
 
-# Candidate internal target disks: real disks, not removable, not the source
-# (USB) device, not optical. One JSON object per disk.
+# Candidate internal target disks: real disks, not the source (boot) device, not
+# optical/virtual. Removable disks are skipped EXCEPT that the source is always
+# skipped regardless. One JSON object per disk.
 list_targets_json() {
     discover_source
     local rows="[]"
@@ -105,7 +143,7 @@ list_targets_json() {
     # blank middle column would shift positional fields and drop the disk.
     while read -r name rm type size model; do
         [ "${type}" != "disk" ] && continue
-        [ "${rm}" = "1" ] && continue                 # skip removable (the USB)
+        [ "${rm}" = "1" ] && continue                 # skip removable (the USB/SD)
         [ "/dev/${name}" = "${SOURCE_DISK}" ] && continue
         # Skip optical, virtual, and pseudo block devices (never install targets).
         case "${name}" in sr*|loop*|ram*|zram*|fd*|dm-*|md*|nbd*) continue;; esac
@@ -123,10 +161,31 @@ list_targets_json() {
 
 preflight() {
     phase "preflight" 5
-    command -v jq >/dev/null   || fail "jq is required"
+    command -v jq >/dev/null     || fail "jq is required"
     command -v parted >/dev/null || fail "parted is required"
     command -v rsync >/dev/null  || fail "rsync is required"
-    [ -d /sys/firmware/efi ] || fail "Not booted in UEFI mode; only UEFI x86 install is supported"
+    command -v mkfs.ext4 >/dev/null || fail "mkfs.ext4 not found (e2fsprogs missing from image)"
+
+    detect_platform
+    log "Platform: ${PLATFORM} (arch=${ARCH} board=${BOARD:-?} family=${BOARDFAMILY:-?})"
+    case "${PLATFORM}" in
+        uefi-x86)
+            command -v mkfs.vfat >/dev/null || fail "mkfs.vfat not found (dosfstools missing from image)"
+            ;;
+        rpi)
+            command -v mkfs.vfat >/dev/null || fail "mkfs.vfat not found (dosfstools missing from image)"
+            mountpoint -q /boot/firmware || [ -d /boot/firmware ] \
+                || fail "/boot/firmware not present; cannot stage Raspberry Pi boot files"
+            ;;
+        uboot)
+            [ -f /usr/lib/u-boot/platform_install.sh ] \
+                || fail "u-boot platform script (/usr/lib/u-boot/platform_install.sh) missing; cannot install bootloader"
+            ;;
+        *)
+            fail "Unsupported platform for install (arch=${ARCH}, family=${BOARDFAMILY:-unknown}). Supported: x86 UEFI, Rockchip/u-boot ARM, Raspberry Pi."
+            ;;
+    esac
+
     [ -n "${TARGET}" ] || fail "No target disk specified"
     [ -b "${TARGET}" ] || fail "Target ${TARGET} is not a block device"
 
@@ -150,18 +209,34 @@ preflight() {
     fi
 }
 
-# partition suffix: nvme0n1 -> p1, sda -> 1
+# partition suffix: nvme0n1 -> p1, mmcblk0 -> p1, sda -> 1
 part() { case "$1" in *[0-9]) echo "$1p$2";; *) echo "$1$2";; esac; }
 
-# ---- partition + format (Armbian uefi layout: ESP + ext4 root) -------------
+# Wait for the kernel + udev to create the given partition device nodes after
+# (re)partitioning. parted + udev can lag; mkfs against a missing node fails.
+settle_parts() {
+    partprobe "${TARGET}" >>"${LOG_TMP}" 2>&1 || true
+    command -v udevadm >/dev/null && udevadm settle --timeout=10 >>"${LOG_TMP}" 2>&1 || true
+    local n d ok
+    for n in $(seq 1 15); do
+        ok=1
+        for d in "$@"; do [ -b "${d}" ] || ok=0; done
+        [ "${ok}" = "1" ] && return 0
+        sleep 1
+        partprobe "${TARGET}" >>"${LOG_TMP}" 2>&1 || true
+    done
+    for d in "$@"; do
+        [ -b "${d}" ] || fail "partition ${d} never appeared: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
+    done
+}
 
-partition_target() {
+# ---- partition + format: per platform --------------------------------------
+
+partition_x86() {  # GPT + FAT32 ESP(512MiB) + ext4 root
     phase "partitioning" 15
-    local esp root
-    esp="$(part "${TARGET}" 1)"
-    root="$(part "${TARGET}" 2)"
+    BOOT_DEV="$(part "${TARGET}" 1)"; ROOT_DEV="$(part "${TARGET}" 2)"
     if [ "${APPLY}" != "1" ]; then
-        log "[dry-run] wipefs ${TARGET}; parted gpt; ESP(${esp},fat32,512MiB); root(${root},ext4,rest)"
+        log "[dry-run] wipefs ${TARGET}; gpt; ESP(${BOOT_DEV},fat32,512MiB); root(${ROOT_DEV},ext4,rest)"
         return 0
     fi
     wipefs -a "${TARGET}" >>"${LOG_TMP}" 2>&1
@@ -169,34 +244,60 @@ partition_target() {
     parted -s "${TARGET}" -- mkpart "ESP" fat32 1MiB 513MiB >>"${LOG_TMP}" 2>&1 || fail "parted ESP failed"
     parted -s "${TARGET}" -- set 1 esp on >>"${LOG_TMP}" 2>&1
     parted -s "${TARGET}" -- mkpart "airwaves-root" ext4 513MiB 100% >>"${LOG_TMP}" 2>&1 || fail "parted root failed"
-
-    # Wait for the kernel to create the partition device nodes (parted + udev
-    # can lag; mkfs against a not-yet-present node fails).
-    partprobe "${TARGET}" >>"${LOG_TMP}" 2>&1 || true
-    command -v udevadm >/dev/null && udevadm settle --timeout=10 >>"${LOG_TMP}" 2>&1 || true
-    local n
-    for n in $(seq 1 15); do
-        [ -b "${esp}" ] && [ -b "${root}" ] && break
-        sleep 1
-        partprobe "${TARGET}" >>"${LOG_TMP}" 2>&1 || true
-    done
-    [ -b "${esp}" ]  || fail "ESP partition ${esp} never appeared: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
-    [ -b "${root}" ] || fail "root partition ${root} never appeared: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
+    settle_parts "${BOOT_DEV}" "${ROOT_DEV}"
 
     phase "formatting" 25
-    command -v mkfs.vfat >/dev/null || fail "mkfs.vfat not found (dosfstools missing from image)"
     # FAT volume labels are limited to 11 characters.
-    mkfs.vfat -F32 -n AIRWAVES "${esp}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.vfat failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
-    mkfs.ext4 -qF -L airwaves-root "${root}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.ext4 failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
+    mkfs.vfat -F32 -n AIRWAVES "${BOOT_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.vfat failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
+    mkfs.ext4 -qF -L airwaves-root "${ROOT_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.ext4 failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
+}
+
+partition_uboot() {  # GPT + ext4 root starting at 16MiB (raw sectors hold u-boot)
+    phase "partitioning" 15
+    BOOT_DEV=""; ROOT_DEV="$(part "${TARGET}" 1)"
+    if [ "${APPLY}" != "1" ]; then
+        log "[dry-run] wipefs ${TARGET}; gpt; root(${ROOT_DEV},ext4,16MiB→rest); u-boot to raw sectors of ${TARGET}"
+        return 0
+    fi
+    wipefs -a "${TARGET}" >>"${LOG_TMP}" 2>&1
+    parted -s "${TARGET}" -- mklabel gpt >>"${LOG_TMP}" 2>&1 || fail "parted mklabel failed"
+    # Partition 1 starts at 16MiB, matching Armbian's OFFSET, leaving the 0–16MiB
+    # region for the raw u-boot blobs written by write_uboot_platform.
+    parted -s "${TARGET}" -- mkpart "armbi_root" ext4 16MiB 100% >>"${LOG_TMP}" 2>&1 || fail "parted root failed"
+    settle_parts "${ROOT_DEV}"
+
+    phase "formatting" 25
+    mkfs.ext4 -qF -L armbi_root "${ROOT_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.ext4 failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
+}
+
+partition_rpi() {  # GPT + FAT32 /boot/firmware(512MiB) + ext4 root
+    phase "partitioning" 15
+    BOOT_DEV="$(part "${TARGET}" 1)"; ROOT_DEV="$(part "${TARGET}" 2)"
+    if [ "${APPLY}" != "1" ]; then
+        log "[dry-run] wipefs ${TARGET}; gpt; firmware(${BOOT_DEV},fat32,512MiB,RPICFG); root(${ROOT_DEV},ext4,rest)"
+        return 0
+    fi
+    wipefs -a "${TARGET}" >>"${LOG_TMP}" 2>&1
+    parted -s "${TARGET}" -- mklabel gpt >>"${LOG_TMP}" 2>&1 || fail "parted mklabel failed"
+    parted -s "${TARGET}" -- mkpart "RPICFG" fat32 1MiB 513MiB >>"${LOG_TMP}" 2>&1 || fail "parted firmware failed"
+    # The Raspberry Pi firmware boots a FAT data partition directly; the ESP flag
+    # is intentionally NOT set (matches Armbian, which clears it for Pi 3/4).
+    parted -s "${TARGET}" -- mkpart "armbi_root" ext4 513MiB 100% >>"${LOG_TMP}" 2>&1 || fail "parted root failed"
+    settle_parts "${BOOT_DEV}" "${ROOT_DEV}"
+
+    phase "formatting" 25
+    mkfs.vfat -F32 -n RPICFG "${BOOT_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.vfat failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
+    mkfs.ext4 -qF -L armbi_root "${ROOT_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.ext4 failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
 }
 
 # ---- copy rootfs (rsync with live progress) --------------------------------
+# Shared across platforms: mounts the target root and rsyncs the running rootfs.
+# rsync -x stays on one filesystem, so separate mounts (the ESP/firmware on the
+# source, pseudo-fs) are not descended into; per-platform boot files are staged
+# in the bootloader step.
 
 copy_rootfs() {
     phase "copying-rootfs" 30
-    local root esp
-    esp="$(part "${TARGET}" 1)"
-    root="$(part "${TARGET}" 2)"
     TMP="$(mktemp -d /mnt/airwaves-install.XXXXXX)"
 
     cat > /tmp/airwaves-install-exclude <<'EOF'
@@ -222,13 +323,13 @@ copy_rootfs() {
 EOF
 
     if [ "${APPLY}" != "1" ]; then
-        log "[dry-run] rsync / -> ${root} (excludes pseudo-fs); would stream progress 30→80%"
+        log "[dry-run] rsync / -> ${ROOT_DEV} (excludes pseudo-fs); would stream progress 30→80%"
         PERCENT=80; write_status
         rmdir "${TMP}" 2>/dev/null || true
         return 0
     fi
 
-    mount "${root}" "${TMP}" || fail "mount ${root} failed"
+    mount "${ROOT_DEV}" "${TMP}" || fail "mount ${ROOT_DEV} failed"
     echo "${TMP}" >/tmp/airwaves-install-mnt
 
     local todo
@@ -250,33 +351,27 @@ EOF
     PERCENT=80; write_status
 }
 
-# ---- bootloader (grub-install in chroot) + fstab ---------------------------
+# ---- bootloader + fstab: per platform --------------------------------------
 
-install_bootloader() {
+bootloader_x86() {  # grub-install in chroot
     phase "bootloader" 90
-    local esp root root_uuid esp_uuid
-    esp="$(part "${TARGET}" 1)"
-    root="$(part "${TARGET}" 2)"
-
+    local root_uuid esp_uuid
     if [ "${APPLY}" != "1" ]; then
         log "[dry-run] mount ESP, write fstab (root+ESP UUIDs), chroot grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Airwaves, grub-mkconfig"
         return 0
     fi
-
-    root_uuid="$(blkid -s UUID -o value "${root}")"
-    esp_uuid="$(blkid -s UUID -o value "${esp}")"
+    root_uuid="$(blkid -s UUID -o value "${ROOT_DEV}")"
+    esp_uuid="$(blkid -s UUID -o value "${BOOT_DEV}")"
     [ -n "${root_uuid}" ] || fail "could not read target root UUID"
 
     mkdir -p "${TMP}/boot/efi"
-    mount "${esp}" "${TMP}/boot/efi" || fail "mount ESP failed"
+    mount "${BOOT_DEV}" "${TMP}/boot/efi" || fail "mount ESP failed"
 
-    # fstab on the target
     cat > "${TMP}/etc/fstab" <<EOF
 UUID=${root_uuid}  /          ext4  defaults,noatime,errors=remount-ro  0  1
 UUID=${esp_uuid}   /boot/efi  vfat  umask=0077                          0  2
 EOF
 
-    # bind mounts for chroot
     for d in dev dev/pts proc sys run; do mount --bind "/${d}" "${TMP}/${d}"; done
     chroot "${TMP}" /bin/bash -c "grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Airwaves --removable" >>"${LOG_TMP}" 2>&1 \
         || { sync; chroot "${TMP}" /bin/bash -c "grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Airwaves" >>"${LOG_TMP}" 2>&1; } \
@@ -287,6 +382,92 @@ EOF
     sync
     for d in run sys proc dev/pts dev; do umount -l "${TMP}/${d}" 2>/dev/null; done
     umount -l "${TMP}/boot/efi" 2>/dev/null
+    umount -l "${TMP}" 2>/dev/null
+    REBOOT_REQUIRED="true"
+}
+
+bootloader_uboot() {  # raw-sector u-boot via write_uboot_platform + armbianEnv
+    phase "bootloader" 90
+    local root_uuid
+    if [ "${APPLY}" != "1" ]; then
+        log "[dry-run] write fstab (root UUID), set rootdev=UUID in /boot/armbianEnv.txt, write_uboot_platform \$DIR ${TARGET}"
+        return 0
+    fi
+    root_uuid="$(blkid -s UUID -o value "${ROOT_DEV}")"
+    [ -n "${root_uuid}" ] || fail "could not read target root UUID"
+
+    cat > "${TMP}/etc/fstab" <<EOF
+UUID=${root_uuid}  /  ext4  defaults,noatime,errors=remount-ro  0  1
+EOF
+
+    # Point u-boot's boot script at the new root. armbianEnv.txt lives on the
+    # target's root partition (single-partition Armbian rockchip layout); the
+    # boot.scr reads it at boot, so updating it is sufficient.
+    local env="${TMP}/boot/armbianEnv.txt"
+    if [ -f "${env}" ]; then
+        sed -i -e "s,^rootdev=.*,rootdev=UUID=${root_uuid}," -e "s,^rootfstype=.*,rootfstype=ext4," "${env}"
+        grep -q '^rootdev=' "${env}"     || echo "rootdev=UUID=${root_uuid}" >> "${env}"
+        grep -q '^rootfstype=' "${env}"  || echo "rootfstype=ext4" >> "${env}"
+    else
+        mkdir -p "${TMP}/boot"
+        printf 'rootdev=UUID=%s\nrootfstype=ext4\n' "${root_uuid}" > "${env}"
+    fi
+
+    # Write the board's u-boot to the target's raw sectors using Armbian's
+    # on-device, board-correct function (handles all rk3588 blob variants).
+    # shellcheck disable=SC1091
+    . /usr/lib/u-boot/platform_install.sh
+    type write_uboot_platform >/dev/null 2>&1 || fail "write_uboot_platform not available after sourcing platform_install.sh"
+    [ -n "${DIR:-}" ] && [ -d "${DIR}" ] || fail "u-boot blob dir (\$DIR=${DIR:-unset}) not found"
+    log "Writing u-boot from ${DIR} to ${TARGET}"
+    write_uboot_platform "${DIR}" "${TARGET}" >>"${LOG_TMP}" 2>&1 || fail "write_uboot_platform failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
+
+    phase "finalizing" 95
+    sync
+    umount -l "${TMP}" 2>/dev/null
+    REBOOT_REQUIRED="true"
+}
+
+bootloader_rpi() {  # stage FAT firmware partition + point cmdline/fstab at new root
+    phase "bootloader" 90
+    local root_uuid boot_uuid
+    if [ "${APPLY}" != "1" ]; then
+        log "[dry-run] mount firmware FAT, rsync /boot/firmware, write fstab, set root=UUID in cmdline.txt"
+        return 0
+    fi
+    root_uuid="$(blkid -s UUID -o value "${ROOT_DEV}")"
+    [ -n "${root_uuid}" ] || fail "could not read target root UUID"
+
+    mkdir -p "${TMP}/boot/firmware"
+    mount "${BOOT_DEV}" "${TMP}/boot/firmware" || fail "mount firmware partition failed"
+    boot_uuid="$(blkid -s UUID -o value "${BOOT_DEV}")"
+
+    # Stage the GPU firmware + kernel + dtbs from the running system's FAT
+    # partition (a separate mount, so the rootfs rsync did not include it).
+    if mountpoint -q /boot/firmware; then
+        rsync -a /boot/firmware/ "${TMP}/boot/firmware/" >>"${LOG_TMP}" 2>&1 || fail "copy of /boot/firmware failed"
+    else
+        fail "/boot/firmware is not mounted; cannot stage Pi boot files"
+    fi
+
+    cat > "${TMP}/etc/fstab" <<EOF
+UUID=${root_uuid}  /               ext4  defaults,noatime,errors=remount-ro  0  1
+UUID=${boot_uuid}  /boot/firmware  vfat  defaults                            0  2
+EOF
+
+    # cmdline.txt ships root=LABEL=armbi_root; the source root carries the same
+    # label, so target by UUID instead to avoid an ambiguous LABEL= match.
+    local cmd="${TMP}/boot/firmware/cmdline.txt"
+    if [ -f "${cmd}" ]; then
+        sed -i -E "s#root=[^ ]+#root=UUID=${root_uuid}#" "${cmd}"
+        grep -q "root=UUID=${root_uuid}" "${cmd}" || fail "failed to set root= in cmdline.txt"
+    else
+        fail "cmdline.txt missing on firmware partition; cannot set boot root"
+    fi
+
+    phase "finalizing" 95
+    sync
+    umount -l "${TMP}/boot/firmware" 2>/dev/null
     umount -l "${TMP}" 2>/dev/null
     REBOOT_REQUIRED="true"
 }
@@ -302,12 +483,15 @@ esac
 
 write_status
 preflight
-partition_target
-copy_rootfs
-install_bootloader
+case "${PLATFORM}" in
+    uefi-x86) partition_x86;   copy_rootfs; bootloader_x86 ;;
+    uboot)    partition_uboot; copy_rootfs; bootloader_uboot ;;
+    rpi)      partition_rpi;   copy_rootfs; bootloader_rpi ;;
+    *)        fail "Unsupported platform: ${PLATFORM}" ;;
+esac
 
 STATE="success"
 PHASE="done"
 PERCENT=100
-log "Install complete. Reboot and remove the USB drive to boot from ${TARGET}."
+log "Install complete. Reboot and remove the boot drive to boot from ${TARGET}."
 write_status "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
