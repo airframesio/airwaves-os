@@ -617,3 +617,26 @@ pub struct UpdateProgress {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finished_at: Option<String>,
 }
+
+/// Progress written by airwaves-install (status.json) when installing the live
+/// system onto an internal disk. Same shape as UpdateProgress plus the target.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct InstallProgress {
+    /// idle | running | success | failed.
+    pub state: String,
+    pub phase: String,
+    #[serde(default)]
+    pub percent: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    #[serde(default)]
+    pub log: Vec<String>,
+    #[serde(default)]
+    pub reboot_required: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<String>,
+}

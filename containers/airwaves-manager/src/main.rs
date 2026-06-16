@@ -52,6 +52,10 @@ fn api_router(state: AppState) -> Router {
         .route("/api/v1/system/update/progress", axum::routing::get(handlers::update::progress))
         .route("/api/v1/system/update/channel", axum::routing::post(handlers::update::set_channel))
         .route("/api/v1/system/update/refresh", axum::routing::post(handlers::update::refresh))
+        // Install-to-disk (live USB -> internal disk)
+        .route("/api/v1/system/disks", axum::routing::get(handlers::install::get_disks))
+        .route("/api/v1/system/install", axum::routing::post(handlers::install::start_install))
+        .route("/api/v1/system/install/progress", axum::routing::get(handlers::install::get_progress))
         // Container endpoints
         .route("/api/v1/containers", axum::routing::get(handlers::containers::list))
         .route("/api/v1/containers/stats", axum::routing::get(handlers::containers::stats))

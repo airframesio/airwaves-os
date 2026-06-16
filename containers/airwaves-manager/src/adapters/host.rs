@@ -210,6 +210,42 @@ impl HostAdapter {
         .await
     }
 
+    /// List candidate internal install-target disks (JSON array string) as seen
+    /// from the HOST, so virtio/NVMe/host disks are enumerated (not the
+    /// container's view). Runs airwaves-install --list-json via nsenter.
+    pub async fn list_install_disks(&self) -> Result<String, AppError> {
+        self.run_capture(vec![
+            "/opt/airwaves/scripts/airwaves-install".into(),
+            "--list-json".into(),
+        ])
+        .await
+        .ok_or_else(|| AppError::Internal("Failed to list install disks".into()))
+    }
+
+    /// Whether `device` is a safe whole-disk path (/dev/<alnum>), guarding
+    /// against shell injection before interpolation into a command.
+    fn valid_block_device(device: &str) -> bool {
+        device
+            .strip_prefix("/dev/")
+            .map(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric()))
+            .unwrap_or(false)
+    }
+
+    /// Launch airwaves-install on the HOST against `device`, fully detached
+    /// (setsid + background) so this returns immediately; the installer writes
+    /// /etc/airwaves/install/status.json which the manager polls for progress.
+    pub async fn start_install(&self, device: &str) -> Result<(), AppError> {
+        if !Self::valid_block_device(device) {
+            return Err(AppError::BadRequest(format!(
+                "Invalid target device: {device}"
+            )));
+        }
+        let inner = format!(
+            "setsid sh -c 'AIRWAVES_INSTALL_APPLY=1 /opt/airwaves/scripts/airwaves-install --target {device} >/var/log/airwaves-install.log 2>&1' &"
+        );
+        self.run(vec!["sh".into(), "-c".into(), inner]).await
+    }
+
     /// Run a command after a short delay, detached, so the HTTP response can be
     /// sent before the host action takes effect (used for reboot/shutdown).
     fn run_detached_delayed(&self, args: Vec<String>) {
@@ -352,6 +388,20 @@ mod tests {
         assert!(!valid_timezone("../etc/passwd"));
         assert!(!valid_timezone("foo;reboot"));
         assert!(!valid_timezone(""));
+    }
+
+    #[test]
+    fn install_device_validation_blocks_injection() {
+        assert!(HostAdapter::valid_block_device("/dev/sda"));
+        assert!(HostAdapter::valid_block_device("/dev/nvme0n1"));
+        assert!(HostAdapter::valid_block_device("/dev/vda"));
+        // Reject partitions-with-paths, shell metacharacters, traversal, empty.
+        assert!(!HostAdapter::valid_block_device("/dev/sda1; rm -rf /"));
+        assert!(!HostAdapter::valid_block_device("/dev/sda/../../etc"));
+        assert!(!HostAdapter::valid_block_device("/dev/"));
+        assert!(!HostAdapter::valid_block_device("sda"));
+        assert!(!HostAdapter::valid_block_device("/dev/sd a"));
+        assert!(!HostAdapter::valid_block_device("/dev/$(reboot)"));
     }
 
     #[test]

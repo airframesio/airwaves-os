@@ -7,6 +7,7 @@ pub mod fleet;
 pub mod forwarding;
 pub mod hardware;
 pub mod host;
+pub mod install;
 pub mod network;
 pub mod proxy;
 pub mod system;
