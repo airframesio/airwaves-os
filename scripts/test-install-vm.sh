@@ -18,7 +18,7 @@
 #
 set -euo pipefail
 
-IMAGE=""; RAM=2560; TARGET_SIZE="16G"; OVERLAY_DIR=""
+IMAGE=""; RAM=2560; TARGET_SIZE="16G"; OVERLAY_DIR=""; WEB_MODE=""
 SSH_PORT=2222; API_PORT=18080; PW="airwaves"
 WORK="$(mktemp -d /tmp/airwaves-vmtest.XXXXXX)"
 DEFAULT_OVERLAY="$(cd "$(dirname "$0")/.." && pwd)/armbian/userpatches/extensions/airwaves-os/scripts"
@@ -35,6 +35,7 @@ while [ $# -gt 0 ]; do
         --target-size) TARGET_SIZE="$2"; shift 2;;
         --overlay) OVERLAY_DIR="$DEFAULT_OVERLAY"; shift 1;;
         --overlay-scripts) OVERLAY_DIR="${2:-$DEFAULT_OVERLAY}"; shift 2;;
+        --web) WEB_MODE=1; shift 1;;   # drive the install via the manager web API
         *) die "unknown arg: $1";;
     esac
 done
@@ -88,6 +89,44 @@ P1=$(boot "${WORK}/boot1.log" \
     -drive "file=${USB_IMG},format=raw,if=none,id=u0" -device usb-ehci -device "usb-storage,drive=u0,bootindex=0" \
     -drive "file=${TARGET_IMG},format=qcow2,if=virtio")
 
+if [ -n "${WEB_MODE}" ]; then
+    # Drive the install entirely through the manager's web API (the same path
+    # the control-app "Install to Disk" wizard uses). Requires the manager
+    # container to be up, which on first boot means pulling it (slow on TCG).
+    log "Web mode: waiting for the manager API (first-boot container pull is slow)..."
+    up=""
+    for i in $(seq 1 180); do  # up to ~30 min
+        sleep 10
+        curl -fsS -m4 "http://localhost:${API_PORT}/api/v1/system/overview" >/dev/null 2>&1 && { up=1; log "  manager up (~$((i*10))s)"; break; }
+    done
+    [ -n "${up}" ] || { tail -20 "${WORK}/boot1.log" 2>/dev/null; die "manager never came up on the live USB"; }
+
+    disks="$(curl -fsS -m8 "http://localhost:${API_PORT}/api/v1/system/disks")" || die "GET /system/disks failed"
+    dev="$(echo "${disks}" | jq -r '.[0].device // empty')"
+    [ -n "${dev}" ] || { echo "${disks}"; die "no install target offered by /system/disks"; }
+    log "Installing to ${dev} via POST /system/install..."
+    curl -fsS -m10 -X POST "http://localhost:${API_PORT}/api/v1/system/install" \
+        -H 'Content-Type: application/json' -d "{\"device\":\"${dev}\"}" >/dev/null || die "POST /system/install failed"
+
+    st=""
+    for i in $(seq 1 220); do  # up to ~37 min for the install
+        sleep 10
+        p="$(curl -fsS -m6 "http://localhost:${API_PORT}/api/v1/system/install/progress" 2>/dev/null || echo '{}')"
+        st="$(echo "${p}" | jq -r '.state // ""')"
+        log "  install: $(echo "${p}" | jq -r '.state // "?"') $(echo "${p}" | jq -r '.phase // ""') $(echo "${p}" | jq -r '.percent // 0')%"
+        [ "${st}" = "success" ] && break
+        [ "${st}" = "failed" ] && { echo "${p}" | jq -r '.error // "see log"'; die "web install reported failure"; }
+    done
+    [ "${st}" = "success" ] || die "web install did not finish in time"
+    log "Phase 1 (web install) success."
+    kill "${P1}" 2>/dev/null || true
+    for i in $(seq 1 30); do
+        kill -0 "${P1}" 2>/dev/null && { sleep 1; continue; }
+        lsof -nP -iTCP:"${API_PORT}" 2>/dev/null | grep -q LISTEN || break
+        sleep 1
+    done
+else
+
 log "Waiting for SSH + discovering login (root vs airwaves)..."
 SSH_USER=""; SUDO=""
 for i in $(seq 1 40); do
@@ -128,6 +167,7 @@ for i in $(seq 1 30); do
     lsof -nP -iTCP:"${SSH_PORT}" -iTCP:"${API_PORT}" 2>/dev/null | grep -q LISTEN || break
     sleep 1
 done
+fi  # end SSH-vs-web phase 1
 
 # ---- Phase 2: boot from internal disk ALONE, assert manager answers ---------
 # Use a FRESH UEFI varstore: phase 1's vars point at the (now-absent) USB boot
