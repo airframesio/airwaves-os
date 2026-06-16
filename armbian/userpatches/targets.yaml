@@ -15,8 +15,11 @@ lists:
 
   # Tier 1: Primary supported boards (Debian Trixie)
   tier1-boards: &tier1-boards
-    - { BOARD: rock-5b, BRANCH: current }
-    - { BOARD: orangepi5, BRANCH: current }
+    # rk3588 boards use the vendor (Rockchip BSP) kernel: the mainline "current"
+    # kernel breaks on Armbian patch drift and has weaker rk3588 support (NVMe,
+    # GPU). x86 stays on current.
+    - { BOARD: rock-5b, BRANCH: vendor }
+    - { BOARD: orangepi5, BRANCH: vendor }
     - { BOARD: uefi-x86, BRANCH: current }
 
   # Tier 1: RPi boards (Ubuntu Noble - requires flash-kernel)
@@ -25,8 +28,9 @@ lists:
 
   # Tier 1: Bookworm (legacy, for users who need Debian stable)
   tier1-boards-bookworm: &tier1-boards-bookworm
-    - { BOARD: rock-5b, BRANCH: current }
-    - { BOARD: orangepi5, BRANCH: current }
+    # rk3588 on the vendor (Rockchip BSP) kernel; x86 on current. See note above.
+    - { BOARD: rock-5b, BRANCH: vendor }
+    - { BOARD: orangepi5, BRANCH: vendor }
     - { BOARD: uefi-x86, BRANCH: current }
 
   # Tier 2: Extended board support (enable when Tier 1 is stable)

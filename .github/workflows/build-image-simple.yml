@@ -21,12 +21,13 @@ on:
           - bookworm
           - noble
       branch:
-        description: "Kernel branch"
+        description: "Kernel branch (rk3588 boards need 'vendor')"
         required: true
         default: "current"
         type: choice
         options:
           - current
+          - vendor
           - legacy
           - edge
 
