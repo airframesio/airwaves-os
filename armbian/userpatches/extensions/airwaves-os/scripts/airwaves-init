@@ -19,15 +19,17 @@ log() {
 
 channel_alias() {
     # Map the device's release channel to the moving image tag CI publishes:
-    # dev/beta builds push :dev/:beta, stable releases push :latest. Honoring
-    # the channel here means a dev-channel image boots dev images on first boot
-    # instead of whatever :latest (stable) happens to be.
+    # dev->:dev, beta->:beta, stable->:stable. Each channel has its own moving
+    # tag (the stable build also pushes :latest, but :stable is the canonical
+    # per-channel pointer and is what we rely on). Honoring the channel here
+    # means a dev-channel image boots dev images on first boot, not stable.
     local ch="stable"
     [ -f "$AIRWAVES_VERSIONS" ] && ch="$(jq -r '.channel // "stable"' "$AIRWAVES_VERSIONS" 2>/dev/null || echo stable)"
     case "$ch" in
-        dev)  echo "dev" ;;
-        beta) echo "beta" ;;
-        *)    echo "latest" ;;   # stable (and anything unknown) track :latest
+        dev)    echo "dev" ;;
+        beta)   echo "beta" ;;
+        stable) echo "stable" ;;
+        *)      echo "stable" ;;   # unknown channels fall back to stable
     esac
 }
 
