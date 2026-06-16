@@ -68,6 +68,9 @@ jobs:
 
       - name: Generate SHA256 checksums
         run: |
+          # The image is built under sudo, so the output dir is root-owned;
+          # take ownership before writing .sha256 as the runner user.
+          sudo chown -R "$(id -u):$(id -g)" .armbian-build/output/images
           cd .armbian-build/output/images
           for f in *.img.xz; do
             [ -e "$f" ] || continue
@@ -76,6 +79,7 @@ jobs:
           cat *.sha256
 
       - name: Upload image
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: airwaves-os-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}

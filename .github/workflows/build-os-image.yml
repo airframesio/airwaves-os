@@ -283,6 +283,9 @@ jobs:
 
       - name: Generate SHA256 checksums
         run: |
+          # Image output may be root-owned (built under sudo); take ownership
+          # before writing .sha256 as the runner user.
+          sudo chown -R "$(id -u):$(id -g)" output/images 2>/dev/null || true
           cd output/images
           for f in *.xz; do
             [ -e "$f" ] || continue
