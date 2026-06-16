@@ -24,15 +24,23 @@ SSH_USER="airwaves"
 SSH_PASS="airwaves"
 WORK="$(mktemp -d /tmp/airwaves-vmtest.XXXXXX)"
 HOST_API_PORT=18080   # forwards to guest gateway :80
+OVERLAY_DIR=""        # if set, serve these scripts to the guest before install
+OVERLAY_PORT=18099    # host http port the guest fetches overlay scripts from
 
 log() { echo "[vmtest] $*" >&2; }
 die() { echo "[vmtest] ERROR: $*" >&2; exit 1; }
+
+# Default overlay dir = the working-tree installer scripts, so iterating on
+# airwaves-install/airwaves-firstrun doesn't need an image rebuild.
+DEFAULT_OVERLAY="$(cd "$(dirname "$0")/.." && pwd)/armbian/userpatches/extensions/airwaves-os/scripts"
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --image) IMAGE="$2"; shift 2;;
         --ram) RAM="$2"; shift 2;;
         --target-size) TARGET_SIZE="$2"; shift 2;;
+        --overlay-scripts) OVERLAY_DIR="${2:-$DEFAULT_OVERLAY}"; shift 2;;
+        --overlay) OVERLAY_DIR="$DEFAULT_OVERLAY"; shift 1;;
         *) die "unknown arg: $1";;
     esac
 done
@@ -83,6 +91,20 @@ qemu_common=(
     -nographic
 )
 
+# Optionally serve the working-tree installer scripts so each run tests the
+# latest code against the existing image (no rebuild). The guest reaches the
+# host at 10.0.2.2 (QEMU user-mode gateway).
+OVERLAY_CMD=""
+HTTP_PID=""
+if [ -n "${OVERLAY_DIR}" ]; then
+    [ -f "${OVERLAY_DIR}/airwaves-install" ] || die "overlay dir has no airwaves-install: ${OVERLAY_DIR}"
+    log "Overlaying scripts from ${OVERLAY_DIR} (served on :${OVERLAY_PORT})..."
+    ( cd "${OVERLAY_DIR}" && exec python3 -m http.server "${OVERLAY_PORT}" --bind 127.0.0.1 ) >/dev/null 2>&1 &
+    HTTP_PID=$!
+    trap 'kill "${HTTP_PID}" 2>/dev/null || true' EXIT
+    OVERLAY_CMD="sudo sh -c 'cd /opt/airwaves/scripts && for f in airwaves-install airwaves-firstrun; do curl -fsS http://10.0.2.2:${OVERLAY_PORT}/\$f -o \$f && chmod +x \$f; done' ; echo OVERLAY_DONE"
+fi
+
 # ---- Phase 1: boot live USB, install to the blank internal disk -------------
 log "Phase 1: booting live USB image, installing to internal disk..."
 expect <<EXPECT || die "Phase 1 (install) failed or timed out"
@@ -99,6 +121,11 @@ send "${SSH_USER}\r"
 expect -re "Password: $"
 send "${SSH_PASS}\r"
 expect -re "\\\$ $|# $"
+# Overlay the latest installer scripts (no-op if not requested).
+if {"${OVERLAY_CMD}" ne ""} {
+    send "${OVERLAY_CMD}\r"
+    expect { timeout { puts "TIMEOUT overlaying scripts"; exit 1 } -re "OVERLAY_DONE" }
+}
 # Identify the blank internal target (virtio disk, typically /dev/vda; the USB
 # is the boot device). airwaves-install --list-json picks non-removable disks.
 send "sudo bash -c 'AIRWAVES_INSTALL_APPLY=1 /opt/airwaves/scripts/airwaves-install --target \$(/opt/airwaves/scripts/airwaves-install --list-json | jq -r \".[0].device\")' ; echo INSTALL_RC=\$?\r"
