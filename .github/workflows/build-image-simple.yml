@@ -78,11 +78,26 @@ jobs:
           done
           cat *.sha256
 
+      # The rpi4b image boots all 64-bit Raspberry Pi models (3/4/5), so publish
+      # it under a name Pi 5 users will recognize.
+      - name: Compute artifact name
+        id: artname
+        if: always()
+        env:
+          BOARD: ${{ github.event.inputs.board }}
+          RELEASE: ${{ github.event.inputs.release }}
+        run: |
+          if [ "$BOARD" = "rpi4b" ]; then
+            echo "name=airwaves-os-raspberrypi-3-4-5-${RELEASE}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=airwaves-os-${BOARD}-${RELEASE}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload image
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: airwaves-os-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}
+          name: ${{ steps.artname.outputs.name }}
           path: |
             .armbian-build/output/images/*.img.xz
             .armbian-build/output/images/*.img.xz.sha256

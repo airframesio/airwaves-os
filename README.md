@@ -24,17 +24,17 @@ Airwaves OS is a radio-focused operating system based on [Armbian](https://www.a
 
 ### Tier 1 (actively tested)
 
-| Board | Architecture | Release |
-|-------|-------------|---------|
-| Raspberry Pi 4B | arm64 | Ubuntu Noble |
-| Raspberry Pi 5 | arm64 | Ubuntu Noble |
-| Rock 5B | arm64 | Debian Bookworm |
-| Orange Pi 5 | arm64 | Debian Bookworm |
-| x86 UEFI (mini PCs, servers) | amd64 | Debian Bookworm |
+| Board | Architecture | Release | Build / image |
+|-------|-------------|---------|---------------|
+| Raspberry Pi 3 / 4 / 5 | arm64 | Ubuntu Noble | `rpi4b` |
+| Rock 5B | arm64 | Debian Bookworm | `rock-5b` |
+| Orange Pi 5 | arm64 | Debian Bookworm | `orangepi5` |
+| x86 UEFI (mini PCs, servers) | amd64 | Debian Trixie | `uefi-x86` |
 
-> **Note:** Raspberry Pi 5 uses the **same image as the Pi 4B**. Armbian's
-> `rpi4b` board target covers all 64-bit Raspberry Pi models (3 through 5),
-> so there is no separate Pi 5 image — flash the `rpi4b` image.
+> **Raspberry Pi 5:** there is no separate Pi 5 image. Armbian's `rpi4b` board
+> target covers all 64-bit Raspberry Pi models (3, 4, and 5), so the same image
+> boots all of them — flash the `rpi4b` image (published as
+> `airwaves-os-raspberrypi-3-4-5-*`). `make build-rpi5` builds it.
 
 ### SDR Support
 

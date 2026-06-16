@@ -11,14 +11,14 @@ as compressed `.img.xz` files, one per board:
 
 | Your hardware | Image to download | Base OS |
 |---|---|---|
-| Raspberry Pi 4B **or** Raspberry Pi 5 | `rpi4b` | Ubuntu Noble |
-| Rock 5B | `rock-5b` | Debian |
-| Orange Pi 5 | `orangepi5` | Debian |
-| Mini PC / server / VM (x86_64, UEFI) | `uefi-x86` | Debian |
+| Raspberry Pi 3, 4B, **or 5** | `airwaves-os-raspberrypi-3-4-5` | Ubuntu Noble |
+| Rock 5B | `airwaves-os-rock-5b` | Debian |
+| Orange Pi 5 | `airwaves-os-orangepi5` | Debian |
+| Mini PC / server / VM (x86_64, UEFI) | `airwaves-os-uefi-x86` | Debian Trixie |
 
 > **Raspberry Pi 5 owners:** there is no separate Pi 5 image. Armbian's
 > `rpi4b` board target covers all 64-bit Raspberry Pi models (3 through 5),
-> so the `rpi4b` image is the right one.
+> so the `airwaves-os-raspberrypi-3-4-5` image is the right one for the Pi 5.
 
 Running in a VM (Proxmox, VMware)? Read [DEPLOYMENT.md](DEPLOYMENT.md) first —
 the x86 image needs UEFI firmware and the virtual disk must be enlarged to
