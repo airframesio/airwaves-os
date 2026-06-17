@@ -120,6 +120,36 @@ stack_line() {
     up="$(awk '{d=int($1/86400);h=int(($1%86400)/3600);m=int(($1%3600)/60); if(d)printf "%dd %dh %dm",d,h,m; else if(h)printf "%dh %dm",h,m; else printf "%dm",m}' /proc/uptime 2>/dev/null)"
     printf '  manager: %s   gateway: %s   ·   uptime: %s\n' "$(svc airwaves-manager)" "$(svc airwaves-gateway)" "${up:-?}"
 }
+# Center a whole block by its widest line, padding every line equally — preserves
+# internal alignment (ASCII art would shear if each line were centered alone).
+center_block() {
+    local w="$1" max=0 len pad; local -a lines=(); local line
+    while IFS= read -r line; do lines+=("$line"); len=${#line}; [ "$len" -gt "$max" ] && max="$len"; done
+    pad=$(( (w - max) / 2 )); [ "$pad" -lt 0 ] && pad=0
+    for line in "${lines[@]}"; do printf '%*s%s\n' "$pad" '' "$line"; done
+}
+# Center each input line independently to width $1 (for single-line details).
+center_lines() {
+    local w="$1" line len pad
+    while IFS= read -r line; do
+        len=${#line}; pad=$(( (w - len) / 2 )); [ "$pad" -lt 0 ] && pad=0
+        printf '%*s%s\n' "$pad" '' "$line"
+    done
+}
+# Console dimensions. A framebuffer console (x86 monitor) can be far wider/taller
+# than 80x25, so we can't rely on dialog auto-centering a multi-widget stack —
+# we compute a centered origin ourselves.
+scr_cols() { local c; c="$(tput cols 2>/dev/null)"; { [ -n "$c" ] && [ "$c" -gt 0 ] 2>/dev/null; } && echo "$c" || echo 80; }
+scr_rows() { local r; r="$(tput lines 2>/dev/null)"; { [ -n "$r" ] && [ "$r" -gt 0 ] 2>/dev/null; } && echo "$r" || echo 25; }
+# Echo "<row> <col>" to top-left-anchor a stack of total height $1, width $2 so it
+# sits centered on the console.
+center_origin() {
+    local h="$1" w="$2" rows cols r c
+    rows="$(scr_rows)"; cols="$(scr_cols)"
+    r=$(( (rows - h) / 2 )); [ "$r" -lt 0 ] && r=0
+    c=$(( (cols - w) / 2 )); [ "$c" -lt 0 ] && c=0
+    echo "$r $c"
+}
 
 # ---- generic dialogs -------------------------------------------------------
 msg()  { dlg --backtitle "${BT}" --title "$1" --msgbox "$2" "${3:-10}" "${4:-64}"; }
@@ -334,19 +364,26 @@ first_boot_active() {
     [ -f "$FIRSTRUN_MARKER" ] && ! systemctl is-failed --quiet airwaves-init.service 2>/dev/null
 }
 first_boot_screen() {
-    local step
+    local step splash
     step="$(journalctl -u airwaves-init.service -o cat --no-pager 2>/dev/null | awk 'NF' | tail -1)"
     step="${step#\[airwaves-init\] }"
     [ -n "$step" ] || step="Starting first-boot setup..."
-    dlg --backtitle "${BT}" --no-collapse --title "Setting up Airwaves OS" --infobox \
-"$(banner_art)
-$(id_lines)
+    # Banner (centered as a block) + details (each line centered) form the splash
+    # ABOVE the box; the first-boot status goes INSIDE the titled box below.
+    splash="$( { banner_art | center_block 74; printf '\n'; id_lines | sed 's/^  *//' | center_lines 74; } )"
+    local oy ox
+    read -r oy ox < <(center_origin 20 78)   # 11 (splash) + 9 (status) = 20 high
+    dlg --backtitle "${BT}" --no-collapse --keep-window \
+        --begin "${oy}" "${ox}" --no-shadow --infobox "${splash}" 11 78 \
+        --and-widget --keep-window --no-shadow \
+        --begin "$((oy + 11))" "${ox}" --title "Setting up Airwaves OS" --infobox \
+"
   First boot — preparing your device. This happens only once.
 
   > ${step}
 
   Loading the app stack from the on-board copy (no network needed).
-  The console menu appears automatically when ready." 20 78
+  The console menu appears automatically when ready." 9 78
     sleep 2
 }
 
@@ -440,13 +477,14 @@ while true; do
     items+=( poweroff "Power off" )
 
     # Banner box (kept on screen) above the action menu (#22). --keep-window
-    # retains the infobox while the menu takes input; --begin stacks them.
+    # retains the infobox while the menu takes input; --begin stacks them. The
+    # banner is centered as a block; the detail/status lines are each centered.
+    splash="$( { banner_art | center_block 74; { id_lines; stack_line; } | sed 's/^  *//' | center_lines 74; } )"
+    read -r oy ox < <(center_origin 23 76)   # 12 (banner) + 11 (menu) = 23 high
     choice="$(dlg --backtitle "${BT}" --no-collapse --keep-window \
-        --begin 1 1 --no-shadow --infobox \
-"$(banner_art)
-$(id_lines)$(stack_line)" 12 76 \
+        --begin "${oy}" "${ox}" --no-shadow --infobox "${splash}" 12 76 \
         --and-widget --keep-window --no-shadow --no-cancel \
-        --begin 13 1 --title "Airwaves OS Console" \
+        --begin "$((oy + 12))" "${ox}" --title "Airwaves OS Console" \
         --menu "Select an action:" 11 76 7 "${items[@]}" \
         3>&1 1>&2 2>&3)" || { sleep 1; continue; }
 
