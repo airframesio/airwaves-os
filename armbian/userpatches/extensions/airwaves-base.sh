@@ -106,6 +106,19 @@ function post_family_tweaks__airwaves_base_setup() {
 
 ISSUE
 
+	# Brand the GRUB menu (x86): title entries "Airwaves OS v<version>" instead of
+	# Armbian/Debian. The value is a command substitution evaluated by
+	# grub-mkconfig from the LIVE /etc/airwaves-release, so it stays current after
+	# every OS update (and per A/B slot) with no re-baking.
+	if [[ "${ARCH}" == "amd64" ]] && [ -f "${SDCARD}/etc/default/grub" ]; then
+		display_alert "Branding GRUB menu" "Airwaves OS v<version>" "info"
+		local _gd='GRUB_DISTRIBUTOR="$(. /etc/airwaves-release 2>/dev/null; echo Airwaves OS v${AIRWAVES_VERSION:-})"'
+		grep -v '^GRUB_DISTRIBUTOR=' "${SDCARD}/etc/default/grub" > "${SDCARD}/etc/default/grub.aw" 2>/dev/null || true
+		echo "${_gd}" >> "${SDCARD}/etc/default/grub.aw"
+		mv "${SDCARD}/etc/default/grub.aw" "${SDCARD}/etc/default/grub"
+		chroot_sdcard update-grub 2>/dev/null || chroot_sdcard grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true
+	fi
+
 	# Install app catalog
 	display_alert "Installing app catalog" "${EXTENSION}" "info"
 	run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/catalog.json "${SDCARD}"/etc/airwaves/catalog.json

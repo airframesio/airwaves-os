@@ -614,6 +614,9 @@ bootloader_x86_ab() {
     [ -n "${ra}" ] && [ -n "${rb}" ] && [ -n "${eu}" ] && [ -n "${du}" ] || fail "could not read A/B partition UUIDs"
     KVER="$(ls "${TMP}/boot"/vmlinuz-* 2>/dev/null | sed 's|.*/vmlinuz-||' | head -1)"
     [ -n "${KVER}" ] || fail "no kernel found in slot A /boot"
+    local osver
+    osver="$(awk -F= '/^AIRWAVES_VERSION=/{print $2}' "${TMP}/etc/airwaves-release" 2>/dev/null)"
+    osver="${osver:-?}"
 
     write_ab_fstab "${TMP}" "${ra}" "${eu}" "${du}"
     local RBMNT; RBMNT="$(mktemp -d /mnt/airwaves-rootb.XXXXXX)"
@@ -643,12 +646,12 @@ if [ -n "\${next_entry}" ]; then
     save_env next_entry
 fi
 set timeout=5
-menuentry "Airwaves OS (slot A)" --id aw-root-a {
+menuentry "Airwaves OS v${osver} (slot A)" --id aw-root-a {
     search --no-floppy --label aw-root-a --set=root
     linux /boot/vmlinuz-${KVER} root=UUID=${ra} rootflags=noatime rw console=tty0 console=ttyS0,115200
     initrd /boot/initrd.img-${KVER}
 }
-menuentry "Airwaves OS (slot B)" --id aw-root-b {
+menuentry "Airwaves OS v${osver} (slot B)" --id aw-root-b {
     search --no-floppy --label aw-root-b --set=root
     linux /boot/vmlinuz-${KVER} root=UUID=${rb} rootflags=noatime rw console=tty0 console=ttyS0,115200
     initrd /boot/initrd.img-${KVER}
