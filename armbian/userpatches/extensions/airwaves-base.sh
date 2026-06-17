@@ -27,6 +27,22 @@ function pre_install_kernel_debs__copy_airwaves_files() {
 		run_host_command_logged cp -aR "${extension_data_dir}/scripts" "${SDCARD}"/opt/airwaves/
 		run_host_command_logged chmod -R +x "${SDCARD}"/opt/airwaves/scripts
 	fi
+
+	# Bake pre-built container images so first boot needs NO network. The CI
+	# image-build workflow docker-save's the manager+gateway images of the release
+	# pinned in releases/<channel>.json into ${extension_data_dir}/images/*.tar
+	# (matching this board's CPU arch). airwaves-init loads them on first boot
+	# before falling back to a registry pull. If none are staged (e.g. a local
+	# dev build), this is a no-op and the device pulls online on first boot.
+	if compgen -G "${extension_data_dir}/images/*.tar" >/dev/null 2>&1; then
+		display_alert "Baking pre-built container images" \
+			"$(ls -1 "${extension_data_dir}"/images/*.tar | wc -l | tr -d ' ') tarball(s)" "info"
+		run_host_command_logged cp -a "${extension_data_dir}"/images/*.tar "${SDCARD}"/opt/airwaves/images/
+		run_host_command_logged ls -lh "${SDCARD}/opt/airwaves/images/"
+	else
+		display_alert "No pre-built container images staged" \
+			"first boot will pull from registry (needs network)" "wrn"
+	fi
 }
 
 function post_family_tweaks__airwaves_base_setup() {
@@ -106,18 +122,9 @@ function post_family_tweaks__airwaves_base_setup() {
 
 ISSUE
 
-	# Brand the GRUB menu (x86): title entries "Airwaves OS v<version>" instead of
-	# Armbian/Debian. The value is a command substitution evaluated by
-	# grub-mkconfig from the LIVE /etc/airwaves-release, so it stays current after
-	# every OS update (and per A/B slot) with no re-baking.
-	if [[ "${ARCH}" == "amd64" ]] && [ -f "${SDCARD}/etc/default/grub" ]; then
-		display_alert "Branding GRUB menu" "Airwaves OS v<version>" "info"
-		local _gd='GRUB_DISTRIBUTOR="$(. /etc/airwaves-release 2>/dev/null; echo Airwaves OS v${AIRWAVES_VERSION:-})"'
-		grep -v '^GRUB_DISTRIBUTOR=' "${SDCARD}/etc/default/grub" > "${SDCARD}/etc/default/grub.aw" 2>/dev/null || true
-		echo "${_gd}" >> "${SDCARD}/etc/default/grub.aw"
-		mv "${SDCARD}/etc/default/grub.aw" "${SDCARD}/etc/default/grub"
-		chroot_sdcard update-grub 2>/dev/null || chroot_sdcard grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true
-	fi
+	# (GRUB menu is branded "Airwaves OS v<version>" via UEFI_GRUB_DISTRO_NAME in
+	# common-airwaves.conf — Armbian's grub extension runs after this and would
+	# overwrite /etc/default/grub anyway.)
 
 	# Install app catalog
 	display_alert "Installing app catalog" "${EXTENSION}" "info"

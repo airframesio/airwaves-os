@@ -1,11 +1,13 @@
+use axum::extract::State;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use crate::AppError;
+use crate::{AppError, AppState};
 
 #[derive(Debug, Serialize)]
 pub struct WifiNetwork {
     pub ssid: String,
+    /// Signal quality as a 0-100 percentage (nmcli's SIGNAL), not dBm.
     pub signal: i32,
     pub security: String,
     pub frequency: String,
@@ -21,12 +23,50 @@ pub struct WifiStatus {
     pub interface: String,
 }
 
-/// Get current WiFi status
 fn is_simulated() -> bool {
-    std::env::var("SIMULATE_HARDWARE").map(|v| v == "true" || v == "1").unwrap_or(false)
+    std::env::var("SIMULATE_HARDWARE")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false)
 }
 
-pub async fn get_status() -> Result<Json<WifiStatus>, AppError> {
+/// Split one `nmcli --terse` line into fields, honoring nmcli's backslash
+/// escaping (`\:` is a literal colon inside a value, `\\` a literal backslash).
+fn split_terse(line: &str) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut cur = String::new();
+    let mut chars = line.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => match chars.next() {
+                Some(n) => cur.push(n),
+                None => cur.push('\\'),
+            },
+            ':' => fields.push(std::mem::take(&mut cur)),
+            _ => cur.push(c),
+        }
+    }
+    fields.push(cur);
+    fields
+}
+
+/// Find the first Wi-Fi device and its connection state from
+/// `nmcli -t -f DEVICE,TYPE,STATE device status`.
+async fn wifi_device(state: &AppState) -> Option<(String, String)> {
+    let out = state
+        .host
+        .nmcli_capture(&["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"])
+        .await?;
+    for line in out.lines() {
+        let f = split_terse(line);
+        if f.len() >= 3 && f[1] == "wifi" {
+            return Some((f[0].clone(), f[2].clone()));
+        }
+    }
+    None
+}
+
+/// Get current Wi-Fi status.
+pub async fn get_status(State(state): State<AppState>) -> Result<Json<WifiStatus>, AppError> {
     if is_simulated() {
         return Ok(Json(WifiStatus {
             enabled: true,
@@ -37,118 +77,130 @@ pub async fn get_status() -> Result<Json<WifiStatus>, AppError> {
         }));
     }
 
-    let iface = find_wifi_interface();
+    let (iface, dev_state) = match wifi_device(&state).await {
+        Some(v) => v,
+        // No Wi-Fi hardware present.
+        None => {
+            return Ok(Json(WifiStatus {
+                enabled: false,
+                connected: false,
+                ssid: None,
+                ip: None,
+                interface: String::new(),
+            }))
+        }
+    };
 
-    if iface.is_none() {
-        return Ok(Json(WifiStatus {
-            enabled: false,
-            connected: false,
-            ssid: None,
-            ip: None,
-            interface: String::new(),
-        }));
-    }
+    let enabled = state
+        .host
+        .nmcli_capture(&["-t", "radio", "wifi"])
+        .await
+        .map(|s| s.trim() == "enabled")
+        .unwrap_or(false);
 
-    let iface = iface.unwrap();
+    // SSID of the active AP on this interface.
+    let ssid = state
+        .host
+        .nmcli_capture(&["-t", "-f", "ACTIVE,SSID", "device", "wifi", "list", "ifname", &iface])
+        .await
+        .and_then(|out| {
+            out.lines().find_map(|l| {
+                let f = split_terse(l);
+                if f.len() >= 2 && f[0] == "yes" && !f[1].is_empty() {
+                    Some(f[1].clone())
+                } else {
+                    None
+                }
+            })
+        });
 
-    // Check connection status via iw
-    let connected_ssid = get_connected_ssid(&iface);
-    let ip = get_interface_ip(&iface);
+    // IPv4 address (strip the /prefix). nmcli prints `IP4.ADDRESS[1]:1.2.3.4/24`.
+    let ip = state
+        .host
+        .nmcli_capture(&["-t", "-f", "IP4.ADDRESS", "device", "show", &iface])
+        .await
+        .and_then(|out| {
+            out.lines().find_map(|l| {
+                let f = split_terse(l);
+                if f.len() >= 2 && f[0].starts_with("IP4.ADDRESS") && !f[1].is_empty() {
+                    Some(f[1].split('/').next().unwrap_or(&f[1]).to_string())
+                } else {
+                    None
+                }
+            })
+        });
+
+    let connected = ssid.is_some() || dev_state.starts_with("connected");
 
     Ok(Json(WifiStatus {
-        enabled: true,
-        connected: connected_ssid.is_some(),
-        ssid: connected_ssid,
+        enabled,
+        connected,
+        ssid,
         ip,
         interface: iface,
     }))
 }
 
-/// Scan for available WiFi networks
-pub async fn scan_networks() -> Result<Json<Vec<WifiNetwork>>, AppError> {
+/// Scan for available Wi-Fi networks.
+pub async fn scan_networks(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<WifiNetwork>>, AppError> {
     if is_simulated() {
         return Ok(Json(vec![
-            WifiNetwork { ssid: "AirwavesNet".to_string(), signal: -35, security: "WPA2".to_string(), frequency: "2.4 GHz".to_string(), connected: false },
-            WifiNetwork { ssid: "HomeWiFi-5G".to_string(), signal: -52, security: "WPA2".to_string(), frequency: "5 GHz".to_string(), connected: false },
-            WifiNetwork { ssid: "Neighbor_Guest".to_string(), signal: -68, security: "WPA2".to_string(), frequency: "2.4 GHz".to_string(), connected: false },
-            WifiNetwork { ssid: "CoffeeShop".to_string(), signal: -75, security: "Open".to_string(), frequency: "2.4 GHz".to_string(), connected: false },
+            WifiNetwork { ssid: "AirwavesNet".to_string(), signal: 92, security: "WPA2".to_string(), frequency: "2.4 GHz".to_string(), connected: false },
+            WifiNetwork { ssid: "HomeWiFi-5G".to_string(), signal: 74, security: "WPA2".to_string(), frequency: "5 GHz".to_string(), connected: false },
+            WifiNetwork { ssid: "Neighbor_Guest".to_string(), signal: 55, security: "WPA2".to_string(), frequency: "2.4 GHz".to_string(), connected: false },
+            WifiNetwork { ssid: "CoffeeShop".to_string(), signal: 40, security: "".to_string(), frequency: "2.4 GHz".to_string(), connected: false },
         ]));
     }
 
-    let iface = find_wifi_interface()
-        .ok_or_else(|| AppError::NotFound("No WiFi interface found".to_string()))?;
-
-    let connected_ssid = get_connected_ssid(&iface);
-
-    // Trigger scan
-    let _ = std::process::Command::new("iw")
-        .args(["dev", &iface, "scan", "trigger"])
-        .output();
-
-    // Wait briefly for scan to complete
-    std::thread::sleep(std::time::Duration::from_secs(2));
-
-    // Get scan results
-    let output = std::process::Command::new("iw")
-        .args(["dev", &iface, "scan", "dump"])
-        .output()
-        .map_err(|e| AppError::Internal(format!("WiFi scan failed: {}", e)))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut networks = Vec::new();
-    let mut current_ssid = String::new();
-    let mut current_signal: i32 = -100;
-    let mut current_freq = String::new();
-    let mut current_security = "Open".to_string();
-
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-
-        if trimmed.starts_with("BSS ") {
-            // Save previous network
-            if !current_ssid.is_empty() {
-                networks.push(WifiNetwork {
-                    connected: connected_ssid.as_deref() == Some(&current_ssid),
-                    ssid: std::mem::take(&mut current_ssid),
-                    signal: current_signal,
-                    frequency: std::mem::take(&mut current_freq),
-                    security: std::mem::take(&mut current_security),
-                });
-            }
-            current_signal = -100;
-            current_security = "Open".to_string();
-        } else if trimmed.starts_with("SSID: ") {
-            current_ssid = trimmed[6..].to_string();
-        } else if trimmed.starts_with("signal: ") {
-            current_signal = trimmed
-                .split_whitespace()
-                .nth(1)
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(-100);
-        } else if trimmed.starts_with("freq: ") {
-            let freq_mhz: u32 = trimmed[6..].trim().parse().unwrap_or(0);
-            current_freq = if freq_mhz > 5000 { "5 GHz".to_string() } else { "2.4 GHz".to_string() };
-        } else if trimmed.contains("WPA") || trimmed.contains("RSN") {
-            current_security = if trimmed.contains("WPA2") || trimmed.contains("RSN") {
-                "WPA2".to_string()
-            } else {
-                "WPA".to_string()
-            };
-        }
+    // Ensure there is Wi-Fi hardware before asking NM to scan.
+    if wifi_device(&state).await.is_none() {
+        return Err(AppError::NotFound("No Wi-Fi interface found".to_string()));
     }
 
-    // Push last network
-    if !current_ssid.is_empty() {
+    let out = state
+        .host
+        .nmcli_capture(&[
+            "-t",
+            "-f",
+            "ACTIVE,SSID,SIGNAL,SECURITY,FREQ",
+            "device",
+            "wifi",
+            "list",
+            "--rescan",
+            "yes",
+        ])
+        .await
+        .ok_or_else(|| AppError::Internal("Wi-Fi scan failed (nmcli)".to_string()))?;
+
+    let mut networks = Vec::new();
+    for line in out.lines() {
+        let f = split_terse(line);
+        if f.len() < 5 {
+            continue;
+        }
+        let ssid = f[1].clone();
+        if ssid.is_empty() {
+            continue; // hidden network
+        }
+        let signal: i32 = f[2].trim().parse().unwrap_or(0);
+        let security = {
+            let s = f[3].trim();
+            if s.is_empty() { "Open".to_string() } else { s.to_string() }
+        };
+        let freq_mhz: u32 = f[4].split_whitespace().next().and_then(|s| s.parse().ok()).unwrap_or(0);
+        let frequency = if freq_mhz >= 5000 { "5 GHz".to_string() } else { "2.4 GHz".to_string() };
         networks.push(WifiNetwork {
-            connected: connected_ssid.as_deref() == Some(&current_ssid),
-            ssid: current_ssid,
-            signal: current_signal,
-            frequency: current_freq,
-            security: current_security,
+            ssid,
+            signal,
+            security,
+            frequency,
+            connected: f[0] == "yes",
         });
     }
 
-    // Sort by signal strength (strongest first), deduplicate by SSID
+    // Strongest first, then keep one entry per SSID (drops band/BSS duplicates).
     networks.sort_by(|a, b| b.signal.cmp(&a.signal));
     networks.dedup_by(|a, b| a.ssid == b.ssid);
 
@@ -161,92 +213,52 @@ pub struct ConnectRequest {
     pub password: Option<String>,
 }
 
-/// Connect to a WiFi network
-pub async fn connect(Json(req): Json<ConnectRequest>) -> Result<Json<serde_json::Value>, AppError> {
-    let iface = find_wifi_interface()
-        .ok_or_else(|| AppError::NotFound("No WiFi interface found".to_string()))?;
-
-    // Write wpa_supplicant config
-    let wpa_config = if let Some(ref psk) = req.password {
-        format!(
-            "network={{\n    ssid=\"{}\"\n    psk=\"{}\"\n    key_mgmt=WPA-PSK\n}}\n",
-            req.ssid, psk
-        )
-    } else {
-        format!(
-            "network={{\n    ssid=\"{}\"\n    key_mgmt=NONE\n}}\n",
-            req.ssid
-        )
-    };
-
-    // Write network config for systemd-networkd
-    let network_config = format!(
-        "[Match]\nName={}\n\n[Network]\nDHCP=yes\n",
-        iface
-    );
-
-    std::fs::write(format!("/etc/wpa_supplicant/wpa_supplicant-{}.conf", iface), &wpa_config)
-        .map_err(|e| AppError::Internal(format!("Failed to write wpa config: {}", e)))?;
-
-    std::fs::write(format!("/etc/systemd/network/20-{}.network", iface), &network_config)
-        .map_err(|e| AppError::Internal(format!("Failed to write network config: {}", e)))?;
-
-    // Restart networking
-    let _ = std::process::Command::new("systemctl")
-        .args(["restart", &format!("wpa_supplicant@{}", iface)])
-        .output();
-    let _ = std::process::Command::new("systemctl")
-        .args(["restart", "systemd-networkd"])
-        .output();
-
-    Ok(Json(serde_json::json!({
-        "status": "connecting",
-        "ssid": req.ssid,
-        "interface": iface,
-    })))
+/// Reject SSID / passphrase values with control characters (NUL/newline etc.).
+/// Args go to nmcli as discrete argv (no shell), so this is belt-and-suspenders.
+fn clean_field(v: &str) -> bool {
+    !v.is_empty() && v.len() <= 256 && !v.chars().any(|c| c.is_control())
 }
 
-// ---- Helpers ----
-
-fn find_wifi_interface() -> Option<String> {
-    let net_dir = std::path::Path::new("/sys/class/net");
-    if let Ok(entries) = std::fs::read_dir(net_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            // Check if it's a wireless interface
-            if entry.path().join("wireless").exists() || name.starts_with("wl") {
-                return Some(name);
-            }
+/// Connect to a Wi-Fi network via NetworkManager. NM creates/updates the
+/// connection profile and brings up DHCP; it persists across reboots.
+pub async fn connect(
+    State(state): State<AppState>,
+    Json(req): Json<ConnectRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    if !clean_field(&req.ssid) {
+        return Err(AppError::BadRequest("Invalid SSID".to_string()));
+    }
+    if let Some(ref psk) = req.password {
+        if !psk.is_empty() && !clean_field(psk) {
+            return Err(AppError::BadRequest("Invalid password".to_string()));
         }
     }
-    None
-}
 
-fn get_connected_ssid(iface: &str) -> Option<String> {
-    std::process::Command::new("iw")
-        .args(["dev", iface, "link"])
-        .output()
-        .ok()
-        .and_then(|output| {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            stdout
-                .lines()
-                .find(|l| l.trim().starts_with("SSID:"))
-                .map(|l| l.trim()[6..].to_string())
-        })
-}
+    // Make sure Wi-Fi hardware exists and the radio is on before connecting.
+    if wifi_device(&state).await.is_none() {
+        return Err(AppError::NotFound("No Wi-Fi interface found".to_string()));
+    }
+    let _ = state.host.nmcli_run(&["radio", "wifi", "on"]).await;
 
-fn get_interface_ip(iface: &str) -> Option<String> {
-    std::process::Command::new("ip")
-        .args(["-4", "-j", "addr", "show", iface])
-        .output()
-        .ok()
-        .and_then(|output| {
-            serde_json::from_slice::<serde_json::Value>(&output.stdout).ok()
-        })
-        .and_then(|json| {
-            json.as_array()?.first()?["addr_info"]
-                .as_array()?.first()?["local"]
-                .as_str().map(String::from)
-        })
+    let result = match req.password.as_deref().filter(|p| !p.is_empty()) {
+        Some(psk) => {
+            state
+                .host
+                .nmcli_run(&["device", "wifi", "connect", &req.ssid, "password", psk])
+                .await
+        }
+        None => {
+            state
+                .host
+                .nmcli_run(&["device", "wifi", "connect", &req.ssid])
+                .await
+        }
+    };
+
+    result.map_err(|e| AppError::Internal(format!("Failed to connect to '{}': {e}", req.ssid)))?;
+
+    Ok(Json(serde_json::json!({
+        "status": "connected",
+        "ssid": req.ssid,
+    })))
 }

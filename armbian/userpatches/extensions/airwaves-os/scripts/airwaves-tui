@@ -1,9 +1,15 @@
 #!/bin/bash
 #
 # airwaves-tui — the persistent Airwaves OS console menu shown on the main VT
-# (tty1). Renders a banner + live status and offers actions appropriate to the
-# system: a LIVE USB emphasises Install; an INSTALLED system offers Configuration
-# (driven via the manager API, like the web UI), Upgrade, Repair, etc.
+# (tty1). Renders a colorful banner box + live status and offers actions
+# appropriate to the system: a LIVE USB emphasises Install; an INSTALLED system
+# offers Configuration, Upgrade, Repair, etc.
+#
+# Configuration is driven through the manager API (like the web UI) whenever the
+# manager is reachable. If the manager is NOT responding, Config offers a local
+# RESCUE fallback for Wi-Fi (and a couple of other basics) using host tools
+# (nmcli/hostnamectl), after warning the operator that direct changes bypass the
+# manager and may need reconciliation once it is back up.
 #
 # Launched from the tty1 autologin session (see /etc/profile.d/zz-airwaves-tui.sh
 # + the getty@tty1 autologin drop-in). It LOOPS FOREVER — every action returns to
@@ -16,9 +22,47 @@ FIRSTRUN="/opt/airwaves/scripts/airwaves-firstrun"   # the install sub-flow (--i
 API="http://localhost/api/v1"                         # manager API via the gateway
 VERSIONS="/etc/airwaves/.versions.json"
 RELEASE="/etc/airwaves-release"
+FIRSTRUN_MARKER="/opt/airwaves/.needs-first-run"
 BT="Airwaves OS"
-export DIALOGRC=/dev/null
 export TERM="${TERM:-linux}"
+
+# A black/cyan dialog theme so the console reads as a branded appliance screen
+# (the banner box and menu share one cohesive black background). Written to
+# tmpfs at startup; falls back to the stock theme if it can't be created.
+AWRC="/run/airwaves-tui.dialogrc"
+init_theme() {
+    cat > "$AWRC" 2>/dev/null <<'RC' || { AWRC="/dev/null"; return; }
+use_shadow = OFF
+use_colors = ON
+screen_color = (CYAN,BLACK,ON)
+dialog_color = (CYAN,BLACK,ON)
+title_color = (YELLOW,BLACK,ON)
+border_color = (CYAN,BLACK,ON)
+border2_color = (CYAN,BLACK,ON)
+menubox_color = (WHITE,BLACK,OFF)
+menubox_border_color = (CYAN,BLACK,ON)
+menubox_border2_color = (CYAN,BLACK,ON)
+item_color = (WHITE,BLACK,OFF)
+item_selected_color = (BLACK,CYAN,ON)
+tag_color = (YELLOW,BLACK,ON)
+tag_selected_color = (BLACK,CYAN,ON)
+tag_key_color = (YELLOW,BLACK,OFF)
+tag_key_selected_color = (BLACK,CYAN,ON)
+button_active_color = (BLACK,CYAN,ON)
+button_inactive_color = (CYAN,BLACK,OFF)
+button_key_active_color = (BLACK,CYAN,ON)
+button_key_inactive_color = (YELLOW,BLACK,OFF)
+button_label_active_color = (BLACK,CYAN,ON)
+button_label_inactive_color = (CYAN,BLACK,ON)
+inputbox_color = (WHITE,BLACK,OFF)
+inputbox_border_color = (CYAN,BLACK,ON)
+searchbox_color = (WHITE,BLACK,OFF)
+position_indicator_color = (YELLOW,BLACK,ON)
+gauge_color = (CYAN,BLACK,ON)
+RC
+}
+# Run dialog with the branded theme (used for the main console + sub-dialogs).
+dlg() { DIALOGRC="$AWRC" dialog "$@"; }
 
 # ---- status helpers (all bounded so the menu never hangs) -------------------
 api_up()    { curl -fsS -m3 "${API}/system/overview" >/dev/null 2>&1; }
@@ -40,8 +84,8 @@ is_live() {
     rd="$(lsblk -ndo pkname "$(findmnt -no SOURCE / 2>/dev/null)" 2>/dev/null)"
     [ "$(cat "/sys/block/${rd}/removable" 2>/dev/null || echo 0)" = "1" ]
 }
-# Bounded: on first boot dockerd is busy pulling, so an unbounded `docker inspect`
-# could block the menu for minutes. Cap it.
+# Bounded: on first boot dockerd is busy loading images, so an unbounded
+# `docker inspect` could block the menu for minutes. Cap it.
 svc() {
     local s
     s="$(timeout 3 docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$1" 2>/dev/null)" || s="starting"
@@ -49,80 +93,144 @@ svc() {
 }
 release_var() { [ -f "$RELEASE" ] && awk -F= "/^$1=/{gsub(/\"/,\"\",\$2);print \$2}" "$RELEASE" 2>/dev/null; }
 
-banner() {
-    # Compact branded banner; toilet is in the base image (used by the MOTD).
+# ---- banner / identity (split so the first-boot screen can skip docker) -----
+banner_art() {
     if command -v toilet >/dev/null 2>&1; then
-        toilet -f small "Airwaves OS" 2>/dev/null || echo "Airwaves OS"
+        toilet -f small "Airwaves OS" 2>/dev/null || echo "  Airwaves OS"
     else
-        echo "Airwaves OS"
+        echo "  Airwaves OS"
     fi
 }
-
-header() {
-    local ver cn ch host ip mode up
+id_lines() {
+    local ver cn ch host ip mode
     ver="$(release_var AIRWAVES_VERSION)"; ver="${ver:-?}"
     cn="$(release_var AIRWAVES_CODENAME)"
     ch="$(jq -r '.channel // "stable"' "$VERSIONS" 2>/dev/null || echo stable)"
     host="$(hostname 2>/dev/null)"; ip="$(primary_ip)"
     if is_live; then mode="LIVE USB"; else mode="INSTALLED"; fi
+    printf '  Airwaves OS v%s  %s   ·   %s   ·   channel: %s\n' "$ver" "$cn" "$mode" "$ch"
+    printf '  Host: %s' "$host"; [ -n "$ip" ] && printf '    IP: %s' "$ip"; printf '\n'
+    printf '  Web UI: http://%s.local' "$host"; [ -n "$ip" ] && printf '   /   http://%s' "$ip"; printf '\n'
+}
+stack_line() {
+    local up
     up="$(awk '{d=int($1/86400);h=int(($1%86400)/3600);m=int(($1%3600)/60); if(d)printf "%dd %dh %dm",d,h,m; else if(h)printf "%dh %dm",h,m; else printf "%dm",m}' /proc/uptime 2>/dev/null)"
-    banner
-    printf '  v%s %s   ·   %s   ·   channel: %s\n' "$ver" "$cn" "$mode" "$ch"
-    printf '\n'
-    printf '  Host:    %s' "$host"; [ -n "$ip" ] && printf '    IP: %s' "$ip"; printf '\n'
-    printf '  Web UI:  http://%s.local' "$host"; [ -n "$ip" ] && printf '  /  http://%s' "$ip"; printf '\n'
-    printf '  Stack:   manager=%s  gateway=%s    Uptime: %s\n' "$(svc airwaves-manager)" "$(svc airwaves-gateway)" "${up:-?}"
+    printf '  manager: %s   gateway: %s   ·   uptime: %s\n' "$(svc airwaves-manager)" "$(svc airwaves-gateway)" "${up:-?}"
 }
 
-msg()  { dialog --backtitle "${BT}" --title "$1" --msgbox "$2" "${3:-10}" "${4:-64}"; }
-need_api() { api_up && return 0; msg "Manager unavailable" "\nThe manager service isn't responding yet.\n\nTry again in a moment, or use 'Open a shell' to investigate." 11 60; return 1; }
+# ---- generic dialogs -------------------------------------------------------
+msg()  { dlg --backtitle "${BT}" --title "$1" --msgbox "$2" "${3:-10}" "${4:-64}"; }
+need_api() { api_up && return 0; msg "Manager unavailable" "\nThe manager service isn't responding, and this action requires it.\n\nTry again in a moment, or use 'Open a shell' to investigate." 11 62; return 1; }
 
-# ---- Configuration submenu (installed systems) -----------------------------
-cfg_hostname() {
-    need_api || return
-    local cur new
-    cur="$(api_get /system/info | jq -r '.hostname // empty' 2>/dev/null)"; cur="${cur:-$(hostname)}"
-    new="$(dialog --backtitle "${BT}" --title "Hostname" --inputbox "\nDevice hostname (letters, digits, hyphens):" 10 60 "${cur}" 3>&1 1>&2 2>&3)" || return
-    [ -n "${new}" ] || { msg "Hostname" "\nHostname cannot be empty."; return; }
-    if api_post /system/hostname "{\"hostname\":\"${new}\"}" >/dev/null; then
-        msg "Hostname" "\nHostname set to: ${new}"
-    else
-        msg "Hostname" "\nFailed to set hostname (the manager rejected it or is unavailable)."
-    fi
+# Warn the operator before a local (rescue) change that bypasses the manager.
+# Returns 0 to proceed, 1 to cancel.
+rescue_warn() {
+    dlg --backtitle "${BT}" --title "Manager not running — rescue mode" --defaultno --yesno \
+"\nThe manager service isn't responding, so '$1' can't be set the normal way (through the manager, like the web UI).\n\nYou can configure it DIRECTLY now as a rescue:\n\n  * Changes apply to the host immediately.\n  * They BYPASS the manager and may differ from what the\n    manager shows once it comes back up.\n  * The manager reconciles/observes them on its next start.\n\nProceed with direct (rescue) configuration?" 18 70
 }
-cfg_wifi() {
-    need_api || return
-    dialog --backtitle "${BT}" --infobox "\nScanning for Wi-Fi networks..." 5 40;
-    local json rows=() ssid
+
+# ---- Wi-Fi: API path + local nmcli rescue path -----------------------------
+cfg_wifi_api() {
+    dlg --backtitle "${BT}" --infobox "\nScanning for Wi-Fi networks..." 5 44
+    local json rows=() ssid pw
     json="$(api_get /wifi/scan)"
-    [ -n "${json}" ] || { msg "Wi-Fi" "\nNo Wi-Fi interface found, or scan failed.\n\n(Wired Ethernet needs no configuration.)" 11 60; return; }
-    while IFS= read -r ssid; do [ -n "$ssid" ] && rows+=("$ssid" ""); done < <(echo "${json}" | jq -r '.[].ssid // empty' 2>/dev/null | sort -u)
+    [ -n "${json}" ] || { msg "Wi-Fi" "\nNo Wi-Fi interface found, or the scan failed.\n\n(Wired Ethernet needs no configuration.)" 11 62; return; }
+    while IFS= read -r ssid; do [ -n "$ssid" ] && rows+=("$ssid" ""); done \
+        < <(echo "${json}" | jq -r '.[].ssid // empty' 2>/dev/null | awk 'NF' | sort -u)
     [ "${#rows[@]}" -gt 0 ] || { msg "Wi-Fi" "\nNo networks found in range."; return; }
-    ssid="$(dialog --backtitle "${BT}" --title "Wi-Fi networks" --menu "\nSelect a network:" 18 60 10 "${rows[@]}" 3>&1 1>&2 2>&3)" || return
-    local pw
-    pw="$(dialog --backtitle "${BT}" --title "Wi-Fi password" --insecure --passwordbox "\nPassword for ${ssid} (blank for open):" 10 60 3>&1 1>&2 2>&3)" || return
-    dialog --backtitle "${BT}" --infobox "\nConnecting to ${ssid}..." 5 40
+    ssid="$(dlg --backtitle "${BT}" --title "Wi-Fi networks" --menu "\nSelect a network:" 18 60 10 "${rows[@]}" 3>&1 1>&2 2>&3)" || return
+    pw="$(dlg --backtitle "${BT}" --title "Wi-Fi password" --insecure --passwordbox "\nPassword for ${ssid} (blank for open):" 10 60 3>&1 1>&2 2>&3)" || return
+    dlg --backtitle "${BT}" --infobox "\nConnecting to ${ssid}..." 5 44
     if api_post /wifi/connect "{\"ssid\":\"${ssid}\",\"password\":\"${pw}\"}" >/dev/null; then
         msg "Wi-Fi" "\nConnect request sent for: ${ssid}"
     else
         msg "Wi-Fi" "\nFailed to connect to ${ssid}."
     fi
 }
+cfg_wifi_local() {
+    command -v nmcli >/dev/null 2>&1 || { msg "Wi-Fi" "\nNetworkManager (nmcli) is not available, so a direct rescue connect isn't possible on this image."; return; }
+    dlg --backtitle "${BT}" --infobox "\nScanning for Wi-Fi networks (direct / nmcli)..." 5 52
+    local rows=() ssid pw out
+    # nmcli --terse escapes ':' as '\:' and '\' as '\\'; unescape via placeholder.
+    while IFS= read -r ssid; do [ -n "$ssid" ] && rows+=("$ssid" ""); done \
+        < <(nmcli -t -f SSID device wifi list --rescan yes 2>/dev/null \
+            | sed -e 's/\\\\/\x01/g' -e 's/\\:/:/g' -e 's/\x01/\\/g' | awk 'NF' | sort -u)
+    [ "${#rows[@]}" -gt 0 ] || { msg "Wi-Fi" "\nNo Wi-Fi networks found (or no Wi-Fi adapter).\n\n(Wired Ethernet needs no configuration.)" 11 62; return; }
+    ssid="$(dlg --backtitle "${BT}" --title "Wi-Fi networks (rescue)" --menu "\nSelect a network:" 18 60 10 "${rows[@]}" 3>&1 1>&2 2>&3)" || return
+    pw="$(dlg --backtitle "${BT}" --title "Wi-Fi password (rescue)" --insecure --passwordbox "\nPassword for ${ssid} (blank for open):" 10 60 3>&1 1>&2 2>&3)" || return
+    dlg --backtitle "${BT}" --infobox "\nConnecting to ${ssid} (direct / nmcli)..." 5 52
+    nmcli radio wifi on >/dev/null 2>&1 || true
+    local rc
+    if [ -n "${pw}" ]; then
+        out="$(nmcli device wifi connect "${ssid}" password "${pw}" 2>&1)"; rc=$?
+    else
+        out="$(nmcli device wifi connect "${ssid}" 2>&1)"; rc=$?
+    fi
+    if [ "$rc" -eq 0 ]; then
+        msg "Wi-Fi (rescue)" "\nConnected directly to: ${ssid}\n\nThis bypassed the manager. It will reconcile this\nconnection the next time it starts." 11 64
+    else
+        msg "Wi-Fi (rescue)" "\nFailed to connect to ${ssid}.\n\n${out}" 12 64
+    fi
+}
+cfg_wifi() {
+    if api_up; then cfg_wifi_api; else rescue_warn "Wi-Fi" && cfg_wifi_local; fi
+}
+
+# ---- hostname: API path + local hostnamectl rescue -------------------------
+cfg_hostname() {
+    local cur new
+    if api_up; then
+        cur="$(api_get /system/info | jq -r '.hostname // empty' 2>/dev/null)"; cur="${cur:-$(hostname)}"
+        new="$(dlg --backtitle "${BT}" --title "Hostname" --inputbox "\nDevice hostname (letters, digits, hyphens):" 10 60 "${cur}" 3>&1 1>&2 2>&3)" || return
+        [ -n "${new}" ] || { msg "Hostname" "\nHostname cannot be empty."; return; }
+        if api_post /system/hostname "{\"hostname\":\"${new}\"}" >/dev/null; then
+            msg "Hostname" "\nHostname set to: ${new}"
+        else
+            msg "Hostname" "\nFailed to set hostname (the manager rejected it or is unavailable)."
+        fi
+    else
+        rescue_warn "Hostname" || return
+        cur="$(hostname)"
+        new="$(dlg --backtitle "${BT}" --title "Hostname (rescue)" --inputbox "\nDevice hostname (letters, digits, hyphens):" 10 60 "${cur}" 3>&1 1>&2 2>&3)" || return
+        [ -n "${new}" ] || { msg "Hostname" "\nHostname cannot be empty."; return; }
+        if hostnamectl set-hostname "${new}" 2>/dev/null; then
+            echo "${new}" > /etc/hostname 2>/dev/null || true
+            systemctl restart avahi-daemon 2>/dev/null || true
+            msg "Hostname (rescue)" "\nHostname set directly to: ${new}\n\nThis bypassed the manager." 10 60
+        else
+            msg "Hostname (rescue)" "\nFailed to set hostname directly."
+        fi
+    fi
+}
+
+# ---- update channel: API path + local .versions.json rescue ----------------
 cfg_channel() {
-    need_api || return
     local cur new
     cur="$(jq -r '.channel // "stable"' "$VERSIONS" 2>/dev/null || echo stable)"
-    new="$(dialog --backtitle "${BT}" --title "Update channel" --default-item "${cur}" \
+    new="$(dlg --backtitle "${BT}" --title "Update channel" --default-item "${cur}" \
         --menu "\nCurrent: ${cur}\n\nChoose the update channel:" 14 60 3 \
         stable "Tested releases (recommended)" \
         beta   "Pre-release candidates" \
         dev    "Latest development builds" 3>&1 1>&2 2>&3)" || return
-    if api_post /system/update/channel "{\"channel\":\"${new}\"}" >/dev/null; then
-        msg "Update channel" "\nChannel set to: ${new}\n\nUse Upgrade to apply the latest on this channel."
+    if api_up; then
+        if api_post /system/update/channel "{\"channel\":\"${new}\"}" >/dev/null; then
+            msg "Update channel" "\nChannel set to: ${new}\n\nUse Upgrade to apply the latest on this channel."
+        else
+            msg "Update channel" "\nFailed to set channel."
+        fi
     else
-        msg "Update channel" "\nFailed to set channel."
+        rescue_warn "Update channel" || return
+        local tmp
+        tmp="$(jq -c --arg c "${new}" '.channel = $c' "$VERSIONS" 2>/dev/null)"
+        if [ -n "${tmp}" ] && printf '%s\n' "${tmp}" > "${VERSIONS}" 2>/dev/null; then
+            msg "Update channel (rescue)" "\nChannel set directly to: ${new}\n\nThis bypassed the manager." 10 60
+        else
+            msg "Update channel (rescue)" "\nFailed to write ${VERSIONS}."
+        fi
     fi
 }
+
+# ---- password (always local: PAM) ------------------------------------------
 cfg_password() {
     clear
     echo "== Change the 'airwaves' user password =="
@@ -133,10 +241,12 @@ cfg_password() {
     case "$a" in y|Y) passwd root || true;; esac
     echo; read -r -p "Press ENTER to return to the menu..." _
 }
+
+# ---- Airframes feeder token (manager only) ---------------------------------
 cfg_airframes() {
     need_api || return
     local tok cfg
-    tok="$(dialog --backtitle "${BT}" --title "Airframes feeder token (optional)" --insecure --passwordbox \
+    tok="$(dlg --backtitle "${BT}" --title "Airframes feeder token (optional)" --insecure --passwordbox \
         "\nPaste your Airframes.io feeder token/API key to share data with the\nAirframes network. Leave blank to skip.\n\n(Account username/password login is coming in a later update.)" 13 66 3>&1 1>&2 2>&3)" || return
     [ -n "${tok}" ] || return
     cfg="$(api_get /config)"; [ -n "${cfg}" ] || { msg "Airframes" "\nCould not read current config."; return; }
@@ -147,11 +257,13 @@ cfg_airframes() {
         msg "Airframes" "\nFailed to save the token."
     fi
 }
+
 configuration_menu() {
+    local hint c
+    if api_up; then hint="applied via the manager, like the web UI"; else hint="MANAGER DOWN — Wi-Fi/hostname/channel offer a direct rescue"; fi
     while true; do
-        local c
-        c="$(dialog --backtitle "${BT}" --title "Configuration" --cancel-label "Back" \
-            --menu "\nConfigure this device (applied via the manager, like the web UI):" 16 64 7 \
+        c="$(dlg --backtitle "${BT}" --title "Configuration" --cancel-label "Back" \
+            --menu "\nConfigure this device (${hint}):" 16 70 7 \
             hostname  "Change hostname" \
             wifi      "Configure wireless (Wi-Fi)" \
             channel   "Change update channel" \
@@ -182,7 +294,7 @@ update_gauge() {
             sleep 2
         done
         echo 100
-    ) | dialog --backtitle "$BT" --title "$1" --gauge "\nStarting..." 10 64 0
+    ) | dlg --backtitle "$BT" --title "$1" --gauge "\nStarting..." 10 64 0
 }
 apply_update() {   # $1 = upgrade | repair
     need_api || return
@@ -209,9 +321,39 @@ open_shell() {
     AIRWAVES_TUI_SHELL=1 bash -l || true
 }
 
+# ---- first-boot status screen (#20) ----------------------------------------
+# While first-boot init is still running, show what it's doing instead of a
+# half-working menu. airwaves-init logs each step to its journal; we surface the
+# latest line. The marker is removed when init finalizes, so this falls through
+# to the menu automatically. If init FAILED, we skip this and show the menu so
+# the operator can open a shell / repair.
+first_boot_active() {
+    [ -f "$FIRSTRUN_MARKER" ] && ! systemctl is-failed --quiet airwaves-init.service 2>/dev/null
+}
+first_boot_screen() {
+    local step
+    step="$(journalctl -u airwaves-init.service -o cat --no-pager 2>/dev/null | awk 'NF' | tail -1)"
+    step="${step#\[airwaves-init\] }"
+    [ -n "$step" ] || step="Starting first-boot setup..."
+    dlg --backtitle "${BT}" --no-collapse --title "Setting up Airwaves OS" --infobox \
+"$(banner_art)
+$(id_lines)
+  First boot — preparing your device. This happens only once.
+
+  > ${step}
+
+  Loading the app stack from the on-board copy (no network needed).
+  The console menu appears automatically when ready." 20 78
+    sleep 2
+}
+
 command -v dialog >/dev/null 2>&1 || { echo "dialog not available; opening a shell."; exec bash -l; }
+init_theme
 
 while true; do
+    # First-boot: show progress until init finishes (or fails).
+    if first_boot_active; then first_boot_screen; continue; fi
+
     items=()
     if is_live; then
         items+=( install "Install Airwaves OS to an internal disk" )
@@ -224,18 +366,26 @@ while true; do
     items+=( reboot   "Reboot" )
     items+=( poweroff "Power off" )
 
-    choice="$(dialog --backtitle "${BT}" --no-cancel --title "Airwaves OS Console" \
-        --menu "$(header)\n" 24 76 9 "${items[@]}" 3>&1 1>&2 2>&3)" || { sleep 1; continue; }
+    # Banner box (kept on screen) above the action menu (#22). --keep-window
+    # retains the infobox while the menu takes input; --begin stacks them.
+    choice="$(dlg --backtitle "${BT}" --no-collapse --keep-window \
+        --begin 1 1 --no-shadow --infobox \
+"$(banner_art)
+$(id_lines)$(stack_line)" 12 76 \
+        --and-widget --keep-window --no-shadow --no-cancel \
+        --begin 13 1 --title "Airwaves OS Console" \
+        --menu "Select an action:" 11 76 7 "${items[@]}" \
+        3>&1 1>&2 2>&3)" || { sleep 1; continue; }
 
     case "$choice" in
         install)  clear; "$FIRSTRUN" --install || true ;;
         config)   configuration_menu ;;
         upgrade)  apply_update upgrade ;;
-        repair)   dialog --backtitle "$BT" --defaultno \
+        repair)   dlg --backtitle "$BT" --defaultno \
                       --yesno "\nRepair re-pulls and recreates the app containers (no version change). Continue?" 9 62 \
                       && apply_update repair ;;
         shell)    open_shell ;;
-        reboot)   dialog --backtitle "$BT" --defaultno --yesno "\nReboot now?" 7 36 && { clear; systemctl reboot; } ;;
-        poweroff) dialog --backtitle "$BT" --defaultno --yesno "\nPower off now?" 7 36 && { clear; systemctl poweroff; } ;;
+        reboot)   dlg --backtitle "$BT" --defaultno --yesno "\nReboot now?" 7 36 && { clear; systemctl reboot; } ;;
+        poweroff) dlg --backtitle "$BT" --defaultno --yesno "\nPower off now?" 7 36 && { clear; systemctl poweroff; } ;;
     esac
 done

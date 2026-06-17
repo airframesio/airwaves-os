@@ -30,6 +30,11 @@ on:
           - vendor
           - legacy
           - edge
+      bundle_containers:
+        description: "Bake the release's manager+gateway containers into the image (offline first boot)"
+        required: true
+        default: true
+        type: boolean
 
 # The Armbian build framework tag is pinned in armbian/build.sh (single source
 # of truth); this workflow invokes build.sh, so no override is needed here.
@@ -74,6 +79,72 @@ jobs:
           restore-keys: |
             armbian-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}-${{ github.event.inputs.branch }}-
             armbian-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}-
+
+      # Bake the release's manager+gateway container images INTO the rootfs so the
+      # device's FIRST boot needs no network. Without this, first boot can't pull
+      # the containers when there's no connectivity, so the manager/web UI never
+      # comes up and even Wi-Fi setup is impossible (chicken-and-egg). We pull the
+      # exact images pinned in releases/stable.json at the board's CPU arch, tag
+      # them with the version + channel alias + :latest, and docker-save each into
+      # the userpatches images/ dir, which the airwaves-base extension copies into
+      # the image and airwaves-init loads on first boot. Runs AFTER the cache step
+      # so the tarballs never perturb the kernel/rootfs cache key.
+      - name: Bundle release containers (offline first boot)
+        if: ${{ inputs.bundle_containers }}
+        env:
+          BOARD: ${{ github.event.inputs.board }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REL="releases/stable.json"
+          [ -f "$REL" ] || { echo "::error::$REL not found"; exit 1; }
+
+          CHANNEL="$(jq -r '.channel // "stable"' "$REL")"
+          OSVER="$(jq -r '.os_version // empty' "$REL")"
+          MGR_IMG="$(jq -r '.components.manager.image' "$REL")"
+          MGR_TAG="$(jq -r '.components.manager.tag' "$REL")"
+          GW_IMG="$(jq -r '.components.gateway.image' "$REL")"
+          GW_TAG="$(jq -r '.components.gateway.tag' "$REL")"
+          for v in "$CHANNEL" "$MGR_IMG" "$MGR_TAG" "$GW_IMG" "$GW_TAG"; do
+            [ -n "$v" ] && [ "$v" != "null" ] || { echo "::error::missing field in $REL"; exit 1; }
+          done
+
+          case "$BOARD" in
+            uefi-x86) PLAT="linux/amd64" ;;
+            *)        PLAT="linux/arm64" ;;
+          esac
+          echo "channel=$CHANNEL os_version=${OSVER:-?} platform=$PLAT"
+          echo "manager=${MGR_IMG}:${MGR_TAG}  gateway=${GW_IMG}:${GW_TAG}"
+
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+
+          OUT="armbian/userpatches/extensions/airwaves-os/images"
+          mkdir -p "$OUT"
+
+          # Pull the exact pinned image for this arch, then attach the moving tags
+          # the device may reference (channel alias + :latest) so the loaded image
+          # satisfies the compose file offline regardless of which tag it pins.
+          bundle() {
+            local img="$1" tag="$2" svc="$3"
+            echo "==> Pulling ${img}:${tag} (${PLAT})"
+            docker pull --platform "$PLAT" "${img}:${tag}"
+            docker tag "${img}:${tag}" "${img}:${CHANNEL}"
+            docker tag "${img}:${tag}" "${img}:latest"
+            echo "==> Saving ${svc} -> ${OUT}/airwaves-${svc}.tar"
+            docker save -o "${OUT}/airwaves-${svc}.tar" \
+              "${img}:${tag}" "${img}:${CHANNEL}" "${img}:latest"
+          }
+
+          bundle "$MGR_IMG" "$MGR_TAG" "manager"
+          bundle "$GW_IMG" "$GW_TAG" "gateway"
+
+          # Reclaim docker's overlay storage before the heavy Armbian build; the
+          # tarballs we just wrote to disk are what matter from here on.
+          docker image prune -af >/dev/null 2>&1 || true
+          ls -lh "$OUT"/*.tar
+          df -h /
+          echo "Bundled ${CHANNEL} (${OSVER:-?}) containers for ${PLAT}"
 
       - name: Build image
         env:

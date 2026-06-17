@@ -95,7 +95,16 @@ set_hostname() {
 load_prebaked_containers() {
     log "Loading container images..."
 
-    # Try loading from pre-baked tarballs first
+    local alias
+    alias="$(channel_alias)"
+
+    # Try loading from pre-baked tarballs first. These are docker-save'd at image
+    # BUILD time (see build-image-simple.yml) from the manager+gateway images of
+    # the release pinned in releases/<channel>.json, so first boot needs NO
+    # network: the system can come up (and serve the manager/web UI for Wi-Fi
+    # setup) even with no connectivity. Each tarball carries the version tag, the
+    # channel alias (e.g. :stable), and :latest, so whatever the compose file
+    # references resolves locally.
     if [ -d "$AIRWAVES_IMAGES_DIR" ] && [ -n "$(ls -A "$AIRWAVES_IMAGES_DIR"/*.tar 2>/dev/null)" ]; then
         for image_tar in "$AIRWAVES_IMAGES_DIR"/*.tar; do
             local image_name
@@ -108,15 +117,16 @@ load_prebaked_containers() {
                 log "WARNING: Failed to load ${image_name}"
             fi
         done
-        log "Pre-baked container loading complete"
+        # Point compose at the channel alias the tarballs carry so `docker compose
+        # up` uses the loaded images instead of trying to pull :latest online.
+        pin_compose_to_alias "${alias}"
+        log "Pre-baked container loading complete (offline)"
         return 0
     fi
 
     # No tarballs - pull from GHCR registry for this device's release channel.
     log "No pre-baked images found, pulling from registry..."
     local registry="ghcr.io/airframesio"
-    local alias
-    alias="$(channel_alias)"
     log "Release channel image tag: :${alias}"
 
     for image in airwaves-gateway airwaves-manager; do
