@@ -33,7 +33,15 @@ fi
 [ -t 0 ] || { [ "${MODE}" = "install" ] && echo "airwaves-install: no interactive terminal." >&2; exit 0; }
 command -v dialog >/dev/null || { [ "${MODE}" = "install" ] && echo "airwaves-install: 'dialog' is not installed." >&2; exit 0; }
 
-export DIALOGRC=/dev/null
+# Match the console TUI's branded theme (black/cyan) so the installer flow looks
+# the same whether launched from the TUI or run standalone.
+if [ -r /opt/airwaves/config/dialogrc ]; then
+    export DIALOGRC=/opt/airwaves/config/dialogrc
+elif [ -r /run/airwaves-tui.dialogrc ]; then
+    export DIALOGRC=/run/airwaves-tui.dialogrc
+else
+    export DIALOGRC=/dev/null
+fi
 BT="Airwaves OS Installer"
 
 banner() {

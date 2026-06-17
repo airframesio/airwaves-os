@@ -1,0 +1,30 @@
+# Airwaves OS — shared dialog(1) theme (black background, cyan/yellow accents).
+# Used by airwaves-tui AND airwaves-firstrun (the installer flow) so every screen
+# looks the same. Point DIALOGRC at this file.
+use_shadow = OFF
+use_colors = ON
+screen_color = (CYAN,BLACK,ON)
+dialog_color = (CYAN,BLACK,ON)
+title_color = (YELLOW,BLACK,ON)
+border_color = (CYAN,BLACK,ON)
+border2_color = (CYAN,BLACK,ON)
+menubox_color = (WHITE,BLACK,OFF)
+menubox_border_color = (CYAN,BLACK,ON)
+menubox_border2_color = (CYAN,BLACK,ON)
+item_color = (WHITE,BLACK,OFF)
+item_selected_color = (BLACK,CYAN,ON)
+tag_color = (YELLOW,BLACK,ON)
+tag_selected_color = (BLACK,CYAN,ON)
+tag_key_color = (YELLOW,BLACK,OFF)
+tag_key_selected_color = (BLACK,CYAN,ON)
+button_active_color = (BLACK,CYAN,ON)
+button_inactive_color = (CYAN,BLACK,OFF)
+button_key_active_color = (BLACK,CYAN,ON)
+button_key_inactive_color = (YELLOW,BLACK,OFF)
+button_label_active_color = (BLACK,CYAN,ON)
+button_label_inactive_color = (CYAN,BLACK,ON)
+inputbox_color = (WHITE,BLACK,OFF)
+inputbox_border_color = (CYAN,BLACK,ON)
+searchbox_color = (WHITE,BLACK,OFF)
+position_indicator_color = (YELLOW,BLACK,ON)
+gauge_color = (CYAN,BLACK,ON)

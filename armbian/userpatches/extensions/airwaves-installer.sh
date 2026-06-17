@@ -44,10 +44,19 @@ function post_family_tweaks__airwaves_installer_setup() {
 			"${SDCARD}"/etc/systemd/system/getty@tty1.service.d/airwaves-tui.conf
 	fi
 
-	# Launch the TUI from the tty1 login session only (serial/SSH get a shell).
+	# Launch the TUI from the tty1 autologin session, and for the 'airwaves'
+	# operator over SSH (serial + root SSH still get a shell).
 	if [ -f "${SDCARD}"/opt/airwaves/config/profile.d-airwaves-tui.sh ]; then
 		run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/profile.d-airwaves-tui.sh \
 			"${SDCARD}"/etc/profile.d/zz-airwaves-tui.sh
+	fi
+
+	# Passwordless sudo for just the TUI launcher so the airwaves SSH session
+	# drops into a fully-functional console without a second password prompt.
+	if [ -f "${SDCARD}"/opt/airwaves/config/templates/sudoers-airwaves-tui ]; then
+		run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/templates/sudoers-airwaves-tui \
+			"${SDCARD}"/etc/sudoers.d/airwaves-tui
+		run_host_command_logged chmod 0440 "${SDCARD}"/etc/sudoers.d/airwaves-tui
 	fi
 
 	# Retire the old first-run oneshot service if it was ever installed (the TUI

@@ -43,6 +43,18 @@ pin_compose_to_alias() {
     log "Pinned compose airwaves images -> :${alias}"
 }
 
+ensure_user_home() {
+    # Self-heal the airwaves home dir if a build/copy ever left it missing (SSH
+    # login fails with "Could not chdir to home directory" otherwise).
+    if id airwaves >/dev/null 2>&1 && [ ! -d /home/airwaves ]; then
+        log "Creating missing /home/airwaves"
+        mkdir -p /home/airwaves
+        cp -rTn /etc/skel /home/airwaves 2>/dev/null || true
+        chown -R airwaves:airwaves /home/airwaves
+        chmod 755 /home/airwaves
+    fi
+}
+
 generate_device_id() {
     log "Generating device ID..."
     local uuid
@@ -191,6 +203,7 @@ finalize() {
 # Main
 log "Starting Airwaves OS first-boot initialization..."
 
+ensure_user_home
 generate_device_id
 set_hostname
 setup_docker_networks

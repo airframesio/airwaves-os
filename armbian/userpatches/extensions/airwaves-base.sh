@@ -50,7 +50,15 @@ function post_family_tweaks__airwaves_base_setup() {
 
 	# Create airwaves user (docker group added later by airwaves-docker extension)
 	display_alert "Creating airwaves user" "${EXTENSION}" "info"
-	chroot_sdcard useradd -m -s /bin/bash -G sudo,plugdev airwaves
+	chroot_sdcard useradd -m -s /bin/bash -G sudo,plugdev airwaves || \
+		chroot_sdcard usermod -s /bin/bash airwaves
+	# Guarantee the home directory exists, is populated from skel, and is owned by
+	# airwaves — some build paths leave `useradd -m` without a home, which then
+	# breaks SSH login ("Could not chdir to home directory /home/airwaves").
+	chroot_sdcard mkdir -p /home/airwaves
+	chroot_sdcard cp -rTn /etc/skel /home/airwaves 2>/dev/null || true
+	chroot_sdcard chown -R airwaves:airwaves /home/airwaves
+	chroot_sdcard chmod 755 /home/airwaves
 	# Set password using chpasswd via heredoc (avoids pipe parsing issues in chroot)
 	echo "airwaves:airwaves" | chroot "${SDCARD}" /usr/sbin/chpasswd
 

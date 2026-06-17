@@ -30,10 +30,13 @@ BT="Airwaves OS"
 export TERM="${TERM:-linux}"
 
 # A black/cyan dialog theme so the console reads as a branded appliance screen
-# (the banner box and menu share one cohesive black background). Written to
-# tmpfs at startup; falls back to the stock theme if it can't be created.
+# (the banner box and menu share one cohesive black background). Prefer the
+# shipped shared theme (also used by airwaves-firstrun so the installer matches);
+# fall back to writing it to tmpfs, then to the stock theme.
+SHARED_RC="/opt/airwaves/config/dialogrc"
 AWRC="/run/airwaves-tui.dialogrc"
 init_theme() {
+    if [ -r "$SHARED_RC" ]; then AWRC="$SHARED_RC"; return; fi
     cat > "$AWRC" 2>/dev/null <<'RC' || { AWRC="/dev/null"; return; }
 use_shadow = OFF
 use_colors = ON
@@ -115,10 +118,15 @@ id_lines() {
     printf '  Host: %s' "$host"; [ -n "$ip" ] && printf '    IP: %s' "$ip"; printf '\n'
     printf '  Web UI: http://%s.local' "$host"; [ -n "$ip" ] && printf '   /   http://%s' "$ip"; printf '\n'
 }
-stack_line() {
+# Services listed vertically under a header (left-aligned as a block; the caller
+# centers the block). Columns align via printf width.
+services_block() {
     local up
     up="$(awk '{d=int($1/86400);h=int(($1%86400)/3600);m=int(($1%3600)/60); if(d)printf "%dd %dh %dm",d,h,m; else if(h)printf "%dh %dm",h,m; else printf "%dm",m}' /proc/uptime 2>/dev/null)"
-    printf '  manager: %s   gateway: %s   ·   uptime: %s\n' "$(svc airwaves-manager)" "$(svc airwaves-gateway)" "${up:-?}"
+    printf 'Services\n'
+    printf '  %-9s %s\n' "manager:" "$(svc airwaves-manager)"
+    printf '  %-9s %s\n' "gateway:" "$(svc airwaves-gateway)"
+    printf '  %-9s %s\n' "uptime:"  "${up:-?}"
 }
 # Center a whole block by its widest line, padding every line equally — preserves
 # internal alignment (ASCII art would shear if each line were centered alone).
@@ -479,13 +487,15 @@ while true; do
     # Banner box (kept on screen) above the action menu (#22). --keep-window
     # retains the infobox while the menu takes input; --begin stacks them. The
     # banner is centered as a block; the detail/status lines are each centered.
-    splash="$( { banner_art | center_block 74; { id_lines; stack_line; } | sed 's/^  *//' | center_lines 74; } )"
-    read -r oy ox < <(center_origin 23 76)   # 12 (banner) + 11 (menu) = 23 high
+    # Banner (block-centered) + details (line-centered) + a vertical Services
+    # list (block-centered so its column stays aligned).
+    splash="$( { banner_art | center_block 74; id_lines | sed 's/^  *//' | center_lines 74; services_block | center_block 74; } )"
+    read -r oy ox < <(center_origin 24 76)   # 14 (banner) + 10 (menu) = 24 high
     choice="$(dlg --backtitle "${BT}" --no-collapse --keep-window \
-        --begin "${oy}" "${ox}" --no-shadow --infobox "${splash}" 12 76 \
+        --begin "${oy}" "${ox}" --no-shadow --infobox "${splash}" 14 76 \
         --and-widget --keep-window --no-shadow --no-cancel \
-        --begin "$((oy + 12))" "${ox}" --title "Airwaves OS Console" \
-        --menu "Select an action:" 11 76 7 "${items[@]}" \
+        --begin "$((oy + 14))" "${ox}" --title "Airwaves OS Console" \
+        --menu "Select an action:" 10 76 6 "${items[@]}" \
         3>&1 1>&2 2>&3)" || { sleep 1; continue; }
 
     case "$choice" in

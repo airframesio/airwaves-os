@@ -369,6 +369,8 @@ EOF
     done
     [ "${rc}" = "0" ] || fail "rootfs copy (rsync) failed with code ${rc}"
     reset_firstboot_markers "${TMP}"
+    phase "seeding-containers" 80
+    seed_target_containers "${TMP}"
     PERCENT=80; write_status
 }
 
@@ -381,6 +383,42 @@ reset_firstboot_markers() {
     mkdir -p "${root}/opt/airwaves" 2>/dev/null || true
     rm -f "${root}/opt/airwaves/.initialized" 2>/dev/null || true
     touch "${root}/opt/airwaves/.needs-first-run" 2>/dev/null || true
+}
+
+# Make the installed system bootable OFFLINE: docker-save the manager+gateway
+# images this live system is running into the target's /opt/airwaves/images so
+# the target's airwaves-init loads them on first boot (no registry pull). The
+# image's PRE-BAKED tarballs were already consumed (deleted) when THIS live USB
+# first booted, so the rsync copy carries an empty images dir — we recreate them
+# from the running docker here. Best-effort: if docker/images are unavailable the
+# target falls back to pulling online.
+seed_target_containers() {
+    local root="$1"
+    local imgdir="${root}/opt/airwaves/images"
+    local compose="/etc/airwaves/docker-compose.yml"
+    command -v docker >/dev/null 2>&1 || { log "docker unavailable; target will pull containers on first boot (needs network)"; return 0; }
+    [ -f "${compose}" ] || { log "no compose on live system; skipping container seed"; return 0; }
+    local refs
+    refs="$(grep -oE 'ghcr\.io/airframesio/airwaves-[a-z]+:[A-Za-z0-9._-]+' "${compose}" 2>/dev/null | sort -u)"
+    [ -n "${refs}" ] || { log "no airwaves image refs in compose; skipping container seed"; return 0; }
+    mkdir -p "${imgdir}" 2>/dev/null || true
+    local ref name ok=0
+    while IFS= read -r ref; do
+        [ -n "${ref}" ] || continue
+        if ! docker image inspect "${ref}" >/dev/null 2>&1; then
+            log "image ${ref} not present on live system; target will pull it"
+            continue
+        fi
+        name="$(printf '%s' "${ref}" | sed -E 's#^.*/##; s#[:/]#_#g')"
+        log "Seeding target container image: ${ref}"
+        if docker save -o "${imgdir}/${name}.tar" "${ref}" >>"${LOG_TMP}" 2>&1; then
+            ok=$((ok + 1))
+        else
+            log "WARNING: docker save failed for ${ref}"
+            rm -f "${imgdir}/${name}.tar" 2>/dev/null || true
+        fi
+    done <<< "${refs}"
+    log "Seeded ${ok} container image(s) into target ${imgdir}"
 }
 
 # ---- bootloader + fstab: per platform --------------------------------------
@@ -606,6 +644,9 @@ EOF
     # Clear/arm first-boot markers BEFORE cloning rootA -> rootB so both slots
     # come up fresh and apply their AWCFG config on first boot.
     reset_firstboot_markers "${TMP}"
+    # Seed offline container images into rootA before the clone so BOTH slots
+    # carry them.
+    seed_target_containers "${TMP}"
 
     # Seed shared data: /data/{airwaves,docker}; relocate copied /etc/airwaves
     # into /data/airwaves (bind-mounted back via fstab).
