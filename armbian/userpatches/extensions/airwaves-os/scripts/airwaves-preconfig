@@ -1,0 +1,220 @@
+#!/usr/bin/env bash
+#
+# airwaves-preconfig — apply declarative config from the AWCFG partition.
+#
+# The AWCFG FAT32 partition (label "AWCFG") carries airwaves-install.json. It
+# exists on the source install media AND on the installed system, but is only
+# consulted:
+#   * on FIRST setup (before /opt/airwaves/.initialized exists), or
+#   * on an already-initialized system ONLY when a file named "apply.conf" is
+#     also present on AWCFG (the re-arm trigger) — then it applies once and
+#     deletes apply.conf.
+#
+# This is the headless provisioning / recovery path (e.g. fix Wi-Fi on a
+# screenless device: edit airwaves-install.json, touch apply.conf, reboot).
+#
+# Phase 1 applies ONLY non-destructive settings (hostname, Wi-Fi, channel,
+# timezone, ssh keys). The destructive auto-install / self-install flags are
+# parsed but NOT acted on yet (a later phase wires them into the installer);
+# if set, we log and ignore so nothing is ever erased by this script.
+#
+# Runs as a systemd oneshot ordered before airwaves-init. Never fails the boot:
+# any problem logs a warning and exits 0, leaving the normal flow intact.
+#
+set -uo pipefail
+
+INITIALIZED="/opt/airwaves/.initialized"
+CONFIG_JSON="/etc/airwaves/config.json"
+VERSIONS="/etc/airwaves/.versions.json"
+MNT="/run/airwaves/awcfg"
+LOGF="/var/log/airwaves-preconfig.log"
+LABEL="AWCFG"
+
+log() {
+    echo "[airwaves-preconfig] $*"
+    logger -t airwaves-preconfig -- "$*" 2>/dev/null || true
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*" >> "$LOGF" 2>/dev/null || true
+}
+
+cleanup() {
+    if mountpoint -q "$MNT" 2>/dev/null; then
+        sync
+        umount "$MNT" 2>/dev/null || umount -l "$MNT" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+
+valid_hostname() {
+    local n="$1"
+    [ -n "$n" ] && [ "${#n}" -le 63 ] || return 1
+    [[ "$n" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]]
+}
+valid_timezone() {
+    local tz="$1"
+    [ -n "$tz" ] && [ "${#tz}" -le 64 ] && [[ "$tz" =~ ^[A-Za-z0-9/_+-]+$ ]]
+}
+
+# ---- locate AWCFG ----------------------------------------------------------
+DEV="$(blkid -L "$LABEL" 2>/dev/null | head -1)"
+if [ -z "$DEV" ]; then
+    # No config partition on this medium — nothing to do (normal for dev images).
+    exit 0
+fi
+
+# ---- decide whether to act -------------------------------------------------
+first_setup=1
+[ -f "$INITIALIZED" ] && first_setup=0
+
+mkdir -p "$MNT" 2>/dev/null || true
+mnt_rw=0
+if mount -o rw "$DEV" "$MNT" 2>/dev/null; then
+    mnt_rw=1
+elif mount -o ro "$DEV" "$MNT" 2>/dev/null; then
+    log "WARNING: ${DEV} (${LABEL}) mounted read-only; apply.conf may not be consumable"
+else
+    log "Could not mount ${DEV} (${LABEL}); skipping"
+    exit 0
+fi
+
+# Delete the apply.conf re-arm trigger so config applies once, not every boot.
+# If the FS is read-only, try to remount rw; if that fails, WARN loudly (the
+# config will otherwise re-apply on every boot).
+consume_apply_conf() {
+    [ "$rearm" -eq 1 ] || return 0
+    if [ "$mnt_rw" -ne 1 ]; then
+        mount -o remount,rw "$MNT" 2>/dev/null && mnt_rw=1
+    fi
+    if [ "$mnt_rw" -eq 1 ] && rm -f "${MNT}/apply.conf" 2>/dev/null; then
+        log "Consumed apply.conf (config applied once)"
+    else
+        log "WARNING: could not remove apply.conf (read-only ${LABEL}); config will re-apply next boot"
+    fi
+}
+
+cfg="${MNT}/airwaves-install.json"
+rearm=0
+[ -f "${MNT}/apply.conf" ] && rearm=1
+
+if [ "$first_setup" -eq 0 ] && [ "$rearm" -eq 0 ]; then
+    # Installed system, no apply.conf — AWCFG is inert. Do nothing.
+    exit 0
+fi
+
+if [ ! -f "$cfg" ]; then
+    log "No airwaves-install.json on ${LABEL}; nothing to apply"
+    consume_apply_conf
+    exit 0
+fi
+
+if ! jq -e . "$cfg" >/dev/null 2>&1; then
+    log "airwaves-install.json is not valid JSON; ignoring (safe fallback)"
+    # Leave apply.conf in place so the user can fix the JSON and retry.
+    exit 0
+fi
+
+if [ "$first_setup" -eq 1 ]; then
+    log "First-setup: applying config from ${LABEL} (${DEV})"
+else
+    log "apply.conf present: re-applying config from ${LABEL} (${DEV})"
+fi
+
+getstr() { jq -r "$1 // empty" "$cfg" 2>/dev/null; }
+
+# ---- hostname --------------------------------------------------------------
+hostname_v="$(getstr '.hostname' | tr 'A-Z' 'a-z')"
+if [ -n "$hostname_v" ]; then
+    if valid_hostname "$hostname_v"; then
+        log "Setting hostname: ${hostname_v}"
+        hostnamectl set-hostname "$hostname_v" 2>/dev/null || true
+        echo "$hostname_v" > /etc/hostname 2>/dev/null || true
+        if [ -f "$CONFIG_JSON" ]; then
+            tmp="$(jq --arg h "$hostname_v" '.device.hostname = $h' "$CONFIG_JSON" 2>/dev/null)" \
+                && [ -n "$tmp" ] && printf '%s\n' "$tmp" > "$CONFIG_JSON"
+        fi
+        systemctl restart avahi-daemon 2>/dev/null || true
+    else
+        log "WARNING: invalid hostname '${hostname_v}'; skipping"
+    fi
+fi
+
+# ---- wifi (NetworkManager) -------------------------------------------------
+wifi_ssid="$(getstr '.wifi.ssid')"
+wifi_psk="$(getstr '.wifi.psk')"
+if [ -n "$wifi_ssid" ]; then
+    if command -v nmcli >/dev/null 2>&1; then
+        log "Configuring Wi-Fi for SSID: ${wifi_ssid}"
+        nmcli radio wifi on >/dev/null 2>&1 || true
+        if [ -n "$wifi_psk" ]; then
+            if nmcli device wifi connect "$wifi_ssid" password "$wifi_psk" >/dev/null 2>&1; then
+                log "Wi-Fi connected: ${wifi_ssid}"
+            else
+                log "WARNING: Wi-Fi connect failed for ${wifi_ssid} (will remain a saved profile if created)"
+            fi
+        else
+            nmcli device wifi connect "$wifi_ssid" >/dev/null 2>&1 \
+                && log "Wi-Fi connected (open): ${wifi_ssid}" \
+                || log "WARNING: Wi-Fi connect failed for open SSID ${wifi_ssid}"
+        fi
+    else
+        log "WARNING: nmcli not present; cannot apply Wi-Fi"
+    fi
+fi
+
+# ---- update channel --------------------------------------------------------
+channel_v="$(getstr '.channel')"
+case "$channel_v" in
+    stable|beta|dev)
+        if [ -f "$VERSIONS" ]; then
+            tmp="$(jq --arg c "$channel_v" '.channel = $c' "$VERSIONS" 2>/dev/null)" \
+                && [ -n "$tmp" ] && printf '%s\n' "$tmp" > "$VERSIONS" \
+                && log "Update channel set: ${channel_v}"
+        fi
+        ;;
+    "") : ;;
+    *) log "WARNING: invalid channel '${channel_v}'; skipping" ;;
+esac
+
+# ---- timezone --------------------------------------------------------------
+tz_v="$(getstr '.timezone')"
+if [ -n "$tz_v" ]; then
+    if valid_timezone "$tz_v"; then
+        timedatectl set-timezone "$tz_v" 2>/dev/null && log "Timezone set: ${tz_v}" \
+            || log "WARNING: failed to set timezone '${tz_v}'"
+    else
+        log "WARNING: invalid timezone '${tz_v}'; skipping"
+    fi
+fi
+
+# ---- ssh keys (root + airwaves) -------------------------------------------
+mapfile -t ssh_keys < <(jq -r '.ssh_keys[]? // empty' "$cfg" 2>/dev/null)
+if [ "${#ssh_keys[@]}" -gt 0 ]; then
+    add_keys() {
+        local owner="$2" ak="$1/.ssh/authorized_keys" k added=0
+        mkdir -p "$1/.ssh" 2>/dev/null || return
+        touch "$ak" 2>/dev/null || return
+        for k in "${ssh_keys[@]}"; do
+            [ -n "$k" ] || continue
+            case "$k" in ssh-*|ecdsa-*|sk-ssh-*) ;; *) continue;; esac
+            grep -qxF "$k" "$ak" 2>/dev/null || { printf '%s\n' "$k" >> "$ak"; added=$((added+1)); }
+        done
+        chmod 700 "$1/.ssh" 2>/dev/null || true
+        chmod 600 "$ak" 2>/dev/null || true
+        chown -R "$owner" "$1/.ssh" 2>/dev/null || true
+        [ "$added" -gt 0 ] && log "Added ${added} SSH key(s) for ${owner}"
+    }
+    add_keys /root root
+    [ -d /home/airwaves ] && add_keys /home/airwaves airwaves
+fi
+
+# ---- destructive flags (NOT acted on in this phase) ------------------------
+auto_install="$(jq -r '.auto_install // false' "$cfg" 2>/dev/null)"
+self_install="$(jq -r '.self_install // false' "$cfg" 2>/dev/null)"
+if [ "$auto_install" = "true" ] || [ "$self_install" = "true" ]; then
+    log "NOTE: auto_install/self_install are set but unattended install is not enabled in this build; ignoring. Use the installer menu."
+fi
+
+# ---- consume the re-arm trigger -------------------------------------------
+consume_apply_conf
+
+log "Preconfig complete"
+exit 0

@@ -1,0 +1,20 @@
+[Unit]
+Description=Airwaves OS pre-configuration (AWCFG partition)
+Documentation=https://airwavesos.com
+# Apply declarative config (hostname/Wi-Fi/channel) before first-boot init runs,
+# so the hostname is set before airwaves-init would derive one from the MAC and
+# Wi-Fi is up before the stack starts. nmcli needs NetworkManager, so order after
+# it. The script itself decides whether to act (first setup, or apply.conf), so
+# no ConditionPathExists here — it fast-exits when AWCFG is inert.
+After=local-fs.target NetworkManager.service
+Before=airwaves-init.service airwaves-containers.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/airwaves/scripts/airwaves-preconfig
+TimeoutStartSec=120
+StandardOutput=journal+console
+
+[Install]
+WantedBy=multi-user.target

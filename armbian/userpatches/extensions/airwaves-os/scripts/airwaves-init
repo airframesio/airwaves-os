@@ -53,6 +53,19 @@ generate_device_id() {
 }
 
 set_hostname() {
+    # Respect a hostname already chosen by airwaves-preconfig (AWCFG config
+    # partition), which runs before us. If config.device.hostname is set, use it
+    # instead of deriving one from the MAC.
+    local preset=""
+    [ -f "$AIRWAVES_CONFIG" ] && preset="$(jq -r '.device.hostname // empty' "$AIRWAVES_CONFIG" 2>/dev/null)"
+    if [ -n "$preset" ]; then
+        log "Using preconfigured hostname: ${preset}"
+        hostnamectl set-hostname "${preset}" 2>/dev/null || true
+        echo "${preset}" > /etc/hostname
+        systemctl restart avahi-daemon 2>/dev/null || true
+        return 0
+    fi
+
     log "Setting hostname from MAC address..."
 
     # Find the primary network interface MAC

@@ -155,4 +155,12 @@ ISSUE
 	display_alert "Installing airwaves-init service" "${EXTENSION}" "info"
 	run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/templates/systemd-airwaves-init.service "${SDCARD}"/etc/systemd/system/airwaves-init.service
 	chroot_sdcard systemctl --no-reload enable airwaves-init.service
+
+	# Install pre-config service (applies the AWCFG config partition on first
+	# setup, or when an apply.conf trigger is present — runs before init). The
+	# airwaves-preconfig script itself is copied with the rest of /opt/airwaves/
+	# scripts above.
+	display_alert "Installing airwaves-preconfig service" "${EXTENSION}" "info"
+	run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/templates/systemd-airwaves-preconfig.service "${SDCARD}"/etc/systemd/system/airwaves-preconfig.service
+	chroot_sdcard systemctl --no-reload enable airwaves-preconfig.service
 }
