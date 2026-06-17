@@ -93,9 +93,18 @@ run_install() {
     wait "${pid}"; local rc=$?
     state="$(jq -r '.state // "unknown"' "${STATUS}" 2>/dev/null || echo unknown)"
     if [ "${rc}" -eq 0 ] && [ "${state}" = "success" ]; then
-        dialog --backtitle "${BT}" --title "Install complete" \
-            --yesno "\nAirwaves OS was installed to ${target}.\n\nRemove the USB drive and reboot now?" 10 60 \
-            && { clear; reboot; }
+        # Quiesce the live system (stop the stack, flush) so the reboot is clean,
+        # then have the user remove the USB BEFORE rebooting — otherwise the BIOS
+        # may boot the live USB again instead of the freshly installed disk.
+        clear
+        echo "Finishing up — stopping services and flushing disks..."
+        systemctl stop airwaves-containers.service 2>/dev/null || true
+        docker compose -f /etc/airwaves/docker-compose.yml down --timeout 10 2>/dev/null || true
+        umount -l "${target}"* 2>/dev/null || true
+        sync; sync
+        dialog --backtitle "${BT}" --title "Installation complete" --no-collapse \
+            --msgbox "\nAirwaves OS was installed to:\n\n    ${target}\n\nRemove the USB drive NOW, then press ENTER to reboot.\nThe system will start up from ${target}." 13 64
+        clear; echo "Rebooting into the installed system..."; sync; systemctl reboot
         return 0
     else
         local err; err="$(jq -r '.error // "see /var/log/airwaves-install.log"' "${STATUS}" 2>/dev/null)"

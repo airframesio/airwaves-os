@@ -67,6 +67,29 @@ function post_family_tweaks__airwaves_base_setup() {
 	# Stamp build metadata
 	chroot_sdcard sed -i "s/^AIRWAVES_BUILD_DATE=.*/AIRWAVES_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)/" /etc/airwaves-release
 	chroot_sdcard sed -i "s/^AIRWAVES_BUILD_BOARD=.*/AIRWAVES_BUILD_BOARD=${BOARD}/" /etc/airwaves-release
+	# Stamp the real Airwaves OS version from the manager crate. The release
+	# template ships a placeholder (1.0.0); without this the MOTD + console show
+	# a stale version.
+	local _aw_ver _aw_cn
+	_aw_ver="$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "${extension_data_dir}/../../../../containers/airwaves-manager/Cargo.toml" 2>/dev/null | head -1)"
+	if [ -n "${_aw_ver}" ]; then
+		display_alert "Stamping Airwaves OS version" "${_aw_ver}" "info"
+		sed -i "s/^AIRWAVES_VERSION=.*/AIRWAVES_VERSION=${_aw_ver}/" "${SDCARD}/etc/airwaves-release"
+	fi
+	_aw_cn="$(awk -F= '/^AIRWAVES_CODENAME=/{gsub(/"/,"",$2);print $2}' "${SDCARD}/etc/airwaves-release" 2>/dev/null)"
+
+	# Pre-login console banner (/etc/issue): shown by agetty before login/autologin
+	# so the console isn't blank during first-boot work. \n=hostname \l=tty (agetty).
+	cat > "${SDCARD}/etc/issue" <<ISSUE
+
+   ===  A I R W A V E S   O S  ===
+
+   Airwaves OS v${_aw_ver:-1.0.0} (${_aw_cn:-})
+   Radio software that just works.
+
+   \n  ·  \l
+
+ISSUE
 
 	# Install app catalog
 	display_alert "Installing app catalog" "${EXTENSION}" "info"

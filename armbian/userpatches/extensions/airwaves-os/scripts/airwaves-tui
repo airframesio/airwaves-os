@@ -1,15 +1,14 @@
 #!/bin/bash
 #
 # airwaves-tui — the persistent Airwaves OS console menu shown on the main VT
-# (tty1). Renders a live status header and offers Install / Upgrade / Repair /
-# Open a shell / Reboot / Power off.
+# (tty1). Renders a banner + live status and offers actions appropriate to the
+# system: a LIVE USB emphasises Install; an INSTALLED system offers Configuration
+# (driven via the manager API, like the web UI), Upgrade, Repair, etc.
 #
-# It is launched from the tty1 autologin session (see /etc/profile.d/
-# zz-airwaves-tui.sh + the getty@tty1 autologin drop-in) and LOOPS FOREVER —
-# every action returns to the menu, and it never exits on its own. If it ever
-# does die (crash, or the user drops to a shell that then exits), getty simply
-# respawns the autologin session and relaunches it, so tty1 can never become a
-# dead end. The serial console and SSH get a normal shell, not this menu.
+# Launched from the tty1 autologin session (see /etc/profile.d/zz-airwaves-tui.sh
+# + the getty@tty1 autologin drop-in). It LOOPS FOREVER — every action returns to
+# the menu, and it never exits on its own; if it dies, getty respawns it, so tty1
+# can never dead-end. Serial console and SSH get a normal shell, not this menu.
 #
 set -uo pipefail
 
@@ -21,7 +20,11 @@ BT="Airwaves OS"
 export DIALOGRC=/dev/null
 export TERM="${TERM:-linux}"
 
-api_up() { curl -fsS -m3 "${API}/system/overview" >/dev/null 2>&1; }
+# ---- status helpers (all bounded so the menu never hangs) -------------------
+api_up()    { curl -fsS -m3 "${API}/system/overview" >/dev/null 2>&1; }
+api_get()   { curl -fsS -m6 "${API}$1" 2>/dev/null; }
+api_post()  { curl -fsS -m20 -X POST "${API}$1" -H 'Content-Type: application/json' -d "${2:-}" 2>/dev/null; }
+api_put()   { curl -fsS -m20 -X PUT  "${API}$1" -H 'Content-Type: application/json' -d "${2:-}" 2>/dev/null; }
 
 primary_ip() {
     local f intf tmp
@@ -32,34 +35,140 @@ primary_ip() {
         [ -n "$tmp" ] && { printf '%s' "$tmp"; return; }
     done
 }
-
 is_live() {
     local rd
     rd="$(lsblk -ndo pkname "$(findmnt -no SOURCE / 2>/dev/null)" 2>/dev/null)"
     [ "$(cat "/sys/block/${rd}/removable" 2>/dev/null || echo 0)" = "1" ]
 }
-
+# Bounded: on first boot dockerd is busy pulling, so an unbounded `docker inspect`
+# could block the menu for minutes. Cap it.
 svc() {
     local s
-    s="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$1" 2>/dev/null)" || s="down"
-    printf '%s' "${s:-down}"
+    s="$(timeout 3 docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$1" 2>/dev/null)" || s="starting"
+    printf '%s' "${s:-starting}"
+}
+release_var() { [ -f "$RELEASE" ] && awk -F= "/^$1=/{gsub(/\"/,\"\",\$2);print \$2}" "$RELEASE" 2>/dev/null; }
+
+banner() {
+    # Compact branded banner; toilet is in the base image (used by the MOTD).
+    if command -v toilet >/dev/null 2>&1; then
+        toilet -f small "Airwaves OS" 2>/dev/null || echo "Airwaves OS"
+    else
+        echo "Airwaves OS"
+    fi
 }
 
 header() {
-    local ver="?" cn="" ch host ip mode
-    # shellcheck disable=SC1090
-    [ -f "$RELEASE" ] && . "$RELEASE" 2>/dev/null
-    ver="${AIRWAVES_VERSION:-?}"; cn="${AIRWAVES_CODENAME:-}"
+    local ver cn ch host ip mode up
+    ver="$(release_var AIRWAVES_VERSION)"; ver="${ver:-?}"
+    cn="$(release_var AIRWAVES_CODENAME)"
     ch="$(jq -r '.channel // "stable"' "$VERSIONS" 2>/dev/null || echo stable)"
     host="$(hostname 2>/dev/null)"; ip="$(primary_ip)"
     if is_live; then mode="LIVE USB"; else mode="INSTALLED"; fi
-    printf 'Airwaves OS v%s %s    [%s]    channel: %s\n' "$ver" "$cn" "$mode" "$ch"
-    printf 'Web UI:  http://%s.local' "$host"; [ -n "$ip" ] && printf '   http://%s' "$ip"; printf '\n'
-    printf 'Login:   airwaves / airwaves\n'
-    printf 'Stack:   manager=%s  gateway=%s' "$(svc airwaves-manager)" "$(svc airwaves-gateway)"
+    up="$(awk '{d=int($1/86400);h=int(($1%86400)/3600);m=int(($1%3600)/60); if(d)printf "%dd %dh %dm",d,h,m; else if(h)printf "%dh %dm",h,m; else printf "%dm",m}' /proc/uptime 2>/dev/null)"
+    banner
+    printf '  v%s %s   ·   %s   ·   channel: %s\n' "$ver" "$cn" "$mode" "$ch"
+    printf '\n'
+    printf '  Host:    %s' "$host"; [ -n "$ip" ] && printf '    IP: %s' "$ip"; printf '\n'
+    printf '  Web UI:  http://%s.local' "$host"; [ -n "$ip" ] && printf '  /  http://%s' "$ip"; printf '\n'
+    printf '  Stack:   manager=%s  gateway=%s    Uptime: %s\n' "$(svc airwaves-manager)" "$(svc airwaves-gateway)" "${up:-?}"
 }
 
-# Render the manager's update progress as a dialog gauge until it finishes.
+msg()  { dialog --backtitle "${BT}" --title "$1" --msgbox "$2" "${3:-10}" "${4:-64}"; }
+need_api() { api_up && return 0; msg "Manager unavailable" "\nThe manager service isn't responding yet.\n\nTry again in a moment, or use 'Open a shell' to investigate." 11 60; return 1; }
+
+# ---- Configuration submenu (installed systems) -----------------------------
+cfg_hostname() {
+    need_api || return
+    local cur new
+    cur="$(api_get /system/info | jq -r '.hostname // empty' 2>/dev/null)"; cur="${cur:-$(hostname)}"
+    new="$(dialog --backtitle "${BT}" --title "Hostname" --inputbox "\nDevice hostname (letters, digits, hyphens):" 10 60 "${cur}" 3>&1 1>&2 2>&3)" || return
+    [ -n "${new}" ] || { msg "Hostname" "\nHostname cannot be empty."; return; }
+    if api_post /system/hostname "{\"hostname\":\"${new}\"}" >/dev/null; then
+        msg "Hostname" "\nHostname set to: ${new}"
+    else
+        msg "Hostname" "\nFailed to set hostname (the manager rejected it or is unavailable)."
+    fi
+}
+cfg_wifi() {
+    need_api || return
+    dialog --backtitle "${BT}" --infobox "\nScanning for Wi-Fi networks..." 5 40;
+    local json rows=() ssid
+    json="$(api_get /wifi/scan)"
+    [ -n "${json}" ] || { msg "Wi-Fi" "\nNo Wi-Fi interface found, or scan failed.\n\n(Wired Ethernet needs no configuration.)" 11 60; return; }
+    while IFS= read -r ssid; do [ -n "$ssid" ] && rows+=("$ssid" ""); done < <(echo "${json}" | jq -r '.[].ssid // empty' 2>/dev/null | sort -u)
+    [ "${#rows[@]}" -gt 0 ] || { msg "Wi-Fi" "\nNo networks found in range."; return; }
+    ssid="$(dialog --backtitle "${BT}" --title "Wi-Fi networks" --menu "\nSelect a network:" 18 60 10 "${rows[@]}" 3>&1 1>&2 2>&3)" || return
+    local pw
+    pw="$(dialog --backtitle "${BT}" --title "Wi-Fi password" --insecure --passwordbox "\nPassword for ${ssid} (blank for open):" 10 60 3>&1 1>&2 2>&3)" || return
+    dialog --backtitle "${BT}" --infobox "\nConnecting to ${ssid}..." 5 40
+    if api_post /wifi/connect "{\"ssid\":\"${ssid}\",\"password\":\"${pw}\"}" >/dev/null; then
+        msg "Wi-Fi" "\nConnect request sent for: ${ssid}"
+    else
+        msg "Wi-Fi" "\nFailed to connect to ${ssid}."
+    fi
+}
+cfg_channel() {
+    need_api || return
+    local cur new
+    cur="$(jq -r '.channel // "stable"' "$VERSIONS" 2>/dev/null || echo stable)"
+    new="$(dialog --backtitle "${BT}" --title "Update channel" --default-item "${cur}" \
+        --menu "\nCurrent: ${cur}\n\nChoose the update channel:" 14 60 3 \
+        stable "Tested releases (recommended)" \
+        beta   "Pre-release candidates" \
+        dev    "Latest development builds" 3>&1 1>&2 2>&3)" || return
+    if api_post /system/update/channel "{\"channel\":\"${new}\"}" >/dev/null; then
+        msg "Update channel" "\nChannel set to: ${new}\n\nUse Upgrade to apply the latest on this channel."
+    else
+        msg "Update channel" "\nFailed to set channel."
+    fi
+}
+cfg_password() {
+    clear
+    echo "== Change the 'airwaves' user password =="
+    echo
+    passwd airwaves || true
+    echo
+    read -r -p "Also change the root password? [y/N] " a
+    case "$a" in y|Y) passwd root || true;; esac
+    echo; read -r -p "Press ENTER to return to the menu..." _
+}
+cfg_airframes() {
+    need_api || return
+    local tok cfg
+    tok="$(dialog --backtitle "${BT}" --title "Airframes feeder token (optional)" --insecure --passwordbox \
+        "\nPaste your Airframes.io feeder token/API key to share data with the\nAirframes network. Leave blank to skip.\n\n(Account username/password login is coming in a later update.)" 13 66 3>&1 1>&2 2>&3)" || return
+    [ -n "${tok}" ] || return
+    cfg="$(api_get /config)"; [ -n "${cfg}" ] || { msg "Airframes" "\nCould not read current config."; return; }
+    cfg="$(echo "${cfg}" | jq -c --arg k "${tok}" '.api_key = $k' 2>/dev/null)"
+    if [ -n "${cfg}" ] && api_put /config "${cfg}" >/dev/null; then
+        msg "Airframes" "\nAirframes feeder token saved."
+    else
+        msg "Airframes" "\nFailed to save the token."
+    fi
+}
+configuration_menu() {
+    while true; do
+        local c
+        c="$(dialog --backtitle "${BT}" --title "Configuration" --cancel-label "Back" \
+            --menu "\nConfigure this device (applied via the manager, like the web UI):" 16 64 7 \
+            hostname  "Change hostname" \
+            wifi      "Configure wireless (Wi-Fi)" \
+            channel   "Change update channel" \
+            password  "Change password" \
+            airframes "Airframes feeder token (optional)" \
+            3>&1 1>&2 2>&3)" || return
+        case "$c" in
+            hostname)  cfg_hostname ;;
+            wifi)      cfg_wifi ;;
+            channel)   cfg_channel ;;
+            password)  cfg_password ;;
+            airframes) cfg_airframes ;;
+        esac
+    done
+}
+
+# ---- update / repair (manager-driven) --------------------------------------
 update_gauge() {
     (
         local p pct phase state
@@ -75,18 +184,12 @@ update_gauge() {
         echo 100
     ) | dialog --backtitle "$BT" --title "$1" --gauge "\nStarting..." 10 64 0
 }
-
 apply_update() {   # $1 = upgrade | repair
-    if ! api_up; then
-        dialog --backtitle "$BT" --title "Manager unavailable" \
-            --msgbox "\nThe manager service isn't responding, so an online ${1} can't run.\n\nUse 'Open a shell' to investigate, or the web UI." 11 62
-        return
-    fi
+    need_api || return
     if [ "$1" = repair ]; then
         curl -fsS -m10 -X POST "${API}/system/update/refresh" >/dev/null 2>&1
     else
-        curl -fsS -m10 -X POST "${API}/system/update/apply" \
-            -H 'Content-Type: application/json' \
+        curl -fsS -m10 -X POST "${API}/system/update/apply" -H 'Content-Type: application/json' \
             -d '{"components":["manager","gateway","compose","catalog"]}' >/dev/null 2>&1
     fi
     update_gauge "${1^} in progress"
@@ -94,37 +197,39 @@ apply_update() {   # $1 = upgrade | repair
     prog="$(curl -fsS -m4 "${API}/system/update/progress" 2>/dev/null)"
     st="$(printf '%s' "$prog" | jq -r '.state // "unknown"' 2>/dev/null || echo unknown)"
     if [ "$st" = success ]; then
-        dialog --backtitle "$BT" --msgbox "\n${1^} completed successfully." 8 50
+        msg "${1^}" "\n${1^} completed successfully." 8 50
     else
         err="$(printf '%s' "$prog" | jq -r '.error // "see /var/log/airwaves-update.log"' 2>/dev/null)"
-        dialog --backtitle "$BT" --title "${1^} did not complete" --msgbox "\nState: ${st}\n\n${err}" 12 64
+        msg "${1^} did not complete" "\nState: ${st}\n\n${err}" 12 64
     fi
 }
-
 open_shell() {
     clear
-    echo "Airwaves OS shell — type 'exit' to return to the console menu."
-    echo
+    echo "Airwaves OS shell — type 'exit' to return to the console menu."; echo
     AIRWAVES_TUI_SHELL=1 bash -l || true
 }
 
-# If dialog is somehow unavailable, never trap the user: drop to a shell.
 command -v dialog >/dev/null 2>&1 || { echo "dialog not available; opening a shell."; exec bash -l; }
 
 while true; do
     items=()
-    if is_live; then items+=( install "Install Airwaves OS to an internal disk" ); fi
+    if is_live; then
+        items+=( install "Install Airwaves OS to an internal disk" )
+    else
+        items+=( config  "Configuration (hostname, Wi-Fi, channel, password)" )
+    fi
     items+=( upgrade  "Upgrade to the latest for this channel" )
     items+=( repair   "Repair (re-pull + recreate the app stack)" )
     items+=( shell    "Open a shell" )
     items+=( reboot   "Reboot" )
     items+=( poweroff "Power off" )
 
-    choice="$(dialog --backtitle "$BT" --no-cancel --title "Airwaves OS Console" \
-        --menu "$(header)\n" 22 74 9 "${items[@]}" 3>&1 1>&2 2>&3)" || { sleep 1; continue; }
+    choice="$(dialog --backtitle "${BT}" --no-cancel --title "Airwaves OS Console" \
+        --menu "$(header)\n" 24 76 9 "${items[@]}" 3>&1 1>&2 2>&3)" || { sleep 1; continue; }
 
     case "$choice" in
         install)  clear; "$FIRSTRUN" --install || true ;;
+        config)   configuration_menu ;;
         upgrade)  apply_update upgrade ;;
         repair)   dialog --backtitle "$BT" --defaultno \
                       --yesno "\nRepair re-pulls and recreates the app containers (no version change). Continue?" 9 62 \
