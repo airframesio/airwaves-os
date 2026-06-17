@@ -200,55 +200,10 @@ jobs:
           clean: false
           path: userpatches.repo
 
-      # Bake the release's manager+gateway container images INTO the userpatches
-      # extension's images/ dir so the next "Install userpatches" rsync carries
-      # them into the build and airwaves-base copies them onto the image. Without
-      # this the device's FIRST boot finds no pre-baked tarballs and must pull
-      # from the registry, which fails with no network (the manager/web UI never
-      # comes up and even Wi-Fi setup is impossible) — exactly the field report.
-      # The production OS image previously skipped this entirely (only the manual
-      # build-image-simple workflow baked containers). Runs BEFORE the rm of
-      # userpatches.repo so releases/stable.json is still present.
-      - name: Bundle release containers (offline first boot)
-        if: ${{ github.event.inputs.bundleContainers != 'no' }}
-        env:
-          INVOCATION: ${{ matrix.invocation }}
-        run: |
-          set -euo pipefail
-          REL="userpatches.repo/releases/stable.json"
-          if [ ! -f "$REL" ]; then
-            echo "::warning::$REL not found; image will pull containers on first boot (needs network)"
-            exit 0
-          fi
-          BOARD="$(printf '%s' "$INVOCATION" | grep -oE 'BOARD=[A-Za-z0-9._-]+' | head -1 | cut -d= -f2)"
-          case "$BOARD" in
-            uefi-x86) PLAT="linux/amd64" ;;
-            *)        PLAT="linux/arm64" ;;
-          esac
-          CHANNEL="$(jq -r '.channel // "stable"' "$REL")"
-          MGR_IMG="$(jq -r '.components.manager.image' "$REL")"; MGR_TAG="$(jq -r '.components.manager.tag' "$REL")"
-          GW_IMG="$(jq -r '.components.gateway.image' "$REL")";  GW_TAG="$(jq -r '.components.gateway.tag' "$REL")"
-          for v in "$CHANNEL" "$MGR_IMG" "$MGR_TAG" "$GW_IMG" "$GW_TAG"; do
-            [ -n "$v" ] && [ "$v" != "null" ] || { echo "::error::missing field in $REL"; exit 1; }
-          done
-          echo "board=$BOARD platform=$PLAT channel=$CHANNEL"
-          echo "manager=${MGR_IMG}:${MGR_TAG}  gateway=${GW_IMG}:${GW_TAG}"
-          OUT="userpatches.repo/${{ env.USERPATCHES_DIR }}/extensions/airwaves-os/images"
-          mkdir -p "$OUT"
-          bundle() {
-            local img="$1" tag="$2" svc="$3"
-            echo "==> Pull ${img}:${tag} (${PLAT}); save -> ${OUT}/airwaves-${svc}.tar"
-            docker pull --platform "$PLAT" "${img}:${tag}"
-            docker tag "${img}:${tag}" "${img}:${CHANNEL}"
-            docker tag "${img}:${tag}" "${img}:latest"
-            docker save -o "${OUT}/airwaves-${svc}.tar" \
-              "${img}:${tag}" "${img}:${CHANNEL}" "${img}:latest"
-          }
-          bundle "$MGR_IMG" "$MGR_TAG" "manager"
-          bundle "$GW_IMG"  "$GW_TAG"  "gateway"
-          docker image prune -af >/dev/null 2>&1 || true
-          ls -lh "$OUT"/*.tar
-
+      # NOTE: container bundling happens in the build-images job (at image
+      # assembly), not here. The rootfs artifact is content-hashed and may be a
+      # cache hit, so baking into it can't guarantee fresh/offline containers in
+      # the final image; the image job bakes + overlays them instead.
       - name: Install userpatches
         env:
           EXTRA_PARAMS: ${{ env.INPUT_EXTRA_PARAMS }}
@@ -306,6 +261,58 @@ jobs:
           fetch-depth: ${{ matrix.fdepth }}
           clean: false
           path: userpatches.repo
+
+      # Bake the release's manager+gateway container images so the device's FIRST
+      # boot needs no network. Done at IMAGE assembly (not the rootfs artifact):
+      # the generated tarballs aren't in Armbian's content hash, so a cached
+      # rootfs could lack/stale them. airwaves-base overlays these onto the final
+      # image via its pre_umount_final_image hook, so the image always carries
+      # fresh containers regardless of artifact caching. Runs BEFORE the rm of
+      # userpatches.repo (releases/stable.json must still be present). The job's
+      # "Docker Login to GHCR" step above authenticates the pulls.
+      - name: Bundle release containers (offline first boot)
+        env:
+          INVOCATION: ${{ matrix.invocation }}
+        run: |
+          set -euo pipefail
+          REL="userpatches.repo/releases/stable.json"
+          if [ ! -f "$REL" ]; then
+            echo "::warning::$REL not found; image will pull containers on first boot (needs network)"
+            exit 0
+          fi
+          BOARD="$(printf '%s' "$INVOCATION" | grep -oE 'BOARD=[A-Za-z0-9._-]+' | head -1 | cut -d= -f2)"
+          # Fail loudly rather than guess the arch: an empty BOARD would silently
+          # default to arm64 and bake the wrong-arch containers into the image.
+          [ -n "$BOARD" ] || { echo "::error::could not determine BOARD from invocation '$INVOCATION'"; exit 1; }
+          case "$BOARD" in
+            uefi-x86) PLAT="linux/amd64" ;;
+            *)        PLAT="linux/arm64" ;;
+          esac
+          CHANNEL="$(jq -r '.channel // "stable"' "$REL")"
+          MGR_IMG="$(jq -r '.components.manager.image' "$REL")"; MGR_TAG="$(jq -r '.components.manager.tag' "$REL")"
+          GW_IMG="$(jq -r '.components.gateway.image' "$REL")";  GW_TAG="$(jq -r '.components.gateway.tag' "$REL")"
+          for v in "$CHANNEL" "$MGR_IMG" "$MGR_TAG" "$GW_IMG" "$GW_TAG"; do
+            [ -n "$v" ] && [ "$v" != "null" ] || { echo "::error::missing field in $REL"; exit 1; }
+          done
+          echo "board=$BOARD platform=$PLAT channel=$CHANNEL"
+          echo "manager=${MGR_IMG}:${MGR_TAG}  gateway=${GW_IMG}:${GW_TAG}"
+          OUT="userpatches.repo/${{ env.USERPATCHES_DIR }}/extensions/airwaves-os/images"
+          mkdir -p "$OUT"
+          bundle() {
+            local img="$1" tag="$2" svc="$3"
+            echo "==> Pull ${img}:${tag} (${PLAT}); save -> ${OUT}/airwaves-${svc}.tar"
+            docker pull --platform "$PLAT" "${img}:${tag}"
+            docker tag "${img}:${tag}" "${img}:${CHANNEL}"
+            docker tag "${img}:${tag}" "${img}:latest"
+            docker save -o "${OUT}/airwaves-${svc}.tar" \
+              "${img}:${tag}" "${img}:${CHANNEL}" "${img}:latest"
+          }
+          bundle "$MGR_IMG" "$MGR_TAG" "manager"
+          bundle "$GW_IMG"  "$GW_TAG"  "gateway"
+          # NOTE: no `docker image prune` here — this runs on a persistent
+          # self-hosted runner where pruning would evict the Armbian base images
+          # and disrupt parallel matrix jobs.
+          ls -lh "$OUT"/*.tar
 
       - name: Install userpatches
         run: |

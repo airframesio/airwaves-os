@@ -172,3 +172,27 @@ ISSUE
 	run_host_command_logged cp "${SDCARD}"/opt/airwaves/config/templates/systemd-airwaves-preconfig.service "${SDCARD}"/etc/systemd/system/airwaves-preconfig.service
 	chroot_sdcard systemctl --no-reload enable airwaves-preconfig.service
 }
+
+# Overlay the pre-built container tarballs onto the FINAL image at assembly time,
+# after the rootfs is laid into the mounted image (${MOUNT}) and before unmount.
+# pre_install_kernel_debs (above) already bakes them into the rootfs for a fresh
+# build, but the production split build (build-os-image.yml) can reuse a CACHED
+# rootfs artifact that predates a container bump — the generated tarballs aren't
+# part of Armbian's content hash. Re-copying them here guarantees the shipped
+# image always carries the current offline containers regardless of caching.
+# Fully guarded: a no-op when none are staged, and never fails the build.
+function pre_umount_final_image__airwaves_bake_container_images() {
+	local src_images="${SRC}/userpatches/extensions/airwaves-os/images"
+	if ! compgen -G "${src_images}/*.tar" >/dev/null 2>&1; then
+		return 0
+	fi
+	display_alert "Overlaying pre-built container images into image" \
+		"$(ls -1 "${src_images}"/*.tar | wc -l | tr -d ' ') tarball(s)" "info"
+	mkdir -p "${MOUNT}/opt/airwaves/images" 2>/dev/null || true
+	if cp -a "${src_images}"/*.tar "${MOUNT}/opt/airwaves/images/" 2>/dev/null; then
+		run_host_command_logged ls -lh "${MOUNT}/opt/airwaves/images/" || true
+	else
+		display_alert "Could not overlay container tarballs" "non-fatal; device will pull on first boot" "wrn"
+	fi
+	return 0
+}
