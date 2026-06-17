@@ -72,8 +72,16 @@ esp_mount() {
     fi
 }
 esp_umount() {
+    # Only unmount if WE mounted it (esp_mount left a marker). Must always
+    # return 0: it's the last statement in the set-try/commit verbs, and a
+    # false [ -f ] test would otherwise make the whole verb report failure.
     local mp="$1"
-    [ -f "/run/airwaves-esp.mounted.$$" ] && { umount "$mp" 2>/dev/null; rmdir "$mp" 2>/dev/null; rm -f "/run/airwaves-esp.mounted.$$"; }
+    if [ -f "/run/airwaves-esp.mounted.$$" ]; then
+        umount "$mp" 2>/dev/null || true
+        rmdir "$mp" 2>/dev/null || true
+        rm -f "/run/airwaves-esp.mounted.$$"
+    fi
+    return 0
 }
 grubenv_path() {  # echo path to grubenv on the ESP (create if missing)
     local mp="$1" ge

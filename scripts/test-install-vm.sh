@@ -275,29 +275,48 @@ stop_internal() {
         sleep 1
     done
 }
-slot_now() { sshx "${SSH_USER}" "${SUDO}/opt/airwaves/scripts/airwaves-slot-manager current" 2>/dev/null | tr -d '\r' | grep -oE '^[ab]$' | head -1 || true; }
+# Read the running slot, retrying through the transient SSH resets that happen
+# while the first boot is busy (growfs, docker, manager image pull).
+slot_now() {
+    local i out
+    for i in $(seq 1 24); do
+        out="$(sshx "${SSH_USER}" "${SUDO}/opt/airwaves/scripts/airwaves-slot-manager current" 2>/dev/null | tr -d '\r' | grep -oE '^[ab]$' | head -1 || true)"
+        [ -n "$out" ] && { echo "$out"; return 0; }
+        sleep 8
+    done
+    return 1
+}
+# Run a slot-manager verb, retrying through transient SSH resets.
+slot_cmd() {
+    local i
+    for i in $(seq 1 24); do
+        sshx "${SSH_USER}" "${SUDO}/opt/airwaves/scripts/airwaves-slot-manager $*" >/dev/null 2>&1 && return 0
+        sleep 8
+    done
+    return 1
+}
 
 if [ -n "${AB_TEST}" ]; then
     log "Phase 2 (A/B): boot 1 — expect slot A..."
     boot_internal "${WORK}/boot2a.log" || { tail -40 "${WORK}/boot2a.log" 2>/dev/null; die "A/B: slot A did not boot (check grub.cfg / layout)"; }
-    s="$(slot_now)"; log "  running slot: ${s:-?}"
-    [ "$s" = "a" ] || { sshx "${SSH_USER}" "${SUDO}/opt/airwaves/scripts/airwaves-slot-manager status" 2>/dev/null; die "A/B: expected slot a on first boot, got '${s}'"; }
+    s="$(slot_now || true)"; log "  running slot: ${s:-?}"
+    [ "$s" = "a" ] || die "A/B: expected slot a on first boot, got '${s:-?}'"
     log "  set-try b, rebooting..."
-    sshx "${SSH_USER}" "${SUDO}/opt/airwaves/scripts/airwaves-slot-manager set-try b" >/dev/null 2>&1 || die "A/B: set-try b failed"
+    slot_cmd set-try b || die "A/B: set-try b failed"
     stop_internal
 
     log "Phase 2 (A/B): boot 2 — expect slot B (one-shot trial)..."
     boot_internal "${WORK}/boot2b.log" || { tail -40 "${WORK}/boot2b.log" 2>/dev/null; die "A/B: slot B did not boot after set-try"; }
-    s="$(slot_now)"; log "  running slot: ${s:-?}"
-    [ "$s" = "b" ] || die "A/B: expected slot b after set-try, got '${s}'"
+    s="$(slot_now || true)"; log "  running slot: ${s:-?}"
+    [ "$s" = "b" ] || die "A/B: expected slot b after set-try, got '${s:-?}'"
     log "  rollback (-> a), rebooting..."
-    sshx "${SSH_USER}" "${SUDO}/opt/airwaves/scripts/airwaves-slot-manager rollback" >/dev/null 2>&1 || die "A/B: rollback failed"
+    slot_cmd rollback || die "A/B: rollback failed"
     stop_internal
 
     log "Phase 2 (A/B): boot 3 — expect slot A (rolled back)..."
     boot_internal "${WORK}/boot2c.log" || { tail -40 "${WORK}/boot2c.log" 2>/dev/null; die "A/B: did not boot after rollback"; }
-    s="$(slot_now)"; log "  running slot: ${s:-?}"
-    [ "$s" = "a" ] || die "A/B: expected slot a after rollback, got '${s}'"
+    s="$(slot_now || true)"; log "  running slot: ${s:-?}"
+    [ "$s" = "a" ] || die "A/B: expected slot a after rollback, got '${s:-?}'"
     stop_internal
     log "=== A/B PASS: install -> boot A -> set-try B -> boot B -> rollback -> boot A ==="
     exit 0
