@@ -46,7 +46,16 @@ BOARD=""
 BOARDFAMILY=""
 ROOT_DEV=""    # target root partition device
 BOOT_DEV=""    # target ESP/firmware partition device (empty for uboot)
+AWCFG_DEV=""   # target AWCFG (FAT32 config) partition device — last partition
 TMP=""
+
+# Size reserved at the end of the disk for the AWCFG config partition (FAT32).
+# Kept well above the FAT32 minimum so mkfs.vfat -F32 never balks.
+AWCFG_END_RESERVE_MIB=100
+# Optional path to a provisioning config (hostname/wifi/channel/...) to seed onto
+# the target's AWCFG partition. Set via --config; written by airwaves-preconfig /
+# airwaves-firstrun. Destructive flags are always forced off on the target.
+INSTALL_CONFIG=""
 
 mkdir -p "${STATUS_DIR}"
 
@@ -130,6 +139,11 @@ discover_source() {
     ROOT_PART="$(blkid | tr -d '":' | grep -w "${ROOT_UUID#UUID=}" | awk '{print $1}' | head -1)"
     [ -z "${ROOT_PART}" ] && ROOT_PART="$(findmnt -no SOURCE / 2>/dev/null)"
     SOURCE_DISK_NAME="$(lsblk -ndo pkname "${ROOT_PART}" 2>/dev/null)"
+    # If we cannot resolve the parent disk, SOURCE_DISK would collapse to "/dev/"
+    # and the source/boot disk would NOT be excluded from candidate targets (it
+    # could then be offered as — or auto-resolved to — an install target and
+    # erased). Refuse instead. --list-json then returns nothing (fail-safe).
+    [ -n "${SOURCE_DISK_NAME}" ] || fail "cannot determine the source/boot disk (no parent for ${ROOT_PART:-?}); refusing to proceed"
     SOURCE_DISK="/dev/${SOURCE_DISK_NAME}"
 }
 
@@ -232,49 +246,53 @@ settle_parts() {
 
 # ---- partition + format: per platform --------------------------------------
 
-partition_x86() {  # GPT + FAT32 ESP(512MiB) + ext4 root
+partition_x86() {  # GPT + FAT32 ESP(512MiB) + ext4 root + FAT32 AWCFG(tail)
     phase "partitioning" 15
-    BOOT_DEV="$(part "${TARGET}" 1)"; ROOT_DEV="$(part "${TARGET}" 2)"
+    BOOT_DEV="$(part "${TARGET}" 1)"; ROOT_DEV="$(part "${TARGET}" 2)"; AWCFG_DEV="$(part "${TARGET}" 3)"
     if [ "${APPLY}" != "1" ]; then
-        log "[dry-run] wipefs ${TARGET}; gpt; ESP(${BOOT_DEV},fat32,512MiB); root(${ROOT_DEV},ext4,rest)"
+        log "[dry-run] wipefs ${TARGET}; gpt; ESP(${BOOT_DEV},fat32,512MiB); root(${ROOT_DEV},ext4,rest-${AWCFG_END_RESERVE_MIB}MiB); AWCFG(${AWCFG_DEV},fat32,${AWCFG_END_RESERVE_MIB}MiB tail)"
         return 0
     fi
     wipefs -a "${TARGET}" >>"${LOG_TMP}" 2>&1
     parted -s "${TARGET}" -- mklabel gpt >>"${LOG_TMP}" 2>&1 || fail "parted mklabel failed"
     parted -s "${TARGET}" -- mkpart "ESP" fat32 1MiB 513MiB >>"${LOG_TMP}" 2>&1 || fail "parted ESP failed"
     parted -s "${TARGET}" -- set 1 esp on >>"${LOG_TMP}" 2>&1
-    parted -s "${TARGET}" -- mkpart "airwaves-root" ext4 513MiB 100% >>"${LOG_TMP}" 2>&1 || fail "parted root failed"
-    settle_parts "${BOOT_DEV}" "${ROOT_DEV}"
+    parted -s "${TARGET}" -- mkpart "airwaves-root" ext4 513MiB "-${AWCFG_END_RESERVE_MIB}MiB" >>"${LOG_TMP}" 2>&1 || fail "parted root failed"
+    parted -s "${TARGET}" -- mkpart "AWCFG" fat32 "-${AWCFG_END_RESERVE_MIB}MiB" 100% >>"${LOG_TMP}" 2>&1 || fail "parted AWCFG failed"
+    settle_parts "${BOOT_DEV}" "${ROOT_DEV}" "${AWCFG_DEV}"
 
     phase "formatting" 25
     # FAT volume labels are limited to 11 characters.
     mkfs.vfat -F32 -n AIRWAVES "${BOOT_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.vfat failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
     mkfs.ext4 -qF -L airwaves-root "${ROOT_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.ext4 failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
+    mkfs.vfat -F32 -n AWCFG "${AWCFG_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.vfat AWCFG failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
 }
 
-partition_uboot() {  # GPT + ext4 root starting at 16MiB (raw sectors hold u-boot)
+partition_uboot() {  # GPT + ext4 root at 16MiB + FAT32 AWCFG(tail); raw u-boot
     phase "partitioning" 15
-    BOOT_DEV=""; ROOT_DEV="$(part "${TARGET}" 1)"
+    BOOT_DEV=""; ROOT_DEV="$(part "${TARGET}" 1)"; AWCFG_DEV="$(part "${TARGET}" 2)"
     if [ "${APPLY}" != "1" ]; then
-        log "[dry-run] wipefs ${TARGET}; gpt; root(${ROOT_DEV},ext4,16MiB→rest); u-boot to raw sectors of ${TARGET}"
+        log "[dry-run] wipefs ${TARGET}; gpt; root(${ROOT_DEV},ext4,16MiB→rest-${AWCFG_END_RESERVE_MIB}MiB); AWCFG(${AWCFG_DEV},fat32,${AWCFG_END_RESERVE_MIB}MiB tail); u-boot to raw sectors of ${TARGET}"
         return 0
     fi
     wipefs -a "${TARGET}" >>"${LOG_TMP}" 2>&1
     parted -s "${TARGET}" -- mklabel gpt >>"${LOG_TMP}" 2>&1 || fail "parted mklabel failed"
     # Partition 1 starts at 16MiB, matching Armbian's OFFSET, leaving the 0–16MiB
     # region for the raw u-boot blobs written by write_uboot_platform.
-    parted -s "${TARGET}" -- mkpart "armbi_root" ext4 16MiB 100% >>"${LOG_TMP}" 2>&1 || fail "parted root failed"
-    settle_parts "${ROOT_DEV}"
+    parted -s "${TARGET}" -- mkpart "armbi_root" ext4 16MiB "-${AWCFG_END_RESERVE_MIB}MiB" >>"${LOG_TMP}" 2>&1 || fail "parted root failed"
+    parted -s "${TARGET}" -- mkpart "AWCFG" fat32 "-${AWCFG_END_RESERVE_MIB}MiB" 100% >>"${LOG_TMP}" 2>&1 || fail "parted AWCFG failed"
+    settle_parts "${ROOT_DEV}" "${AWCFG_DEV}"
 
     phase "formatting" 25
     mkfs.ext4 -qF -L armbi_root "${ROOT_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.ext4 failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
+    mkfs.vfat -F32 -n AWCFG "${AWCFG_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.vfat AWCFG failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
 }
 
-partition_rpi() {  # GPT + FAT32 /boot/firmware(512MiB) + ext4 root
+partition_rpi() {  # GPT + FAT32 /boot/firmware(512MiB) + ext4 root + FAT32 AWCFG(tail)
     phase "partitioning" 15
-    BOOT_DEV="$(part "${TARGET}" 1)"; ROOT_DEV="$(part "${TARGET}" 2)"
+    BOOT_DEV="$(part "${TARGET}" 1)"; ROOT_DEV="$(part "${TARGET}" 2)"; AWCFG_DEV="$(part "${TARGET}" 3)"
     if [ "${APPLY}" != "1" ]; then
-        log "[dry-run] wipefs ${TARGET}; gpt; firmware(${BOOT_DEV},fat32,512MiB,RPICFG); root(${ROOT_DEV},ext4,rest)"
+        log "[dry-run] wipefs ${TARGET}; gpt; firmware(${BOOT_DEV},fat32,512MiB,RPICFG); root(${ROOT_DEV},ext4,rest-${AWCFG_END_RESERVE_MIB}MiB); AWCFG(${AWCFG_DEV},fat32,${AWCFG_END_RESERVE_MIB}MiB tail)"
         return 0
     fi
     wipefs -a "${TARGET}" >>"${LOG_TMP}" 2>&1
@@ -282,12 +300,14 @@ partition_rpi() {  # GPT + FAT32 /boot/firmware(512MiB) + ext4 root
     parted -s "${TARGET}" -- mkpart "RPICFG" fat32 1MiB 513MiB >>"${LOG_TMP}" 2>&1 || fail "parted firmware failed"
     # The Raspberry Pi firmware boots a FAT data partition directly; the ESP flag
     # is intentionally NOT set (matches Armbian, which clears it for Pi 3/4).
-    parted -s "${TARGET}" -- mkpart "armbi_root" ext4 513MiB 100% >>"${LOG_TMP}" 2>&1 || fail "parted root failed"
-    settle_parts "${BOOT_DEV}" "${ROOT_DEV}"
+    parted -s "${TARGET}" -- mkpart "armbi_root" ext4 513MiB "-${AWCFG_END_RESERVE_MIB}MiB" >>"${LOG_TMP}" 2>&1 || fail "parted root failed"
+    parted -s "${TARGET}" -- mkpart "AWCFG" fat32 "-${AWCFG_END_RESERVE_MIB}MiB" 100% >>"${LOG_TMP}" 2>&1 || fail "parted AWCFG failed"
+    settle_parts "${BOOT_DEV}" "${ROOT_DEV}" "${AWCFG_DEV}"
 
     phase "formatting" 25
     mkfs.vfat -F32 -n RPICFG "${BOOT_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.vfat failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
     mkfs.ext4 -qF -L armbi_root "${ROOT_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.ext4 failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
+    mkfs.vfat -F32 -n AWCFG "${AWCFG_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.vfat AWCFG failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
 }
 
 # ---- copy rootfs (rsync with live progress) --------------------------------
@@ -348,7 +368,19 @@ EOF
         local d; d="$(cat "${done}" 2>/dev/null)"; [ "${d}" != "no" ] && rc="${d}"
     done
     [ "${rc}" = "0" ] || fail "rootfs copy (rsync) failed with code ${rc}"
+    reset_firstboot_markers "${TMP}"
     PERCENT=80; write_status
+}
+
+# Reset first-boot state on the target so it re-initializes (fresh device id,
+# hostname, container load) and applies its AWCFG config on first boot. The
+# rsync copies the live system's markers (which may be in the post-init state),
+# so clear .initialized and arm .needs-first-run.
+reset_firstboot_markers() {
+    local root="$1"
+    mkdir -p "${root}/opt/airwaves" 2>/dev/null || true
+    rm -f "${root}/opt/airwaves/.initialized" 2>/dev/null || true
+    touch "${root}/opt/airwaves/.needs-first-run" 2>/dev/null || true
 }
 
 # ---- bootloader + fstab: per platform --------------------------------------
@@ -494,7 +526,7 @@ ab_slot_mib() {
 partition_x86_ab() {
     phase "partitioning" 15
     ESP_DEV="$(part "${TARGET}" 1)"; ROOTA_DEV="$(part "${TARGET}" 2)"
-    ROOTB_DEV="$(part "${TARGET}" 3)"; DATA_DEV="$(part "${TARGET}" 4)"
+    ROOTB_DEV="$(part "${TARGET}" 3)"; DATA_DEV="$(part "${TARGET}" 4)"; AWCFG_DEV="$(part "${TARGET}" 5)"
     local slot esp_end a_end b_end disk_mib
     slot="$(ab_slot_mib)"
     disk_mib=$(( $(blockdev --getsize64 "${TARGET}" 2>/dev/null || echo 0) / 1024 / 1024 ))
@@ -503,11 +535,12 @@ partition_x86_ab() {
     if [ "${disk_mib}" -lt 12288 ]; then
         fail "A/B needs a >=12 GiB disk (this disk is ${disk_mib}MiB). Install without --ab for a single-root system."
     fi
-    if [ "$(( b_end + 1024 ))" -ge "${disk_mib}" ]; then
-        fail "Disk too small for A/B (${disk_mib}MiB; need 2x${slot}MiB slots + data). Use a single-root install (omit --ab)."
+    # Reserve room for 2 slots + a >=1GiB data partition + the AWCFG tail.
+    if [ "$(( b_end + 1024 + AWCFG_END_RESERVE_MIB ))" -ge "${disk_mib}" ]; then
+        fail "Disk too small for A/B (${disk_mib}MiB; need 2x${slot}MiB slots + data + AWCFG). Use a single-root install (omit --ab)."
     fi
     if [ "${APPLY}" != "1" ]; then
-        log "[dry-run] gpt: ESP(1-513) rootA(513-${a_end}) rootB(${a_end}-${b_end}) data(${b_end}-100%); slot=${slot}MiB"
+        log "[dry-run] gpt: ESP(1-513) rootA(513-${a_end}) rootB(${a_end}-${b_end}) data(${b_end}-rest-${AWCFG_END_RESERVE_MIB}MiB) AWCFG(${AWCFG_END_RESERVE_MIB}MiB tail); slot=${slot}MiB"
         return 0
     fi
     wipefs -a "${TARGET}" >>"${LOG_TMP}" 2>&1
@@ -516,14 +549,16 @@ partition_x86_ab() {
     parted -s "${TARGET}" -- set 1 esp on >>"${LOG_TMP}" 2>&1
     parted -s "${TARGET}" -- mkpart "aw-root-a" ext4 513MiB "${a_end}MiB" >>"${LOG_TMP}" 2>&1 || fail "parted rootA failed"
     parted -s "${TARGET}" -- mkpart "aw-root-b" ext4 "${a_end}MiB" "${b_end}MiB" >>"${LOG_TMP}" 2>&1 || fail "parted rootB failed"
-    parted -s "${TARGET}" -- mkpart "aw-data" ext4 "${b_end}MiB" 100% >>"${LOG_TMP}" 2>&1 || fail "parted data failed"
-    settle_parts "${ESP_DEV}" "${ROOTA_DEV}" "${ROOTB_DEV}" "${DATA_DEV}"
+    parted -s "${TARGET}" -- mkpart "aw-data" ext4 "${b_end}MiB" "-${AWCFG_END_RESERVE_MIB}MiB" >>"${LOG_TMP}" 2>&1 || fail "parted data failed"
+    parted -s "${TARGET}" -- mkpart "AWCFG" fat32 "-${AWCFG_END_RESERVE_MIB}MiB" 100% >>"${LOG_TMP}" 2>&1 || fail "parted AWCFG failed"
+    settle_parts "${ESP_DEV}" "${ROOTA_DEV}" "${ROOTB_DEV}" "${DATA_DEV}" "${AWCFG_DEV}"
 
     phase "formatting" 25
     mkfs.vfat -F32 -n AIRWAVES "${ESP_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.vfat failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
     mkfs.ext4 -qF -L aw-root-a "${ROOTA_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs rootA failed"
     mkfs.ext4 -qF -L aw-root-b "${ROOTB_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs rootB failed"
     mkfs.ext4 -qF -L aw-data   "${DATA_DEV}"  >>"${LOG_TMP}" 2>&1 || fail "mkfs data failed"
+    mkfs.vfat -F32 -n AWCFG    "${AWCFG_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs AWCFG failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
 }
 
 copy_rootfs_ab() {
@@ -568,6 +603,9 @@ EOF
         local d; d="$(cat "${done}" 2>/dev/null)"; [ "${d}" != "no" ] && rc="${d}"
     done
     [ "${rc}" = "0" ] || fail "rootfs copy (rsync) failed with code ${rc}"
+    # Clear/arm first-boot markers BEFORE cloning rootA -> rootB so both slots
+    # come up fresh and apply their AWCFG config on first boot.
+    reset_firstboot_markers "${TMP}"
 
     # Seed shared data: /data/{airwaves,docker}; relocate copied /etc/airwaves
     # into /data/airwaves (bind-mounted back via fstab).
@@ -576,7 +614,8 @@ EOF
     mount "${DATA_DEV}" "${DATAMNT}" || fail "mount data failed"
     mkdir -p "${DATAMNT}/airwaves" "${DATAMNT}/docker"
     if [ -d "${TMP}/etc/airwaves" ]; then
-        rsync -aHAX "${TMP}/etc/airwaves/" "${DATAMNT}/airwaves/" >>"${LOG_TMP}" 2>&1 || true
+        rsync -aHAX "${TMP}/etc/airwaves/" "${DATAMNT}/airwaves/" >>"${LOG_TMP}" 2>&1 \
+            || fail "failed to seed /data/airwaves from rootfs copy"
         rm -rf "${TMP}/etc/airwaves"/* 2>/dev/null || true
     fi
     mkdir -p "${TMP}/data" "${TMP}/etc/airwaves" "${TMP}/var/lib/docker"
@@ -629,6 +668,7 @@ bootloader_x86_ab() {
     mount "${ESP_DEV}" "${TMP}/boot/efi" || fail "mount ESP failed"
     for d in dev dev/pts proc sys run; do mount --bind "/${d}" "${TMP}/${d}"; done
     chroot "${TMP}" /bin/bash -c "grub-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot/efi --bootloader-id=Airwaves --removable" >>"${LOG_TMP}" 2>&1 \
+        || { sync; chroot "${TMP}" /bin/bash -c "grub-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot/efi --bootloader-id=Airwaves" >>"${LOG_TMP}" 2>&1; } \
         || fail "grub-install failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
 
     cat > "${TMP}/boot/efi/grub/grub.cfg" <<EOF
@@ -668,6 +708,57 @@ EOF
     REBOOT_REQUIRED="true"
 }
 
+# ---- AWCFG payload on the target -------------------------------------------
+# Produce the airwaves-install.json to place on the TARGET's AWCFG partition:
+# carry provisioning fields (hostname/wifi/channel/timezone/ssh) from the install
+# config when present, but FORCE every destructive flag OFF so the installed
+# system never auto-installs. Falls back to the shipped safe-default template.
+build_target_awcfg_config() {
+    local base="/opt/airwaves/config/awcfg/airwaves-install.json"
+    local j="{}"
+    [ -f "${base}" ] && j="$(cat "${base}" 2>/dev/null || echo '{}')"
+    # Guard a present-but-empty/corrupt template so the merge can't emit "".
+    jq -e . <<<"${j}" >/dev/null 2>&1 || j="{}"
+    if [ -n "${INSTALL_CONFIG}" ] && [ -f "${INSTALL_CONFIG}" ] && jq -e . "${INSTALL_CONFIG}" >/dev/null 2>&1; then
+        j="$(jq -n --argjson b "${j}" --slurpfile s "${INSTALL_CONFIG}" '
+            $b * {
+              hostname:  ($s[0].hostname  // ""),
+              wifi:     {ssid: ($s[0].wifi.ssid // ""), psk: ($s[0].wifi.psk // "")},
+              channel:   ($s[0].channel   // ""),
+              timezone:  ($s[0].timezone  // ""),
+              ssh_keys:  ($s[0].ssh_keys  // [])
+            }' 2>/dev/null || printf '%s' "${j}")"
+    fi
+    printf '%s' "${j}" | jq '.auto_install=false | .confirm_destructive=false | .self_install=false' 2>/dev/null \
+        || printf '%s' "${j}"
+}
+
+apply_awcfg_payload() {
+    [ -n "${AWCFG_DEV}" ] || return 0
+    if [ "${APPLY}" != "1" ]; then
+        log "[dry-run] write AWCFG config + README to ${AWCFG_DEV}"
+        return 0
+    fi
+    phase "config-partition" 97
+    local mp; mp="$(mktemp -d /mnt/airwaves-awcfg.XXXXXX)"
+    if ! mount "${AWCFG_DEV}" "${mp}" 2>>"${LOG_TMP}"; then
+        log "WARNING: could not mount AWCFG ${AWCFG_DEV}; skipping config payload"
+        rmdir "${mp}" 2>/dev/null || true
+        return 0
+    fi
+    local payload; payload="$(build_target_awcfg_config 2>>"${LOG_TMP}")"
+    if ! jq -e . <<<"${payload}" >/dev/null 2>&1; then
+        log "WARNING: built AWCFG config was invalid; writing safe default"
+        payload='{"auto_install":false,"confirm_destructive":false,"self_install":false}'
+    fi
+    printf '%s\n' "${payload}" > "${mp}/airwaves-install.json"
+    [ -f /opt/airwaves/config/awcfg/README.txt ] && cp /opt/airwaves/config/awcfg/README.txt "${mp}/README.txt" 2>/dev/null || true
+    sync
+    umount "${mp}" 2>/dev/null || umount -l "${mp}" 2>/dev/null || true
+    rmdir "${mp}" 2>/dev/null || true
+    log "Wrote AWCFG config partition payload to ${AWCFG_DEV}"
+}
+
 # ---- main ------------------------------------------------------------------
 
 AB=0
@@ -684,6 +775,7 @@ while [ $# -gt 0 ]; do
         --list-json) list_targets_json; exit 0 ;;
         --ab)        AB=1; shift ;;
         --target)    TARGET="${2:-}"; shift 2 ;;
+        --config)    INSTALL_CONFIG="${2:-}"; shift 2 ;;
         *)           TARGET="$1"; shift ;;
     esac
 done
@@ -702,6 +794,9 @@ case "${PLATFORM}" in
         partition_rpi;   copy_rootfs; bootloader_rpi ;;
     *)        fail "Unsupported platform: ${PLATFORM}" ;;
 esac
+
+# Seed the target's AWCFG config partition (applied by the target on first boot).
+apply_awcfg_payload
 
 STATE="success"
 PHASE="done"

@@ -67,14 +67,44 @@ pick_disk() {
         3>&1 1>&2 2>&3
 }
 
+PRECONF="/run/airwaves/install-config.json"
+
+# Collect hostname (+ optional Wi-Fi) for the installed system BEFORE writing the
+# disk. Saved to PRECONF and passed to the installer via --config, which seeds it
+# onto the target's AWCFG partition; the target applies it on first boot. Skipping
+# any prompt just leaves that field empty (Ethernet/DHCP needs nothing).
+ask_preinstall_config() {
+    mkdir -p /run/airwaves 2>/dev/null || true
+    local cur host ssid="" psk=""
+    cur="$(hostname 2>/dev/null)"; [ -n "${cur}" ] || cur="airwaves"
+    host="$(dialog --backtitle "${BT}" --title "Hostname" \
+        --inputbox "\nHostname for the installed system (letters, digits, hyphens):" 10 62 "${cur}" 3>&1 1>&2 2>&3)" || host="${cur}"
+    [ -n "${host}" ] || host="${cur}"
+    if dialog --backtitle "${BT}" --title "Wi-Fi" --defaultno \
+        --yesno "\nConfigure Wi-Fi for the installed system?\n\n(Choose No if it will use wired Ethernet.)" 9 58; then
+        ssid="$(dialog --backtitle "${BT}" --title "Wi-Fi SSID" --inputbox "\nWi-Fi network name (SSID):" 10 60 3>&1 1>&2 2>&3)" || ssid=""
+        if [ -n "${ssid}" ]; then
+            psk="$(dialog --backtitle "${BT}" --title "Wi-Fi password" --insecure \
+                --passwordbox "\nPassword for ${ssid} (blank for an open network):" 10 60 3>&1 1>&2 2>&3)" || psk=""
+        fi
+    fi
+    jq -n --arg h "${host}" --arg s "${ssid}" --arg p "${psk}" \
+        '{hostname:$h, wifi:{ssid:$s, psk:$p}, channel:"", timezone:"", ssh_keys:[]}' \
+        > "${PRECONF}" 2>/dev/null || true
+    chmod 600 "${PRECONF}" 2>/dev/null || true
+}
+
 run_install() {
     local target="$1"
     dialog --backtitle "${BT}" --title "Confirm install" --defaultno \
         --yesno "\nThis will ERASE ALL DATA on:\n\n    ${target}\n\nand install Airwaves OS onto it.\n\nContinue?" 12 60 || return 1
 
+    # Ask for hostname / Wi-Fi to provision the installed system.
+    ask_preinstall_config
+
     rm -f "${STATUS}"
     # Run the installer in the background; render its status.json as a gauge.
-    AIRWAVES_INSTALL_APPLY=1 "${INSTALL}" --target "${target}" >/var/log/airwaves-install.log 2>&1 &
+    AIRWAVES_INSTALL_APPLY=1 "${INSTALL}" --target "${target}" ${PRECONF:+--config "${PRECONF}"} >/var/log/airwaves-install.log 2>&1 &
     local pid=$!
 
     (

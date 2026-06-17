@@ -23,6 +23,9 @@ API="http://localhost/api/v1"                         # manager API via the gate
 VERSIONS="/etc/airwaves/.versions.json"
 RELEASE="/etc/airwaves-release"
 FIRSTRUN_MARKER="/opt/airwaves/.needs-first-run"
+TRIGGER="/run/airwaves/auto-install.json"     # armed by airwaves-preconfig (AWCFG)
+INSTALL="/opt/airwaves/scripts/airwaves-install"
+ISTATUS="/etc/airwaves/install/status.json"
 BT="Airwaves OS"
 export TERM="${TERM:-linux}"
 
@@ -347,10 +350,80 @@ $(id_lines)
     sleep 2
 }
 
+# ---- unattended / self-install (armed by airwaves-preconfig from AWCFG) -----
+# Perform a config-driven install with a countdown the operator can cancel. On
+# success, power off (USB) or reboot (SD self-install). On cancel/failure, remove
+# the trigger and fall back to the menu. The actual erase is gated by the
+# installer's AIRWAVES_INSTALL_APPLY=1, set only after this confirmation.
+run_unattended_install() {
+    local target ab cfg mode post args rc state err
+    target="$(jq -r '.target // empty' "$TRIGGER" 2>/dev/null)"
+    ab="$(jq -r '.ab // false' "$TRIGGER" 2>/dev/null)"
+    cfg="$(jq -r '.config // empty' "$TRIGGER" 2>/dev/null)"
+    mode="$(jq -r '.mode // empty' "$TRIGGER" 2>/dev/null)"
+    post="$(jq -r '.post_install // "poweroff"' "$TRIGGER" 2>/dev/null)"
+    [ -n "$target" ] || { rm -f "$TRIGGER"; return 1; }
+
+    # Defense in depth: re-validate the target is an available internal disk.
+    if ! "$INSTALL" --list-json 2>/dev/null | jq -e --arg d "$target" 'any(.[]; .device==$d)' >/dev/null 2>&1; then
+        rm -f "$TRIGGER"
+        msg "Unattended install" "\nConfigured target ${target} is not an available internal disk.\n\nUsing the menu instead." 11 62
+        return 1
+    fi
+
+    dlg --backtitle "$BT" --title "Unattended install (from AWCFG config)" --pause \
+        "\nThe config partition requests an UNATTENDED install to:\n\n    ${target}\n\nTHIS WILL ERASE ${target}.\nCancel now to use the menu instead." 15 64 8 \
+        || { rm -f "$TRIGGER"; return 1; }
+
+    rm -f "$ISTATUS" 2>/dev/null || true
+    args=(--target "$target")
+    [ "$ab" = "true" ] && args+=(--ab)
+    [ -n "$cfg" ] && [ -f "$cfg" ] && args+=(--config "$cfg")
+    AIRWAVES_INSTALL_APPLY=1 "$INSTALL" "${args[@]}" >/var/log/airwaves-install.log 2>&1 &
+    local pid=$!
+    (
+        local pct phase
+        while kill -0 "$pid" 2>/dev/null; do
+            pct="$(jq -r '.percent // 0' "$ISTATUS" 2>/dev/null || echo 0)"
+            phase="$(jq -r '.phase // "working"' "$ISTATUS" 2>/dev/null || echo working)"
+            echo "XXX"; echo "${pct:-0}"; printf 'Installing to %s\nStep: %s\n' "$target" "$phase"; echo "XXX"
+            sleep 2
+        done
+        echo 100
+    ) | dlg --backtitle "$BT" --title "Unattended install" --gauge "\nPreparing..." 12 64 0
+    wait "$pid"; rc=$?
+    state="$(jq -r '.state // "unknown"' "$ISTATUS" 2>/dev/null || echo unknown)"
+
+    if [ "$rc" -eq 0 ] && [ "$state" = "success" ]; then
+        rm -f "$TRIGGER"
+        # Anti-loop: a self-install from a fixed SD/eMMC marks the SOURCE done so a
+        # re-boot from it won't reinstall.
+        [ "$mode" = "sd-self-install" ] && touch /opt/airwaves/.initialized 2>/dev/null || true
+        systemctl stop airwaves-containers.service 2>/dev/null || true
+        docker compose -f /etc/airwaves/docker-compose.yml down --timeout 10 2>/dev/null || true
+        sync; sync
+        if [ "$post" = "reboot" ]; then
+            dlg --backtitle "$BT" --title "Installed" --infobox "\nInstall complete. Rebooting into ${target}..." 7 56
+            sleep 2; clear; systemctl reboot
+        else
+            dlg --backtitle "$BT" --title "Installed" --msgbox "\nInstall complete.\n\nThe device will POWER OFF. Remove the install media,\nthen power on to boot ${target}." 12 64
+            clear; echo "Powering off..."; mount -o remount,ro / 2>/dev/null || true; systemctl poweroff
+        fi
+        return 0
+    fi
+
+    err="$(jq -r '.error // "see /var/log/airwaves-install.log"' "$ISTATUS" 2>/dev/null)"
+    rm -f "$TRIGGER"
+    msg "Unattended install failed" "\nState: ${state}\n\n${err}\n\nUsing the interactive menu." 13 66
+    return 1
+}
+
 command -v dialog >/dev/null 2>&1 || { echo "dialog not available; opening a shell."; exec bash -l; }
 init_theme
 
 while true; do
+    # Config-driven install armed by airwaves-preconfig (AWCFG). Do it first.
+    if [ -f "$TRIGGER" ]; then run_unattended_install; continue; fi
     # First-boot: show progress until init finishes (or fails).
     if first_boot_active; then first_boot_screen; continue; fi
 
