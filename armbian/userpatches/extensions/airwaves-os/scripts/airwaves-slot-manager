@@ -1,0 +1,173 @@
+#!/bin/bash
+#
+# airwaves-slot-manager — A/B (blue/green) slot control for Airwaves OS.
+#
+# Verbs:
+#   status              show current/other slot + boot-config state (JSON)
+#   current             print the running slot (a|b)
+#   other               print the inactive slot (a|b)
+#   set-try <a|b>       boot the given slot ONCE on next boot (trial); the
+#                       bootloader auto-reverts to the committed slot if the
+#                       trial slot fails to boot.
+#   commit <a|b>        make the given slot the permanent default (clears trial)
+#   rollback            make the OTHER (previous) slot the permanent default
+#
+# Slots are identified by ext4 label: aw-root-a / aw-root-b. The shared data
+# partition is aw-data. Per-platform boot mechanism:
+#   uefi-x86 : GRUB on the shared ESP — saved_entry (committed) + next_entry
+#              (one-shot trial) in grubenv; menuentry ids aw-root-a/aw-root-b.
+#   uboot    : u-boot env (fw_setenv) aw_slot + bootcount/altbootcmd; falls back
+#              to rewriting armbianEnv.txt rootdev on the target when fw_setenv
+#              is unavailable.
+#   rpi      : autoboot.txt tryboot selecting the per-slot firmware partition.
+#
+set -uo pipefail
+
+# ---- platform detection (mirrors airwaves-install) -------------------------
+detect_platform() {
+    local arch board family
+    arch="$(uname -m)"
+    if [ -r /etc/armbian-release ]; then
+        board="$(awk -F= '/^BOARD=/{gsub(/"/,"",$2);print $2}' /etc/armbian-release 2>/dev/null)"
+        family="$(awk -F= '/^BOARDFAMILY=/{gsub(/"/,"",$2);print $2}' /etc/armbian-release 2>/dev/null)"
+    fi
+    if [ "$arch" = "x86_64" ] && [ -d /sys/firmware/efi ]; then echo uefi-x86; return; fi
+    case "$family" in bcm27*|bcm28*) echo rpi; return;; esac
+    case "$board" in rpi*|raspberrypi*) echo rpi; return;; esac
+    [ -f /usr/lib/u-boot/platform_install.sh ] && { echo uboot; return; }
+    case "$family" in rockchip*|sunxi*|meson*|rk*) echo uboot; return;; esac
+    echo unknown
+}
+
+# ---- slot discovery --------------------------------------------------------
+slot_dev()  { blkid -L "aw-root-$1" 2>/dev/null; }            # $1=a|b
+slot_uuid() { local d; d="$(slot_dev "$1")" && [ -n "$d" ] && blkid -s UUID -o value "$d" 2>/dev/null; }
+data_dev()  { blkid -L "aw-data" 2>/dev/null; }
+
+# Is this an A/B system at all? (both slots + shared data present)
+is_ab() { [ -n "$(slot_dev a)" ] && [ -n "$(slot_dev b)" ] && [ -n "$(data_dev)" ]; }
+
+current_slot() {
+    local src lbl
+    src="$(findmnt -no SOURCE / 2>/dev/null)"
+    lbl="$(blkid -s LABEL -o value "$src" 2>/dev/null)"
+    case "$lbl" in aw-root-a) echo a;; aw-root-b) echo b;; *) echo "";; esac
+}
+other_of() { case "$1" in a) echo b;; b) echo a;; esac; }
+
+# ---- ESP / grubenv (x86) ---------------------------------------------------
+# grub.cfg + grubenv live on the shared ESP so a single config selects either
+# slot. Find the ESP mountpoint (mount it read-write if needed).
+esp_mount() {
+    local dev mp
+    dev="$(blkid -L AIRWAVES 2>/dev/null)"            # ESP label set by the installer
+    [ -n "$dev" ] || return 1
+    mp="$(findmnt -no TARGET "$dev" 2>/dev/null)"
+    if [ -z "$mp" ]; then
+        mp="/run/airwaves-esp.$$"; mkdir -p "$mp"
+        mount "$dev" "$mp" 2>/dev/null || { rmdir "$mp" 2>/dev/null; return 1; }
+        echo "$mp"; echo "$mp" >/run/airwaves-esp.mounted.$$
+    else
+        echo "$mp"
+    fi
+}
+esp_umount() {
+    local mp="$1"
+    [ -f "/run/airwaves-esp.mounted.$$" ] && { umount "$mp" 2>/dev/null; rmdir "$mp" 2>/dev/null; rm -f "/run/airwaves-esp.mounted.$$"; }
+}
+grubenv_path() {  # echo path to grubenv on the ESP (create if missing)
+    local mp="$1" ge
+    for ge in "$mp/grub/grubenv" "$mp/EFI/Airwaves/grubenv" "$mp/boot/grub/grubenv"; do
+        [ -f "$ge" ] && { echo "$ge"; return; }
+    done
+    # default location our installer uses
+    mkdir -p "$mp/grub"
+    [ -f "$mp/grub/grubenv" ] || grub-editenv "$mp/grub/grubenv" create 2>/dev/null
+    echo "$mp/grub/grubenv"
+}
+
+x86_set_try()  { local slot="$1" mp ge; mp="$(esp_mount)" || return 1; ge="$(grubenv_path "$mp")"; grub-editenv "$ge" set "next_entry=aw-root-$slot"; grub-editenv "$ge" set "boot_attempts=0"; esp_umount "$mp"; }
+x86_commit()   { local slot="$1" mp ge; mp="$(esp_mount)" || return 1; ge="$(grubenv_path "$mp")"; grub-editenv "$ge" set "saved_entry=aw-root-$slot"; grub-editenv "$ge" unset next_entry 2>/dev/null; grub-editenv "$ge" set "boot_success=1"; esp_umount "$mp"; }
+x86_state()    { local mp ge; mp="$(esp_mount)" || return 1; ge="$(grubenv_path "$mp")"; grub-editenv "$ge" list 2>/dev/null | tr '\n' ' '; esp_umount "$mp"; }
+
+# ---- u-boot (rockchip etc.) ------------------------------------------------
+has_fwsetenv() { command -v fw_setenv >/dev/null 2>&1 && [ -r /etc/fw_env.config ]; }
+uboot_set_try() {
+    local slot="$1"
+    if has_fwsetenv; then
+        fw_setenv aw_slot_try "$slot"; fw_setenv bootcount 0; fw_setenv upgrade_available 1
+    else
+        # Fallback: point the CURRENT armbianEnv at the try slot's root (no
+        # pre-Linux auto-revert; relies on the health-gate + watchdog).
+        local u; u="$(slot_uuid "$slot")"
+        sed -i -e "s,^rootdev=.*,rootdev=UUID=$u," /boot/armbianEnv.txt 2>/dev/null || true
+    fi
+}
+uboot_commit() {
+    local slot="$1"
+    if has_fwsetenv; then
+        fw_setenv aw_slot "$slot"; fw_setenv upgrade_available 0; fw_setenv bootcount 0; fw_setenv aw_slot_try ""
+    else
+        local u; u="$(slot_uuid "$slot")"
+        sed -i -e "s,^rootdev=.*,rootdev=UUID=$u," /boot/armbianEnv.txt 2>/dev/null || true
+    fi
+}
+uboot_state() { has_fwsetenv && fw_printenv 2>/dev/null | grep -E '^(aw_slot|aw_slot_try|bootcount|upgrade_available)=' | tr '\n' ' ' || echo "fw_setenv unavailable"; }
+
+# ---- Raspberry Pi (tryboot) ------------------------------------------------
+# Each slot has its own firmware partition (AW-FW-A/AW-FW-B). autoboot.txt on
+# the firmware-visible config selects the default; tryboot boots the alternate.
+rpi_fw_mount() { local d mp; d="$(blkid -L "AW-FW-${1^^}" 2>/dev/null)"; [ -n "$d" ] || return 1; mp="/run/airwaves-fw.$$"; mkdir -p "$mp"; mount "$d" "$mp" 2>/dev/null && echo "$mp"; }
+rpi_set_try() { echo "rpi tryboot set-try not yet wired (Phase 6)"; return 1; }
+rpi_commit()  { echo "rpi tryboot commit not yet wired (Phase 6)"; return 1; }
+
+# ---- dispatch --------------------------------------------------------------
+PLATFORM="$(detect_platform)"
+
+require_ab() { is_ab || { echo "Not an A/B system (need aw-root-a, aw-root-b, aw-data)." >&2; exit 2; }; }
+valid_slot() { case "$1" in a|b) return 0;; *) echo "slot must be a or b" >&2; exit 2;; esac; }
+
+case "${1:-status}" in
+    current) current_slot ;;
+    other)   other_of "$(current_slot)" ;;
+    status)
+        cur="$(current_slot)"; oth="$(other_of "$cur")"
+        printf '{"platform":"%s","ab":%s,"current":"%s","other":"%s","slot_a":"%s","slot_b":"%s","data":"%s"' \
+            "$PLATFORM" "$(is_ab && echo true || echo false)" "$cur" "$oth" \
+            "$(slot_dev a)" "$(slot_dev b)" "$(data_dev)"
+        case "$PLATFORM" in
+            uefi-x86) printf ',"boot":"%s"' "$(x86_state 2>/dev/null)";;
+            uboot)    printf ',"boot":"%s"' "$(uboot_state 2>/dev/null)";;
+        esac
+        printf '}\n'
+        ;;
+    set-try)
+        require_ab; valid_slot "${2:-}"
+        case "$PLATFORM" in
+            uefi-x86) x86_set_try "$2";;
+            uboot)    uboot_set_try "$2";;
+            rpi)      rpi_set_try "$2";;
+            *) echo "unsupported platform: $PLATFORM" >&2; exit 2;;
+        esac && echo "set-try slot $2 (one-shot trial on next boot)"
+        ;;
+    commit)
+        require_ab; valid_slot "${2:-}"
+        case "$PLATFORM" in
+            uefi-x86) x86_commit "$2";;
+            uboot)    uboot_commit "$2";;
+            rpi)      rpi_commit "$2";;
+            *) echo "unsupported platform: $PLATFORM" >&2; exit 2;;
+        esac && echo "committed slot $2 as default"
+        ;;
+    rollback)
+        require_ab
+        prev="$(other_of "$(current_slot)")"
+        case "$PLATFORM" in
+            uefi-x86) x86_commit "$prev";;
+            uboot)    uboot_commit "$prev";;
+            rpi)      rpi_commit "$prev";;
+            *) echo "unsupported platform: $PLATFORM" >&2; exit 2;;
+        esac && echo "rolled back to slot $prev"
+        ;;
+    *) echo "usage: airwaves-slot-manager status|current|other|set-try <a|b>|commit <a|b>|rollback" >&2; exit 2;;
+esac

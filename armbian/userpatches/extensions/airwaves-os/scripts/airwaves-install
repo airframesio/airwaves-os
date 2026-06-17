@@ -472,28 +472,231 @@ EOF
     REBOOT_REQUIRED="true"
 }
 
+# ============================================================================
+# A/B (blue/green) install — x86 UEFI (Phase 1). Two equal root slots + a shared
+# aw-data partition (holds /etc/airwaves + /var/lib/docker via bind mounts), with
+# GRUB + grub.cfg + grubenv on the shared ESP selecting the slot. See
+# docs/AB-UPDATES.md. ARM A/B comes in later phases.
+# ============================================================================
+ESP_DEV=""; ROOTA_DEV=""; ROOTB_DEV=""; DATA_DEV=""; KVER=""
+
+ab_slot_mib() {
+    # slot size = clamp(35% of disk, 4 GiB, 12 GiB), in MiB
+    local bytes mib slot
+    bytes="$(blockdev --getsize64 "${TARGET}" 2>/dev/null || echo 0)"
+    mib=$(( bytes / 1024 / 1024 ))
+    slot=$(( mib * 35 / 100 ))
+    [ "${slot}" -lt 4096 ] && slot=4096
+    [ "${slot}" -gt 12288 ] && slot=12288
+    echo "${slot}"
+}
+
+partition_x86_ab() {
+    phase "partitioning" 15
+    ESP_DEV="$(part "${TARGET}" 1)"; ROOTA_DEV="$(part "${TARGET}" 2)"
+    ROOTB_DEV="$(part "${TARGET}" 3)"; DATA_DEV="$(part "${TARGET}" 4)"
+    local slot esp_end a_end b_end disk_mib
+    slot="$(ab_slot_mib)"
+    disk_mib=$(( $(blockdev --getsize64 "${TARGET}" 2>/dev/null || echo 0) / 1024 / 1024 ))
+    esp_end=513; a_end=$(( esp_end + slot )); b_end=$(( a_end + slot ))
+    # Policy: A/B requires a >=12 GiB disk (below that, callers use single-root).
+    if [ "${disk_mib}" -lt 12288 ]; then
+        fail "A/B needs a >=12 GiB disk (this disk is ${disk_mib}MiB). Install without --ab for a single-root system."
+    fi
+    if [ "$(( b_end + 1024 ))" -ge "${disk_mib}" ]; then
+        fail "Disk too small for A/B (${disk_mib}MiB; need 2x${slot}MiB slots + data). Use a single-root install (omit --ab)."
+    fi
+    if [ "${APPLY}" != "1" ]; then
+        log "[dry-run] gpt: ESP(1-513) rootA(513-${a_end}) rootB(${a_end}-${b_end}) data(${b_end}-100%); slot=${slot}MiB"
+        return 0
+    fi
+    wipefs -a "${TARGET}" >>"${LOG_TMP}" 2>&1
+    parted -s "${TARGET}" -- mklabel gpt >>"${LOG_TMP}" 2>&1 || fail "parted mklabel failed"
+    parted -s "${TARGET}" -- mkpart "ESP" fat32 1MiB 513MiB >>"${LOG_TMP}" 2>&1 || fail "parted ESP failed"
+    parted -s "${TARGET}" -- set 1 esp on >>"${LOG_TMP}" 2>&1
+    parted -s "${TARGET}" -- mkpart "aw-root-a" ext4 513MiB "${a_end}MiB" >>"${LOG_TMP}" 2>&1 || fail "parted rootA failed"
+    parted -s "${TARGET}" -- mkpart "aw-root-b" ext4 "${a_end}MiB" "${b_end}MiB" >>"${LOG_TMP}" 2>&1 || fail "parted rootB failed"
+    parted -s "${TARGET}" -- mkpart "aw-data" ext4 "${b_end}MiB" 100% >>"${LOG_TMP}" 2>&1 || fail "parted data failed"
+    settle_parts "${ESP_DEV}" "${ROOTA_DEV}" "${ROOTB_DEV}" "${DATA_DEV}"
+
+    phase "formatting" 25
+    mkfs.vfat -F32 -n AIRWAVES "${ESP_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs.vfat failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
+    mkfs.ext4 -qF -L aw-root-a "${ROOTA_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs rootA failed"
+    mkfs.ext4 -qF -L aw-root-b "${ROOTB_DEV}" >>"${LOG_TMP}" 2>&1 || fail "mkfs rootB failed"
+    mkfs.ext4 -qF -L aw-data   "${DATA_DEV}"  >>"${LOG_TMP}" 2>&1 || fail "mkfs data failed"
+}
+
+copy_rootfs_ab() {
+    phase "copying-rootfs" 30
+    TMP="$(mktemp -d /mnt/airwaves-install.XXXXXX)"
+    cat > /tmp/airwaves-install-exclude <<'EOF'
+/dev/*
+/proc/*
+/sys/*
+/tmp/*
+/run/*
+/mnt/*
+/media/*
+/lost+found
+/var/log.hdd/*
+/swapfile
+/etc/airwaves/install/*
+/var/lib/docker/*
+/var/lib/containerd/*
+/var/lib/docker.hdd/*
+EOF
+    if [ "${APPLY}" != "1" ]; then
+        log "[dry-run] rsync / -> rootA; seed aw-data {airwaves,docker}; snapshot rootA -> rootB"
+        PERCENT=80; write_status; rmdir "${TMP}" 2>/dev/null || true; return 0
+    fi
+
+    mount "${ROOTA_DEV}" "${TMP}" || fail "mount rootA failed"
+    echo "${TMP}" >/tmp/airwaves-install-mnt
+    local todo
+    todo="$(rsync -anx --delete --stats --exclude-from=/tmp/airwaves-install-exclude / "${TMP}" 2>/dev/null | awk '/Number of files:/{gsub(/[.,]/,"",$4); print $4; exit}')"
+    [ -z "${todo}" ] && todo=1
+    local progress=/tmp/airwaves-install-progress; echo 0 >"${progress}"; local done=/tmp/airwaves-install-done; echo no >"${done}"
+    {
+        rsync -ax --delete --exclude-from=/tmp/airwaves-install-exclude / "${TMP}" \
+            | stdbuf -oL awk -v todo="${todo}" '{p=int(45*NR/todo); if(p>45)p=45; print p; fflush()}' > "${progress}"
+        echo "${PIPESTATUS[0]}" > "${done}"
+    } &
+    local rc=""
+    while [ -z "${rc}" ]; do
+        sleep 2
+        local p; p="$(tail -n1 "${progress}" 2>/dev/null)"; [ -n "${p}" ] && PERCENT=$((30 + p)) && write_status
+        local d; d="$(cat "${done}" 2>/dev/null)"; [ "${d}" != "no" ] && rc="${d}"
+    done
+    [ "${rc}" = "0" ] || fail "rootfs copy (rsync) failed with code ${rc}"
+
+    # Seed shared data: /data/{airwaves,docker}; relocate copied /etc/airwaves
+    # into /data/airwaves (bind-mounted back via fstab).
+    phase "seeding-data" 78
+    local DATAMNT; DATAMNT="$(mktemp -d /mnt/airwaves-data.XXXXXX)"
+    mount "${DATA_DEV}" "${DATAMNT}" || fail "mount data failed"
+    mkdir -p "${DATAMNT}/airwaves" "${DATAMNT}/docker"
+    if [ -d "${TMP}/etc/airwaves" ]; then
+        rsync -aHAX "${TMP}/etc/airwaves/" "${DATAMNT}/airwaves/" >>"${LOG_TMP}" 2>&1 || true
+        rm -rf "${TMP}/etc/airwaves"/* 2>/dev/null || true
+    fi
+    mkdir -p "${TMP}/data" "${TMP}/etc/airwaves" "${TMP}/var/lib/docker"
+    umount "${DATAMNT}" 2>/dev/null || true; rmdir "${DATAMNT}" 2>/dev/null || true
+
+    # Snapshot rootA -> rootB (both independently bootable). -x stays on rootA's fs.
+    phase "cloning-slot-b" 82
+    local RBMNT; RBMNT="$(mktemp -d /mnt/airwaves-rootb.XXXXXX)"
+    mount "${ROOTB_DEV}" "${RBMNT}" || fail "mount rootB failed"
+    rsync -aHAX -x "${TMP}/" "${RBMNT}/" >>"${LOG_TMP}" 2>&1 || fail "slot B clone failed"
+    umount "${RBMNT}" 2>/dev/null || true; rmdir "${RBMNT}" 2>/dev/null || true
+    PERCENT=85; write_status
+}
+
+# Per-slot /etc/fstab: $1=mountdir $2=this-slot-root-uuid $3=esp-uuid $4=data-uuid
+write_ab_fstab() {
+    cat > "${1}/etc/fstab" <<EOF
+UUID=${2}  /               ext4  defaults,noatime,errors=remount-ro  0  1
+UUID=${3}  /boot/efi       vfat  umask=0077                          0  2
+UUID=${4}  /data           ext4  defaults                            0  2
+/data/airwaves /etc/airwaves   none  bind                            0  0
+/data/docker   /var/lib/docker none  bind                            0  0
+EOF
+}
+
+bootloader_x86_ab() {
+    phase "bootloader" 90
+    if [ "${APPLY}" != "1" ]; then
+        log "[dry-run] per-slot fstab (A+B); grub-install to ESP; A/B grub.cfg + grubenv (saved_entry=aw-root-a)"
+        return 0
+    fi
+    local ra rb eu du
+    ra="$(blkid -s UUID -o value "${ROOTA_DEV}")"; rb="$(blkid -s UUID -o value "${ROOTB_DEV}")"
+    eu="$(blkid -s UUID -o value "${ESP_DEV}")";   du="$(blkid -s UUID -o value "${DATA_DEV}")"
+    [ -n "${ra}" ] && [ -n "${rb}" ] && [ -n "${eu}" ] && [ -n "${du}" ] || fail "could not read A/B partition UUIDs"
+    KVER="$(ls "${TMP}/boot"/vmlinuz-* 2>/dev/null | sed 's|.*/vmlinuz-||' | head -1)"
+    [ -n "${KVER}" ] || fail "no kernel found in slot A /boot"
+
+    write_ab_fstab "${TMP}" "${ra}" "${eu}" "${du}"
+    local RBMNT; RBMNT="$(mktemp -d /mnt/airwaves-rootb.XXXXXX)"
+    mount "${ROOTB_DEV}" "${RBMNT}" || fail "remount rootB failed"
+    mkdir -p "${RBMNT}/etc" "${RBMNT}/boot/efi" "${RBMNT}/data"
+    write_ab_fstab "${RBMNT}" "${rb}" "${eu}" "${du}"
+    umount "${RBMNT}" 2>/dev/null || true; rmdir "${RBMNT}" 2>/dev/null || true
+
+    mkdir -p "${TMP}/boot/efi"
+    mount "${ESP_DEV}" "${TMP}/boot/efi" || fail "mount ESP failed"
+    for d in dev dev/pts proc sys run; do mount --bind "/${d}" "${TMP}/${d}"; done
+    chroot "${TMP}" /bin/bash -c "grub-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot/efi --bootloader-id=Airwaves --removable" >>"${LOG_TMP}" 2>&1 \
+        || fail "grub-install failed: $(tail -n3 "${LOG_TMP}" 2>/dev/null)"
+
+    cat > "${TMP}/boot/efi/grub/grub.cfg" <<EOF
+# Airwaves OS A/B boot config (generated by airwaves-install)
+insmod part_gpt
+insmod ext2
+insmod fat
+insmod search_label
+if [ -s \$prefix/grubenv ]; then load_env; fi
+set default="\${saved_entry}"
+if [ -z "\${default}" ]; then set default="aw-root-a"; fi
+if [ -n "\${next_entry}" ]; then
+    set default="\${next_entry}"
+    set next_entry=
+    save_env next_entry
+fi
+set timeout=5
+menuentry "Airwaves OS (slot A)" --id aw-root-a {
+    search --no-floppy --label aw-root-a --set=root
+    linux /boot/vmlinuz-${KVER} root=UUID=${ra} rootflags=noatime rw console=tty0 console=ttyS0,115200
+    initrd /boot/initrd.img-${KVER}
+}
+menuentry "Airwaves OS (slot B)" --id aw-root-b {
+    search --no-floppy --label aw-root-b --set=root
+    linux /boot/vmlinuz-${KVER} root=UUID=${rb} rootflags=noatime rw console=tty0 console=ttyS0,115200
+    initrd /boot/initrd.img-${KVER}
+}
+EOF
+    grub-editenv "${TMP}/boot/efi/grub/grubenv" create 2>/dev/null || true
+    grub-editenv "${TMP}/boot/efi/grub/grubenv" set saved_entry=aw-root-a
+
+    phase "finalizing" 95
+    sync
+    for d in run sys proc dev/pts dev; do umount -l "${TMP}/${d}" 2>/dev/null; done
+    umount -l "${TMP}/boot/efi" 2>/dev/null
+    umount -l "${TMP}" 2>/dev/null
+    REBOOT_REQUIRED="true"
+}
+
 # ---- main ------------------------------------------------------------------
 
-case "${1:-}" in
-    --list-json) list_targets_json; exit 0 ;;
-    --target)    TARGET="${2:-}" ;;
-    "")
-        # Bare interactive invocation (a user typed `airwaves-install` at a
-        # console) -> launch the friendly TUI installer. Non-interactive callers
-        # (e.g. the manager) always pass --target/--list-json and skip this.
-        if [ -t 0 ] && command -v dialog >/dev/null 2>&1 && [ -x /opt/airwaves/scripts/airwaves-firstrun ]; then
-            exec /opt/airwaves/scripts/airwaves-firstrun --install
-        fi
-        fail "usage: airwaves-install --target <disk> | --list-json" ;;
-    *)           TARGET="${1}" ;;
-esac
+AB=0
+if [ $# -eq 0 ]; then
+    # Bare interactive invocation -> launch the friendly TUI installer. The
+    # manager always passes --target/--list-json and skips this.
+    if [ -t 0 ] && command -v dialog >/dev/null 2>&1 && [ -x /opt/airwaves/scripts/airwaves-firstrun ]; then
+        exec /opt/airwaves/scripts/airwaves-firstrun --install
+    fi
+    fail "usage: airwaves-install [--ab] --target <disk> | --list-json"
+fi
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --list-json) list_targets_json; exit 0 ;;
+        --ab)        AB=1; shift ;;
+        --target)    TARGET="${2:-}"; shift 2 ;;
+        *)           TARGET="$1"; shift ;;
+    esac
+done
 
 write_status
 preflight
 case "${PLATFORM}" in
-    uefi-x86) partition_x86;   copy_rootfs; bootloader_x86 ;;
-    uboot)    partition_uboot; copy_rootfs; bootloader_uboot ;;
-    rpi)      partition_rpi;   copy_rootfs; bootloader_rpi ;;
+    uefi-x86)
+        if [ "${AB}" = "1" ]; then partition_x86_ab; copy_rootfs_ab; bootloader_x86_ab
+        else partition_x86; copy_rootfs; bootloader_x86; fi ;;
+    uboot)
+        [ "${AB}" = "1" ] && fail "A/B is not yet supported on u-boot/ARM boards (later phase); install without --ab"
+        partition_uboot; copy_rootfs; bootloader_uboot ;;
+    rpi)
+        [ "${AB}" = "1" ] && fail "A/B is not yet supported on Raspberry Pi (later phase); install without --ab"
+        partition_rpi;   copy_rootfs; bootloader_rpi ;;
     *)        fail "Unsupported platform: ${PLATFORM}" ;;
 esac
 
