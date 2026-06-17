@@ -119,14 +119,36 @@ if [ -n "${SMOKE_MODE}" ]; then
         curl -fsS -m4 "http://localhost:${API_PORT}/api/v1/system/overview" >/dev/null 2>&1 && { up=1; log "  manager up (~$((i*10))s)"; break; }
     done
     [ -n "${up}" ] || { tail -20 "${WORK}/boot1.log" 2>/dev/null; die "manager never came up on first boot"; }
-    if curl -fsS -m10 "http://localhost:${API_PORT}/api/v1/system/disks" >/dev/null 2>&1; then
-        disks="$(curl -fsS -m10 "http://localhost:${API_PORT}/api/v1/system/disks" 2>/dev/null)"
-        log "SMOKE PASS: manager up natively and /system/disks responded: ${disks}"
-        kill "${P1}" 2>/dev/null || true
-        exit 0
+    if ! curl -fsS -m10 "http://localhost:${API_PORT}/api/v1/system/disks" >/dev/null 2>&1; then
+        tail -20 "${WORK}/boot1.log" 2>/dev/null
+        die "SMOKE FAIL: /system/disks absent — manager is older than 1.0.37 (channel alias did not resolve to a current image)"
     fi
-    tail -20 "${WORK}/boot1.log" 2>/dev/null
-    die "SMOKE FAIL: /system/disks absent — manager is older than 1.0.37 (channel alias did not resolve to a current image)"
+    disks="$(curl -fsS -m10 "http://localhost:${API_PORT}/api/v1/system/disks" 2>/dev/null)"
+    log "  manager up natively and /system/disks responded: ${disks}"
+
+    # Verify the console-TUI wiring over SSH (the visual TUI itself is on tty1,
+    # which a headless VM can't show — but we can confirm it's wired up).
+    if discover_ssh; then
+        log "Checking console TUI wiring..."
+        chk="$(sshx "${SSH_USER}" "${SUDO}bash -c '
+            ok=1
+            [ -f /etc/systemd/system/getty@tty1.service.d/airwaves-tui.conf ] && grep -q autologin /etc/systemd/system/getty@tty1.service.d/airwaves-tui.conf || { echo MISS:getty-dropin; ok=0; }
+            [ -x /opt/airwaves/scripts/airwaves-tui ] || { echo MISS:airwaves-tui; ok=0; }
+            [ -f /etc/profile.d/zz-airwaves-tui.sh ] || { echo MISS:profile.d; ok=0; }
+            systemctl is-enabled airwaves-firstrun.service >/dev/null 2>&1 && { echo BAD:firstrun-still-enabled; ok=0; } || true
+            bash -n /opt/airwaves/scripts/airwaves-tui || { echo BAD:tui-syntax; ok=0; }
+            [ \$ok = 1 ] && echo CONSOLE_OK
+        '" 2>/dev/null)"
+        echo "${chk}" | grep -q CONSOLE_OK \
+            && log "  console TUI wiring OK (getty autologin + airwaves-tui + launcher; firstrun retired)" \
+            || { log "  console wiring problems: $(echo "${chk}" | grep -E 'MISS|BAD' | tr '\n' ' ')"; tail -10 "${WORK}/boot1.log" 2>/dev/null; die "SMOKE FAIL: console TUI not wired correctly"; }
+    else
+        log "  (could not SSH to verify console wiring; manager+install API confirmed)"
+    fi
+
+    log "SMOKE PASS: manager + install API up natively; console TUI wired."
+    kill "${P1}" 2>/dev/null || true
+    exit 0
 elif [ -n "${WEB_MODE}" ]; then
     # Drive the install entirely through the manager's web API (the same path
     # the control-app "Install to Disk" wizard uses). Requires the manager
