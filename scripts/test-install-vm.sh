@@ -18,7 +18,7 @@
 #
 set -euo pipefail
 
-IMAGE=""; RAM=2560; TARGET_SIZE="16G"; OVERLAY_DIR=""; WEB_MODE=""; SMOKE_MODE=""
+IMAGE=""; RAM=2560; TARGET_SIZE="16G"; OVERLAY_DIR=""; WEB_MODE=""; SMOKE_MODE=""; AB_TEST=""
 SSH_PORT=2222; API_PORT=18080; PW="airwaves"
 WORK="$(mktemp -d /tmp/airwaves-vmtest.XXXXXX)"
 DEFAULT_OVERLAY="$(cd "$(dirname "$0")/.." && pwd)/armbian/userpatches/extensions/airwaves-os/scripts"
@@ -37,6 +37,7 @@ while [ $# -gt 0 ]; do
         --overlay-scripts) OVERLAY_DIR="${2:-$DEFAULT_OVERLAY}"; shift 2;;
         --web) WEB_MODE=1; shift 1;;   # drive the install via the manager web API
         --smoke) SMOKE_MODE=1; shift 1;;  # just verify the manager + install API come up natively
+        --ab) AB_TEST=1; OVERLAY_DIR="$DEFAULT_OVERLAY"; shift 1;;  # A/B install + slot switch/rollback cycle (implies --overlay)
         *) die "unknown arg: $1";;
     esac
 done
@@ -219,7 +220,7 @@ discover_ssh || { tail -8 "${WORK}/boot1.log" 2>/dev/null; die "SSH never became
 
 if [ -n "${OVERLAY_DIR}" ]; then
     log "Overlaying working-tree scripts via SSH (base64-in-command)..."
-    for f in airwaves-install airwaves-firstrun; do
+    for f in airwaves-install airwaves-firstrun airwaves-slot-manager airwaves-tui; do
         [ -f "${OVERLAY_DIR}/${f}" ] || continue
         b64="$(base64 < "${OVERLAY_DIR}/${f}" | tr -d '\n')"
         sshx "${SSH_USER}" "${SUDO}bash -c 'echo ${b64} | base64 -d > /opt/airwaves/scripts/${f} && chmod +x /opt/airwaves/scripts/${f}'" >/dev/null \
@@ -228,7 +229,8 @@ if [ -n "${OVERLAY_DIR}" ]; then
 fi
 
 log "Running airwaves-install on the blank disk (this is the slow part)..."
-INSTALL_CMD="${SUDO}bash -c 'TGT=\$(/opt/airwaves/scripts/airwaves-install --list-json | jq -r \".[0].device\"); echo TARGET=\$TGT; AIRWAVES_INSTALL_APPLY=1 /opt/airwaves/scripts/airwaves-install --target \$TGT'"
+AB_FLAG=""; [ -n "${AB_TEST}" ] && AB_FLAG="--ab"
+INSTALL_CMD="${SUDO}bash -c 'TGT=\$(/opt/airwaves/scripts/airwaves-install --list-json | jq -r \".[0].device\"); echo TARGET=\$TGT; AIRWAVES_INSTALL_APPLY=1 /opt/airwaves/scripts/airwaves-install ${AB_FLAG} --target \$TGT'"
 if sshx "${SSH_USER}" "${INSTALL_CMD}"; then
     log "Phase 1: airwaves-install returned success."
 else
@@ -246,10 +248,61 @@ for i in $(seq 1 30); do
 done
 fi  # end SSH-vs-web phase 1
 
-# ---- Phase 2: boot from internal disk ALONE, assert manager answers ---------
-# Use a FRESH UEFI varstore: phase 1's vars point at the (now-absent) USB boot
-# entry, so reusing them drops OVMF to the UEFI shell instead of discovering the
-# installed disk's removable bootloader (/EFI/BOOT/BOOTX64.EFI).
+# ---- Phase 2: boot from the internal disk ALONE -----------------------------
+# Each internal boot uses a FRESH UEFI varstore: phase 1's vars point at the
+# (now-absent) USB boot entry, so reusing them drops OVMF to the UEFI shell
+# instead of discovering the installed disk's removable bootloader.
+
+# Boot the internal disk and wait until SSH is usable. Sets P2.
+boot_internal() {
+    cp "${OVMF_VARS_SRC}" "${WORK}/OVMF_VARS.fd"
+    P2=$(boot "$1" -drive "file=${TARGET_IMG},format=qcow2,if=virtio")
+    local i out
+    for i in $(seq 1 60); do
+        sleep 10
+        out="$(sshx "${SSH_USER}" 'echo READY_$(id -u)' 2>/dev/null || true)"
+        echo "$out" | grep -q "READY_" && return 0
+    done
+    return 1
+}
+stop_internal() {
+    sshx "${SSH_USER}" "${SUDO}poweroff" >/dev/null 2>&1 || true
+    sleep 5; kill "${P2}" 2>/dev/null || true
+    local i
+    for i in $(seq 1 30); do
+        kill -0 "${P2}" 2>/dev/null && { sleep 1; continue; }
+        lsof -nP -iTCP:"${SSH_PORT}" -iTCP:"${API_PORT}" 2>/dev/null | grep -q LISTEN || break
+        sleep 1
+    done
+}
+slot_now() { sshx "${SSH_USER}" "${SUDO}/opt/airwaves/scripts/airwaves-slot-manager current" 2>/dev/null | tr -d '\r' | grep -oE '^[ab]$' | head -1 || true; }
+
+if [ -n "${AB_TEST}" ]; then
+    log "Phase 2 (A/B): boot 1 — expect slot A..."
+    boot_internal "${WORK}/boot2a.log" || { tail -40 "${WORK}/boot2a.log" 2>/dev/null; die "A/B: slot A did not boot (check grub.cfg / layout)"; }
+    s="$(slot_now)"; log "  running slot: ${s:-?}"
+    [ "$s" = "a" ] || { sshx "${SSH_USER}" "${SUDO}/opt/airwaves/scripts/airwaves-slot-manager status" 2>/dev/null; die "A/B: expected slot a on first boot, got '${s}'"; }
+    log "  set-try b, rebooting..."
+    sshx "${SSH_USER}" "${SUDO}/opt/airwaves/scripts/airwaves-slot-manager set-try b" >/dev/null 2>&1 || die "A/B: set-try b failed"
+    stop_internal
+
+    log "Phase 2 (A/B): boot 2 — expect slot B (one-shot trial)..."
+    boot_internal "${WORK}/boot2b.log" || { tail -40 "${WORK}/boot2b.log" 2>/dev/null; die "A/B: slot B did not boot after set-try"; }
+    s="$(slot_now)"; log "  running slot: ${s:-?}"
+    [ "$s" = "b" ] || die "A/B: expected slot b after set-try, got '${s}'"
+    log "  rollback (-> a), rebooting..."
+    sshx "${SSH_USER}" "${SUDO}/opt/airwaves/scripts/airwaves-slot-manager rollback" >/dev/null 2>&1 || die "A/B: rollback failed"
+    stop_internal
+
+    log "Phase 2 (A/B): boot 3 — expect slot A (rolled back)..."
+    boot_internal "${WORK}/boot2c.log" || { tail -40 "${WORK}/boot2c.log" 2>/dev/null; die "A/B: did not boot after rollback"; }
+    s="$(slot_now)"; log "  running slot: ${s:-?}"
+    [ "$s" = "a" ] || die "A/B: expected slot a after rollback, got '${s}'"
+    stop_internal
+    log "=== A/B PASS: install -> boot A -> set-try B -> boot B -> rollback -> boot A ==="
+    exit 0
+fi
+
 cp "${OVMF_VARS_SRC}" "${WORK}/OVMF_VARS.fd"
 log "Phase 2: booting from the internal disk only..."
 P2=$(boot "${WORK}/boot2.log" -drive "file=${TARGET_IMG},format=qcow2,if=virtio")
