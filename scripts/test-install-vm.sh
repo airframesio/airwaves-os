@@ -143,6 +143,12 @@ if [ -n "${SMOKE_MODE}" ]; then
         echo "${chk}" | grep -q CONSOLE_OK \
             && log "  console TUI wiring OK (getty autologin + airwaves-tui + launcher; firstrun retired)" \
             || { log "  console wiring problems: $(echo "${chk}" | grep -E 'MISS|BAD' | tr '\n' ' ')"; tail -10 "${WORK}/boot1.log" 2>/dev/null; die "SMOKE FAIL: console TUI not wired correctly"; }
+        # Separate, simple checks (clean quoting): version stamp + issue banner.
+        ver="$(sshx "${SSH_USER}" "${SUDO}cat /etc/airwaves-release" 2>/dev/null | tr -d '\r' | awk -F= '/^AIRWAVES_VERSION=/{print $2}')"
+        log "  version stamp: ${ver:-?}"
+        [ -n "${ver}" ] && [ "${ver}" != "1.0.0" ] || die "SMOKE FAIL: version not stamped (got '${ver:-}')"
+        sshx "${SSH_USER}" "${SUDO}cat /etc/issue" 2>/dev/null | grep -qi airwaves \
+            && log "  /etc/issue banner present" || die "SMOKE FAIL: /etc/issue banner missing"
     else
         log "  (could not SSH to verify console wiring; manager+install API confirmed)"
     fi

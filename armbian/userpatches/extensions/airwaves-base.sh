@@ -69,12 +69,27 @@ function post_family_tweaks__airwaves_base_setup() {
 	chroot_sdcard sed -i "s/^AIRWAVES_BUILD_BOARD=.*/AIRWAVES_BUILD_BOARD=${BOARD}/" /etc/airwaves-release
 	# Stamp the real Airwaves OS version from the manager crate. The release
 	# template ships a placeholder (1.0.0); without this the MOTD + console show
-	# a stale version.
-	local _aw_ver _aw_cn
-	_aw_ver="$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "${extension_data_dir}/../../../../containers/airwaves-manager/Cargo.toml" 2>/dev/null | head -1)"
+	# a stale version. The repo lives one level above Armbian's SRC (.armbian-build
+	# sits in the repo root), and userpatches symlinks back to the repo — try the
+	# likely anchors, then fall back to a search.
+	local _aw_ver _aw_cn _ct
+	for _ct in \
+		"${SRC:-}/../containers/airwaves-manager/Cargo.toml" \
+		"$(readlink -f "${SRC:-}/userpatches" 2>/dev/null | sed 's#/armbian/userpatches$##')/containers/airwaves-manager/Cargo.toml" \
+		"$(dirname "${BASH_SOURCE[0]}")/../../../containers/airwaves-manager/Cargo.toml"; do
+		[ -f "${_ct}" ] || continue
+		_aw_ver="$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "${_ct}" 2>/dev/null | head -1)"
+		[ -n "${_aw_ver}" ] && break
+	done
+	if [ -z "${_aw_ver}" ]; then
+		_ct="$(find "${SRC:-.}/.." -maxdepth 4 -path '*containers/airwaves-manager/Cargo.toml' 2>/dev/null | head -1)"
+		[ -n "${_ct}" ] && _aw_ver="$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "${_ct}" 2>/dev/null | head -1)"
+	fi
 	if [ -n "${_aw_ver}" ]; then
 		display_alert "Stamping Airwaves OS version" "${_aw_ver}" "info"
 		sed -i "s/^AIRWAVES_VERSION=.*/AIRWAVES_VERSION=${_aw_ver}/" "${SDCARD}/etc/airwaves-release"
+	else
+		display_alert "Airwaves OS version" "could not resolve from Cargo.toml; keeping placeholder" "wrn"
 	fi
 	_aw_cn="$(awk -F= '/^AIRWAVES_CODENAME=/{gsub(/"/,"",$2);print $2}' "${SDCARD}/etc/airwaves-release" 2>/dev/null)"
 
