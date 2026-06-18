@@ -1,23 +1,21 @@
 #!/bin/bash
 #
-# airwaves-firstrun — first-run console wizard shown on tty1 of the live USB.
-#
-# When Airwaves OS is booted from removable media (the USB installer), this
-# offers a branded choice: run live, or install to an internal disk. The
-# install path drives airwaves-install and renders its structured status.json
-# as a progress gauge. On an installed system (root on a non-removable disk)
-# it exits immediately so the normal console login proceeds.
+# airwaves-firstrun — the install wizard. Shown on tty1 of the live USB (live/
+# install menu) and launched on demand via `airwaves-install` (--install). Drives
+# airwaves-install and renders its structured status.json as a progress gauge.
+# On an installed system it exits immediately so the normal console proceeds.
 #
 set -uo pipefail
 
 INSTALL="/opt/airwaves/scripts/airwaves-install"
 STATUS="/etc/airwaves/install/status.json"
-SCAN="/tmp/airwaves-scan.json"   # cached output of `airwaves-install --scan-json`
+SCAN="/tmp/airwaves-scan.json"          # cached `airwaves-install --scan-json`
+PRECONF="/run/airwaves/install-config.json"
+BT="Airwaves OS Installer"
+export TERM="${TERM:-linux}"
 
-# Modes: default "boot" = the live/install menu shown on tty1 at first boot
-# (only on removable media). "--install" = launched on demand (by the
-# `airwaves-install` CLI) — skip the menu and the removable gate and go straight
-# to disk selection + install.
+# Modes: default "boot" = live/install menu (only on the installer medium).
+# "--install" = launched on demand — skip the menu/gate, go to disk select.
 MODE="boot"
 [ "${1:-}" = "--install" ] && MODE="install"
 
@@ -33,17 +31,14 @@ is_live_boot() {
 }
 
 if [ "${MODE}" = "boot" ]; then
-    # Only run the live/install menu on the installer medium; on an installed
-    # internal disk, do nothing and let getty take over.
     is_live_boot || exit 0
 fi
 
-# Need a real TTY and dialog; otherwise bail out quietly (never block boot).
+# Need a real TTY and dialog; otherwise bail quietly (never block boot).
 [ -t 0 ] || { [ "${MODE}" = "install" ] && echo "airwaves-install: no interactive terminal." >&2; exit 0; }
 command -v dialog >/dev/null || { [ "${MODE}" = "install" ] && echo "airwaves-install: 'dialog' is not installed." >&2; exit 0; }
 
-# Match the console TUI's branded theme (black/cyan) so the installer flow looks
-# the same whether launched from the TUI or run standalone.
+# Branded black/cyan theme, shared with the console TUI so every screen matches.
 if [ -r /opt/airwaves/config/dialogrc ]; then
     export DIALOGRC=/opt/airwaves/config/dialogrc
 elif [ -r /run/airwaves-tui.dialogrc ]; then
@@ -51,67 +46,64 @@ elif [ -r /run/airwaves-tui.dialogrc ]; then
 else
     export DIALOGRC=/dev/null
 fi
-BT="Airwaves OS Installer"
 
-banner() {
-    clear
-    command -v toilet >/dev/null && toilet -f standard -F border "Airwaves OS" 2>/dev/null || echo "=== Airwaves OS ==="
-    echo "Radio software that just works."
-    echo
-}
+# Single themed dialog wrapper so every screen is consistent.
+dlg() { dialog --backtitle "${BT}" --no-shadow "$@"; }
+
+# Reduce a captured value to a clean device path: first drop ANSI/CSI escape
+# sequences (their letters/digits like the "0m" in ESC[0m would otherwise
+# survive a plain char filter), then keep only valid device-path characters. A
+# stray escape or trailing whitespace otherwise makes `[ -b ]` fail with the
+# confusing "not a block device".
+sanitize_dev() { printf '%s' "${1:-}" | LC_ALL=C sed -e 's/\x1b\[[0-9;?]*[A-Za-z]//g' -e 's/[^A-Za-z0-9/_-]//g'; }
 
 main_menu() {
-    dialog --backtitle "${BT}" --no-cancel --title "Welcome to Airwaves OS" \
-        --menu "\nYou are running Airwaves OS live from USB.\n\nChoose how to proceed:" 14 64 2 \
+    dlg --no-cancel --title "Welcome to Airwaves OS" \
+        --menu "\nYou are running Airwaves OS live from this USB.\n\nChoose how to proceed:" 13 66 2 \
         live    "Run live now (no changes to any disk)" \
         install "Install Airwaves OS to an internal disk" \
         3>&1 1>&2 2>&3
 }
 
 pick_disk() {
-    local json rows=() dev size model summary
+    local json rows=() dev size model summary n
     # Scan (mounts each candidate read-only) so we can show what's on each drive
     # and flag any that already run Airwaves OS. Cache it so run_install can warn.
-    dialog --backtitle "${BT}" --infobox \
-        "\nScanning drives — reading partitions and checking for existing\ninstalls (each drive is briefly mounted read-only)..." 7 66
+    dlg --infobox "\n  Scanning drives — reading partitions and checking for\n  existing installations (each is briefly mounted read-only)..." 7 64
     json="$("${INSTALL}" --scan-json 2>/dev/null)"
     printf '%s' "${json}" > "${SCAN}" 2>/dev/null || true
-    local n; n="$(printf '%s' "${json}" | jq 'length' 2>/dev/null || echo 0)"
-    if [ "${n}" -eq 0 ] 2>/dev/null; then
-        dialog --backtitle "${BT}" --msgbox "\nNo internal disks were found to install onto.\n\nAttach an internal drive (NVMe/SATA) and try again, or choose Run live." 10 60
+    n="$(printf '%s' "${json}" | jq 'length' 2>/dev/null || echo 0)"
+    if ! [ "${n}" -gt 0 ] 2>/dev/null; then
+        dlg --title "No disks found" --msgbox "\nNo internal disks were found to install onto.\n\nAttach an internal drive (NVMe / SATA / eMMC) and try again,\nor choose \"Run live\"." 11 64
         return 1
     fi
-    # tag = device; item = "size  model  •  <contents summary>" (e.g. Airwaves OS v1.0.37).
-    # Join with the ASCII Unit Separator (0x1F), not a tab: `read` treats tabs as
-    # whitespace and collapses an empty model field, shifting the columns.
+    # tag = device; item = "size  model  •  <contents>". Join with the ASCII Unit
+    # Separator (0x1F), not a tab: read collapses tabs and would shift columns.
     while IFS=$'\037' read -r dev size model summary; do
         [ -n "${dev}" ] || continue
-        rows+=("${dev}" "${size}  ${model}  •  ${summary}")
+        rows+=("${dev}" "  ${size}  ${model}  •  ${summary}")
     done < <(printf '%s' "${json}" | jq -r '.[] | [.device, .size, ((.model // "") | if .=="" then "disk" else . end), (.summary // "")] | join("\u001f")')
-    dialog --backtitle "${BT}" --title "Select target disk" \
-        --menu "\nWARNING: the selected disk will be ERASED.\nDrives already running Airwaves OS are marked below.\n" 18 78 8 "${rows[@]}" \
+    dlg --title "Select the target disk" \
+        --menu "\nThe selected disk will be COMPLETELY ERASED.\nDrives already running Airwaves OS are marked.\n" 17 78 8 "${rows[@]}" \
         3>&1 1>&2 2>&3
 }
 
-PRECONF="/run/airwaves/install-config.json"
-
 # Collect hostname (+ optional Wi-Fi) for the installed system BEFORE writing the
-# disk. Saved to PRECONF and passed to the installer via --config, which seeds it
-# onto the target's AWCFG partition; the target applies it on first boot. Skipping
-# any prompt just leaves that field empty (Ethernet/DHCP needs nothing).
+# disk. Saved to PRECONF and passed to the installer via --config (seeded onto the
+# target's AWCFG partition; applied on first boot). Skipping leaves fields empty.
 ask_preinstall_config() {
     mkdir -p /run/airwaves 2>/dev/null || true
     local cur host ssid="" psk=""
     cur="$(hostname 2>/dev/null)"; [ -n "${cur}" ] || cur="airwaves"
-    host="$(dialog --backtitle "${BT}" --title "Hostname" \
-        --inputbox "\nHostname for the installed system (letters, digits, hyphens):" 10 62 "${cur}" 3>&1 1>&2 2>&3)" || host="${cur}"
+    host="$(dlg --title "Hostname" \
+        --inputbox "\nHostname for the installed system (letters, digits, hyphens):" 10 64 "${cur}" 3>&1 1>&2 2>&3)" || host="${cur}"
     [ -n "${host}" ] || host="${cur}"
-    if dialog --backtitle "${BT}" --title "Wi-Fi" --defaultno \
-        --yesno "\nConfigure Wi-Fi for the installed system?\n\n(Choose No if it will use wired Ethernet.)" 9 58; then
-        ssid="$(dialog --backtitle "${BT}" --title "Wi-Fi SSID" --inputbox "\nWi-Fi network name (SSID):" 10 60 3>&1 1>&2 2>&3)" || ssid=""
+    if dlg --title "Wi-Fi (optional)" --defaultno \
+        --yesno "\nConfigure Wi-Fi for the installed system?\n\nChoose No if it will use wired Ethernet." 9 60; then
+        ssid="$(dlg --title "Wi-Fi network" --inputbox "\nWi-Fi network name (SSID):" 10 60 3>&1 1>&2 2>&3)" || ssid=""
         if [ -n "${ssid}" ]; then
-            psk="$(dialog --backtitle "${BT}" --title "Wi-Fi password" --insecure \
-                --passwordbox "\nPassword for ${ssid} (blank for an open network):" 10 60 3>&1 1>&2 2>&3)" || psk=""
+            psk="$(dlg --title "Wi-Fi password" --insecure \
+                --passwordbox "\nPassword for \"${ssid}\" (leave blank for an open network):" 10 64 3>&1 1>&2 2>&3)" || psk=""
         fi
     fi
     jq -n --arg h "${host}" --arg s "${ssid}" --arg p "${psk}" \
@@ -121,18 +113,23 @@ ask_preinstall_config() {
 }
 
 run_install() {
-    local target="$1"
+    local target; target="$(sanitize_dev "$1")"
+    if [ -z "${target}" ] || [ ! -b "${target}" ]; then
+        dlg --title "Invalid disk" --msgbox "\n\"${target}\" is not a usable disk device.\n\nPlease pick another target." 10 60
+        return 1
+    fi
+
     # Extra warning if the chosen drive already holds an Airwaves OS install
     # (detected during the scan in pick_disk).
     local aw_present aw_ver
     aw_present="$(jq -r --arg d "${target}" '.[]|select(.device==$d)|(.airwaves.present // false)' "${SCAN}" 2>/dev/null)"
     aw_ver="$(jq -r --arg d "${target}" '.[]|select(.device==$d)|(.airwaves.version // "")' "${SCAN}" 2>/dev/null)"
     if [ "${aw_present}" = "true" ]; then
-        dialog --backtitle "${BT}" --title "Airwaves OS already installed here" --defaultno \
-            --yesno "\n${target} already has Airwaves OS${aw_ver:+ v${aw_ver}} installed.\n\nContinuing will ERASE that installation and ALL data on the\ndrive. Are you sure you want to overwrite it?" 13 66 || return 1
+        dlg --title "Airwaves OS already installed here" --defaultno \
+            --yesno "\n${target} already has Airwaves OS${aw_ver:+ v${aw_ver}} installed.\n\nContinuing will ERASE that installation and ALL data on\nthe drive. Overwrite it?" 12 64 || return 1
     fi
-    dialog --backtitle "${BT}" --title "Confirm install" --defaultno \
-        --yesno "\nThis will ERASE ALL DATA on:\n\n    ${target}\n\nand install Airwaves OS onto it.\n\nContinue?" 12 60 || return 1
+    dlg --title "Confirm install" --defaultno \
+        --yesno "\nThis will ERASE ALL DATA on:\n\n      ${target}\n\nand install Airwaves OS onto it.\n\nContinue?" 13 60 || return 1
 
     # Ask for hostname / Wi-Fi to provision the installed system.
     ask_preinstall_config
@@ -143,29 +140,27 @@ run_install() {
     local pid=$!
 
     (
-        local pct=0 phase="starting" state="running"
+        local pct=0 phase="starting"
         while kill -0 "${pid}" 2>/dev/null; do
             if [ -f "${STATUS}" ]; then
                 pct="$(jq -r '.percent // 0' "${STATUS}" 2>/dev/null || echo "${pct}")"
                 phase="$(jq -r '.phase // "working"' "${STATUS}" 2>/dev/null || echo "${phase}")"
             fi
-            echo "XXX"; echo "${pct}"; echo "Installing to ${target}\n\nStep: ${phase}"; echo "XXX"
+            # Real newlines (printf, not echo) so the gauge text renders cleanly.
+            printf 'XXX\n%s\nInstalling to %s\n\nStep: %s\nXXX\n' "${pct:-0}" "${target}" "${phase}"
             sleep 2
         done
-        echo "100"
-    ) | dialog --backtitle "${BT}" --title "Installing Airwaves OS" --gauge "\nPreparing..." 12 64 0
+        printf '100\n'
+    ) | dlg --title "Installing Airwaves OS" --gauge "\nPreparing..." 11 64 0
 
-    wait "${pid}"; local rc=$?
+    wait "${pid}"; local rc=$? state
     state="$(jq -r '.state // "unknown"' "${STATUS}" 2>/dev/null || echo unknown)"
     if [ "${rc}" -eq 0 ] && [ "${state}" = "success" ]; then
-        # POWER OFF (not reboot): pulling the live USB while the system is still
-        # running from it spews I/O errors (the live root vanishes mid-shutdown).
-        # Powering off first lets the user remove the USB while the machine is
-        # OFF, then power on to boot the installed disk — clean, no errors.
-        # Stop the stack + flush + remount the live root read-only first so the
-        # final poweroff has nothing dirty to write.
-        dialog --backtitle "${BT}" --title "Installation complete" --no-collapse \
-            --msgbox "\nAirwaves OS was installed to:\n\n    ${target}\n\nThe device will now POWER OFF. When it does:\n  1. Remove the USB drive\n  2. Power the device back on\n\nIt will boot Airwaves OS from ${target}." 15 66
+        # POWER OFF (not reboot): pulling the live USB while still running from it
+        # spews I/O errors. Power off, let the user remove the USB while OFF, then
+        # power on to boot the installed disk. Quiesce + remount-ro first.
+        dlg --title "Installation complete" --no-collapse \
+            --msgbox "\nAirwaves OS was installed to:\n\n      ${target}\n\nThe device will now POWER OFF. Then:\n  1. Remove the USB drive\n  2. Power the device back on\n\nIt will boot Airwaves OS from ${target}." 16 64
         clear
         echo "Shutting down cleanly — please wait..."
         systemctl stop airwaves-containers.service 2>/dev/null || true
@@ -177,12 +172,12 @@ run_install() {
         return 0
     else
         local err; err="$(jq -r '.error // "see /var/log/airwaves-install.log"' "${STATUS}" 2>/dev/null)"
-        dialog --backtitle "${BT}" --title "Install failed" --msgbox "\nThe install did not complete.\n\n${err}\n\nLog: /var/log/airwaves-install.log" 12 64
+        dlg --title "Install failed" --msgbox "\nThe install did not complete.\n\n${err}\n\nLog: /var/log/airwaves-install.log" 13 66
         return 1
     fi
 }
 
-banner
+clear
 
 # On-demand install: straight to disk selection + install, no live/install menu.
 if [ "${MODE}" = "install" ]; then
@@ -199,8 +194,7 @@ while true; do
             clear
             echo "Continuing live. Open http://${HOSTNAME}.local in a browser."
             echo
-            echo "To install Airwaves OS to an internal disk later, run:  sudo airwaves-install"
-            echo "(or use the web UI: Settings -> Install to Disk)"
+            echo "To install to an internal disk later, run:  sudo airwaves-install"
             sleep 1; exit 0 ;;
         install)
             target="$(pick_disk)" || continue

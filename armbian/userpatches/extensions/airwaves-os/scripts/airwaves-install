@@ -931,6 +931,13 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# Reduce TARGET to a clean device path: drop ANSI/CSI escape sequences first
+# (their letters/digits like "0m" in ESC[0m would survive a plain char filter),
+# then keep only valid device-path characters. A stray escape or trailing
+# whitespace (e.g. captured from a TUI menu) otherwise makes the block-device
+# check below fail with a confusing "is not a block device".
+TARGET="$(printf '%s' "${TARGET}" | LC_ALL=C sed -e 's/\x1b\[[0-9;?]*[A-Za-z]//g' -e 's/[^A-Za-z0-9/_-]//g')"
+
 write_status
 preflight
 case "${PLATFORM}" in
