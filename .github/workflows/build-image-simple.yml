@@ -268,7 +268,11 @@ jobs:
           sudo grub-install --target=i386-pc --boot-directory="${ESP}/boot" --recheck "${LLOOP}" 2>&1 | tail -3
           sudo cp "${WORK}/vmlinuz" "${ESP}/boot/vmlinuz"
           sudo cp "${WORK}/initrd.img" "${ESP}/boot/initrd.img"
-          CMN="boot=live live-media=LABEL=AIRWAVES_LIVE ignore_uuid nocomponents console=tty0 console=ttyS0,115200"
+          # No live-media= here: it expects a DEVICE (not LABEL=), and a bad value
+          # makes live-boot search nothing ("Unable to find a medium"). Let live-boot
+          # auto-scan all partitions for /live/filesystem.squashfs — only the live
+          # USB carries it.
+          CMN="boot=live ignore_uuid nocomponents console=tty0 console=ttyS0,115200"
           # Heredoc body is indented to the YAML block level; YAML strips that
           # back to column 0 so the shell sees a normal <<GRUBCFG heredoc.
           sudo tee "${ESP}/boot/grub/grub.cfg" >/dev/null <<GRUBCFG

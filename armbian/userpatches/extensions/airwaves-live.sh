@@ -60,19 +60,26 @@ case " $(cat /proc/cmdline 2>/dev/null) " in
     *" notoram "*)           TORAM="";      export TORAM; exit 0 ;;
 esac
 
-# Find the live medium's recorded squashfs size (written at build time).
+# Find the live medium's recorded squashfs size (written at build time). This
+# hook runs early — the medium's partitions may not be enumerated yet — so poll
+# for a few seconds until the AIRWAVES_LIVE partition with /live/filesystem.size
+# shows up.
 SQ_BYTES=0
-for dev in /dev/sd*[0-9] /dev/nvme*n*p* /dev/mmcblk*p*; do
-    [ -b "$dev" ] || continue
-    mp="$(mktemp -d /run/aw-livescan.XXXXXX 2>/dev/null)" || continue
-    if mount -t ext4 -o ro "$dev" "$mp" 2>/dev/null; then
-        if [ -f "$mp/live/filesystem.size" ]; then
-            SQ_BYTES="$(cat "$mp/live/filesystem.size" 2>/dev/null || echo 0)"
-            umount "$mp" 2>/dev/null; rmdir "$mp" 2>/dev/null; break
+for _try in $(seq 1 20); do
+    for dev in /dev/sd*[0-9] /dev/nvme*n*p* /dev/mmcblk*p*; do
+        [ -b "$dev" ] || continue
+        mp="$(mktemp -d /run/aw-livescan.XXXXXX 2>/dev/null)" || continue
+        if mount -t ext4 -o ro "$dev" "$mp" 2>/dev/null; then
+            if [ -f "$mp/live/filesystem.size" ]; then
+                SQ_BYTES="$(cat "$mp/live/filesystem.size" 2>/dev/null || echo 0)"
+                umount "$mp" 2>/dev/null; rmdir "$mp" 2>/dev/null; break
+            fi
+            umount "$mp" 2>/dev/null
         fi
-        umount "$mp" 2>/dev/null
-    fi
-    rmdir "$mp" 2>/dev/null
+        rmdir "$mp" 2>/dev/null
+    done
+    [ "$SQ_BYTES" -gt 0 ] 2>/dev/null && break
+    sleep 1
 done
 
 MEM_KB="$(awk '/^MemAvailable:/{print $2; exit}' /proc/meminfo 2>/dev/null || echo 0)"
