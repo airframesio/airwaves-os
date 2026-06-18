@@ -177,7 +177,7 @@ jobs:
       # table), and is consumed at first setup / via an apply.conf trigger by
       # airwaves-preconfig. Handles both GPT (x86/rockchip) and MBR (Pi) tables,
       # and never touches the existing partitions or the rockchip raw u-boot area.
-      - name: Add AWCFG config partition
+      - name: Pre-extract containers + add AWCFG config partition
         run: |
           set -euo pipefail
           sudo chown -R "$(id -u):$(id -g)" .armbian-build/output/images 2>/dev/null || true
@@ -239,6 +239,65 @@ jobs:
           done
           [ -b "${PART}" ] || { echo "::error::AWCFG partition node ${PART} not found"; sudo losetup -d "${LOOP}"; exit 1; }
           echo "AWCFG partition node: ${PART} (last of ${NPARTS} partitions)"
+
+          # --- Pre-extract containers into the image's docker store (lean) ------
+          # `docker load` of the ~100 MB tarballs on first boot is slow on cheap
+          # USB media (it re-writes every layer). Do it here: run a throwaway
+          # dockerd against the image's /var/lib/docker, load the baked tarballs,
+          # and on success delete them so first boot just runs. Fully guarded in a
+          # `set +e` subshell — any failure leaves the tarballs in place so the
+          # device still loads them on first boot (never ships with neither).
+          (
+            set +e
+            command -v dockerd >/dev/null 2>&1 || { echo "::warning::dockerd absent; keeping tarballs"; exit 0; }
+            ROOTMNT="";
+            for cand in $(seq 1 "$NPARTS"); do
+              [ "$cand" -eq "$NPARTS" ] && continue          # skip the new AWCFG partition
+              dev="${LOOP}p${cand}"; [ -b "$dev" ] || continue
+              case "$(sudo blkid -o value -s TYPE "$dev" 2>/dev/null)" in ext4|ext3|ext2) ;; *) continue ;; esac
+              m="$(mktemp -d)"
+              if sudo mount "$dev" "$m" 2>/dev/null; then
+                if ls "$m"/opt/airwaves/images/*.tar >/dev/null 2>&1; then ROOTMNT="$m"; break; fi
+                sudo umount "$m" 2>/dev/null
+              fi
+              rmdir "$m" 2>/dev/null
+            done
+            [ -n "$ROOTMNT" ] || { echo "::warning::no rootfs with baked tarballs; skipping pre-extract"; exit 0; }
+            echo "Pre-extracting containers into $(basename "$ROOTMNT")/var/lib/docker"
+            # Free the runner's docker so our throwaway daemon owns the namespace.
+            sudo systemctl stop docker.service docker.socket containerd.service 2>/dev/null
+            sudo mkdir -p "$ROOTMNT/var/lib/docker"
+            SOCK=/tmp/aw-preload.sock; PIDF=/tmp/aw-preload.pid
+            sudo dockerd --data-root="$ROOTMNT/var/lib/docker" --exec-root=/tmp/aw-preload-exec \
+              --host="unix://$SOCK" --pidfile="$PIDF" --iptables=false --bridge=none \
+              --storage-driver=overlay2 >/tmp/aw-preload-dockerd.log 2>&1 &
+            up=0; for _ in $(seq 1 40); do sudo docker --host="unix://$SOCK" info >/dev/null 2>&1 && { up=1; break; }; sleep 1; done
+            loaded=1
+            if [ "$up" = 1 ]; then
+              for t in "$ROOTMNT"/opt/airwaves/images/*.tar; do
+                echo "  loading $(basename "$t")"
+                sudo docker --host="unix://$SOCK" load -i "$t" || loaded=0
+              done
+              sudo docker --host="unix://$SOCK" images
+            else
+              loaded=0; echo "::warning::transient dockerd failed to start"; cat /tmp/aw-preload-dockerd.log 2>/dev/null | tail -20
+            fi
+            # Stop the throwaway daemon and let it flush the store before unmount.
+            sudo kill "$(sudo cat "$PIDF" 2>/dev/null)" 2>/dev/null
+            for _ in $(seq 1 20); do sudo docker --host="unix://$SOCK" info >/dev/null 2>&1 || break; sleep 1; done
+            sudo pkill -f "data-root=$ROOTMNT/var/lib/docker" 2>/dev/null
+            sleep 2
+            if [ "$loaded" = 1 ]; then
+              echo "  pre-extract OK — removing tarballs (lean)"
+              sudo rm -f "$ROOTMNT"/opt/airwaves/images/*.tar
+            else
+              echo "::warning::container pre-extract failed; keeping tarballs for first-boot load"
+            fi
+            sync
+            sudo umount "$ROOTMNT" 2>/dev/null || sudo umount -l "$ROOTMNT" 2>/dev/null
+            rmdir "$ROOTMNT" 2>/dev/null
+          ) || true
+          # ---------------------------------------------------------------------
 
           sudo mkfs.vfat -F 32 -n AWCFG "${PART}"
           MP="$(mktemp -d)"

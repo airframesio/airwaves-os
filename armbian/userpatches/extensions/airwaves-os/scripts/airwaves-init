@@ -117,11 +117,31 @@ set_hostname() {
     systemctl restart avahi-daemon 2>/dev/null || true
 }
 
+images_present() {
+    # True only if BOTH airwaves images are already in the local docker store
+    # for the given tag (e.g. pre-extracted into /var/lib/docker at image build).
+    local alias="$1" img
+    for img in airwaves-gateway airwaves-manager; do
+        docker image inspect "ghcr.io/airframesio/${img}:${alias}" >/dev/null 2>&1 || return 1
+    done
+    return 0
+}
+
 load_prebaked_containers() {
     log "Loading container images..."
 
     local alias
     alias="$(channel_alias)"
+
+    # Fast path: the images were pre-extracted into the docker store at build time
+    # (lean live-USB image). Nothing to load — just align the compose tags and go.
+    if images_present "$alias"; then
+        log "Container images already present (pre-extracted at build); skipping load"
+        pin_compose_to_alias "$alias"
+        # Drop any leftover tarballs (none expected in the lean image) to reclaim space.
+        rm -f "$AIRWAVES_IMAGES_DIR"/*.tar 2>/dev/null || true
+        return 0
+    fi
 
     # Try loading from pre-baked tarballs first. These are docker-save'd at image
     # BUILD time (see build-image-simple.yml) from the manager+gateway images of
