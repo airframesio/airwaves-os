@@ -12,6 +12,7 @@ set -uo pipefail
 
 INSTALL="/opt/airwaves/scripts/airwaves-install"
 STATUS="/etc/airwaves/install/status.json"
+SCAN="/tmp/airwaves-scan.json"   # cached output of `airwaves-install --scan-json`
 
 # Modes: default "boot" = the live/install menu shown on tty1 at first boot
 # (only on removable media). "--install" = launched on demand (by the
@@ -60,18 +61,27 @@ main_menu() {
 }
 
 pick_disk() {
-    local json rows=() dev size model
-    json="$("${INSTALL}" --list-json 2>/dev/null)"
-    local n; n="$(echo "${json}" | jq 'length' 2>/dev/null || echo 0)"
+    local json rows=() dev size model summary
+    # Scan (mounts each candidate read-only) so we can show what's on each drive
+    # and flag any that already run Airwaves OS. Cache it so run_install can warn.
+    dialog --backtitle "${BT}" --infobox \
+        "\nScanning drives — reading partitions and checking for existing\ninstalls (each drive is briefly mounted read-only)..." 7 66
+    json="$("${INSTALL}" --scan-json 2>/dev/null)"
+    printf '%s' "${json}" > "${SCAN}" 2>/dev/null || true
+    local n; n="$(printf '%s' "${json}" | jq 'length' 2>/dev/null || echo 0)"
     if [ "${n}" -eq 0 ] 2>/dev/null; then
         dialog --backtitle "${BT}" --msgbox "\nNo internal disks were found to install onto.\n\nAttach an internal drive (NVMe/SATA) and try again, or choose Run live." 10 60
         return 1
     fi
-    while read -r dev size model; do
-        rows+=("${dev}" "${size} ${model}")
-    done < <(echo "${json}" | jq -r '.[] | "\(.device) \(.size) \(.model // "disk")"')
+    # tag = device; item = "size  model  •  <contents summary>" (e.g. Airwaves OS v1.0.37).
+    # Join with the ASCII Unit Separator (0x1F), not a tab: `read` treats tabs as
+    # whitespace and collapses an empty model field, shifting the columns.
+    while IFS=$'\037' read -r dev size model summary; do
+        [ -n "${dev}" ] || continue
+        rows+=("${dev}" "${size}  ${model}  •  ${summary}")
+    done < <(printf '%s' "${json}" | jq -r '.[] | [.device, .size, ((.model // "") | if .=="" then "disk" else . end), (.summary // "")] | join("\u001f")')
     dialog --backtitle "${BT}" --title "Select target disk" \
-        --menu "\nWARNING: the selected disk will be ERASED.\n" 16 70 6 "${rows[@]}" \
+        --menu "\nWARNING: the selected disk will be ERASED.\nDrives already running Airwaves OS are marked below.\n" 18 78 8 "${rows[@]}" \
         3>&1 1>&2 2>&3
 }
 
@@ -104,6 +114,15 @@ ask_preinstall_config() {
 
 run_install() {
     local target="$1"
+    # Extra warning if the chosen drive already holds an Airwaves OS install
+    # (detected during the scan in pick_disk).
+    local aw_present aw_ver
+    aw_present="$(jq -r --arg d "${target}" '.[]|select(.device==$d)|(.airwaves.present // false)' "${SCAN}" 2>/dev/null)"
+    aw_ver="$(jq -r --arg d "${target}" '.[]|select(.device==$d)|(.airwaves.version // "")' "${SCAN}" 2>/dev/null)"
+    if [ "${aw_present}" = "true" ]; then
+        dialog --backtitle "${BT}" --title "Airwaves OS already installed here" --defaultno \
+            --yesno "\n${target} already has Airwaves OS${aw_ver:+ v${aw_ver}} installed.\n\nContinuing will ERASE that installation and ALL data on the\ndrive. Are you sure you want to overwrite it?" 13 66 || return 1
+    fi
     dialog --backtitle "${BT}" --title "Confirm install" --defaultno \
         --yesno "\nThis will ERASE ALL DATA on:\n\n    ${target}\n\nand install Airwaves OS onto it.\n\nContinue?" 12 60 || return 1
 

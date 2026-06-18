@@ -171,6 +171,95 @@ list_targets_json() {
     echo "${rows}"
 }
 
+# Inspect one whole disk: read-only mount each partition to detect an existing
+# Airwaves OS install (via /etc/airwaves-release) or another OS (/etc/os-release),
+# and summarize the contents. Sets globals consumed by scan_targets_json:
+#   AW_PRESENT (true/false), AW_VER, AW_CODE, AW_LAYOUT, DISK_SUMMARY
+# Best-effort and always cleans up its mounts; needs root for the mounts.
+detect_disk_os() {
+    local disk="$1"
+    AW_PRESENT="false"; AW_VER=""; AW_CODE=""; AW_LAYOUT=""; DISK_SUMMARY=""
+    local os_name="" fstypes="" had_fs=0
+    local mp; mp="$(mktemp -d /tmp/aw-scan.XXXXXX 2>/dev/null)" || mp=""
+    local p fstype label existing inspect
+    # Partitions of this disk (raw NAME output; first line is the disk itself).
+    while IFS= read -r p; do
+        [ -n "$p" ] || continue
+        fstype="$(lsblk -nro FSTYPE "/dev/$p" 2>/dev/null | head -1)"
+        label="$(blkid -s LABEL -o value "/dev/$p" 2>/dev/null)"
+        [ -n "$fstype" ] && { had_fs=1; case " $fstypes " in *" $fstype "*) :;; *) fstypes="${fstypes:+$fstypes,}$fstype";; esac; }
+        case "$label" in
+            aw-root-a|aw-root-b) AW_LAYOUT="A/B" ;;
+            airwaves-root|armbi_root) [ -z "$AW_LAYOUT" ] && AW_LAYOUT="single" ;;
+        esac
+        # Only Linux roots can carry the release files; mount those read-only.
+        case "$fstype" in
+            ext4|ext3|ext2|btrfs) ;;
+            *) continue ;;
+        esac
+        [ -n "$mp" ] || continue
+        inspect=""; existing="$(findmnt -nro TARGET -S "/dev/$p" 2>/dev/null | head -1)"
+        if [ -n "$existing" ]; then
+            inspect="$existing"
+        elif timeout 10 mount -o ro,noload "/dev/$p" "$mp" 2>/dev/null \
+            || timeout 10 mount -o ro "/dev/$p" "$mp" 2>/dev/null; then
+            inspect="$mp"
+        fi
+        [ -n "$inspect" ] || continue
+        if [ -f "${inspect}/etc/airwaves-release" ]; then
+            AW_PRESENT="true"
+            AW_VER="$(awk -F= '/^AIRWAVES_VERSION=/{gsub(/"/,"",$2);print $2}' "${inspect}/etc/airwaves-release" 2>/dev/null)"
+            AW_CODE="$(awk -F= '/^AIRWAVES_CODENAME=/{gsub(/"/,"",$2);print $2}' "${inspect}/etc/airwaves-release" 2>/dev/null)"
+        elif [ -z "$os_name" ] && [ -f "${inspect}/etc/os-release" ]; then
+            os_name="$(awk -F= '/^PRETTY_NAME=/{gsub(/"/,"",$2);print $2}' "${inspect}/etc/os-release" 2>/dev/null)"
+        fi
+        [ "$inspect" = "$mp" ] && { umount "$mp" 2>/dev/null || umount -l "$mp" 2>/dev/null || true; }
+        [ "$AW_PRESENT" = "true" ] && break
+    done < <(lsblk -rno NAME "$disk" 2>/dev/null | tail -n +2)
+    [ -n "$mp" ] && rmdir "$mp" 2>/dev/null || true
+
+    if [ "$AW_PRESENT" = "true" ]; then
+        DISK_SUMMARY="Airwaves OS v${AW_VER:-?}${AW_LAYOUT:+ ${AW_LAYOUT}}"
+    elif [ -n "$os_name" ]; then
+        DISK_SUMMARY="$os_name"
+    elif [ "$had_fs" = "1" ]; then
+        DISK_SUMMARY="existing data (${fstypes})"
+    else
+        DISK_SUMMARY="empty / unpartitioned"
+    fi
+}
+
+# Like list_targets_json but enriched: partition-table type + a contents summary,
+# and whether each disk already holds an Airwaves OS install (with version),
+# confirmed by mounting. Used by the installer UI to inform the disk choice.
+# Heavier than --list-json (it mounts), so it is a separate verb.
+scan_targets_json() {
+    discover_source
+    local rows="[]"
+    local name rm type size model disk table
+    while read -r name rm type size model; do
+        [ "${type}" != "disk" ] && continue
+        [ "${rm}" = "1" ] && continue
+        [ "/dev/${name}" = "${SOURCE_DISK}" ] && continue
+        case "${name}" in sr*|loop*|ram*|zram*|fd*|dm-*|md*|nbd*) continue;; esac
+        disk="/dev/${name}"
+        table="$(lsblk -ndo PTTYPE "$disk" 2>/dev/null)"
+        [ -n "$table" ] || table="$(blkid -p -s PTTYPE -o value "$disk" 2>/dev/null)"
+        detect_disk_os "$disk"
+        rows="$(jq -c \
+            --arg dev "$disk" --arg size "${size}" --arg model "${model}" \
+            --arg table "${table:-unknown}" \
+            --argjson awpresent "${AW_PRESENT:-false}" \
+            --arg awver "${AW_VER:-}" --arg awcode "${AW_CODE:-}" --arg awlayout "${AW_LAYOUT:-}" \
+            --arg summary "${DISK_SUMMARY:-}" \
+            '. + [{device:$dev, size:$size, model:($model|gsub("^ +| +$";"")), table:$table,
+                   airwaves:{present:$awpresent, version:$awver, codename:$awcode, layout:$awlayout},
+                   summary:$summary}]' \
+            <<<"${rows}")"
+    done < <(lsblk -dno NAME,RM,TYPE,SIZE,MODEL)
+    echo "${rows}"
+}
+
 # ---- preflight guards ------------------------------------------------------
 
 preflight() {
@@ -809,11 +898,12 @@ if [ $# -eq 0 ]; then
     if [ -t 0 ] && command -v dialog >/dev/null 2>&1 && [ -x /opt/airwaves/scripts/airwaves-firstrun ]; then
         exec /opt/airwaves/scripts/airwaves-firstrun --install
     fi
-    fail "usage: airwaves-install [--ab] --target <disk> | --list-json"
+    fail "usage: airwaves-install [--ab] --target <disk> | --list-json | --scan-json"
 fi
 while [ $# -gt 0 ]; do
     case "$1" in
         --list-json) list_targets_json; exit 0 ;;
+        --scan-json) scan_targets_json; exit 0 ;;
         --ab)        AB=1; shift ;;
         --target)    TARGET="${2:-}"; shift 2 ;;
         --config)    INSTALL_CONFIG="${2:-}"; shift 2 ;;
