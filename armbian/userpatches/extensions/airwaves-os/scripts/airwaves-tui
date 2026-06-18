@@ -29,6 +29,10 @@ ISTATUS="/etc/airwaves/install/status.json"
 BT="Airwaves OS"
 export TERM="${TERM:-linux}"
 
+# Stop kernel log messages (printk) from clobbering the dialog UI on the console.
+# Only emergencies print to the console after this; `dmesg` still shows everything.
+quiet_console() { dmesg -n 1 2>/dev/null || echo 1 > /proc/sys/kernel/printk 2>/dev/null || true; }
+
 # A black/cyan dialog theme so the console reads as a branded appliance screen
 # (the banner box and menu share one cohesive black background). Prefer the
 # shipped shared theme (also used by airwaves-firstrun so the installer matches);
@@ -537,6 +541,7 @@ run_unattended_install() {
 }
 
 command -v dialog >/dev/null 2>&1 || { echo "dialog not available; opening a shell."; exec bash -l; }
+quiet_console
 init_theme
 
 while true; do

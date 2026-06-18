@@ -276,7 +276,9 @@ jobs:
           # makes live-boot search nothing ("Unable to find a medium"). Let live-boot
           # auto-scan all partitions for /live/filesystem.squashfs — only the live
           # USB carries it.
-          CMN="boot=live ignore_uuid nocomponents console=tty0 console=ttyS0,115200"
+          # net.ifnames=0 biosdevname=0 -> classic eth0/wlan0 names (consistent
+          # across hardware; predictable names like wlp1s0 vary per board).
+          CMN="boot=live ignore_uuid nocomponents net.ifnames=0 biosdevname=0 console=tty0 console=ttyS0,115200"
           # Heredoc body is indented to the YAML block level; YAML strips that
           # back to column 0 so the shell sees a normal <<GRUBCFG heredoc.
           sudo tee "${ESP}/boot/grub/grub.cfg" >/dev/null <<GRUBCFG

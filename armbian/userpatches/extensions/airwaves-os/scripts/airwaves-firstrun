@@ -56,6 +56,10 @@ fi
 dlg()  { dialog --backtitle "${BT}" --no-shadow "$@" 1>/dev/tty; }
 dlgv() { dialog --backtitle "${BT}" --no-shadow "$@" 3>&1 1>&2 2>&3; }
 
+# Stop kernel log messages (printk) from clobbering the dialog UI — the install
+# (partitioning, mkfs, USB events) generates a lot of them. `dmesg` keeps them.
+dmesg -n 1 2>/dev/null || echo 1 > /proc/sys/kernel/printk 2>/dev/null || true
+
 # Reduce a captured value to a clean device path: first drop ANSI/CSI escape
 # sequences (their letters/digits like the "0m" in ESC[0m would otherwise
 # survive a plain char filter), then keep only valid device-path characters. A

@@ -66,5 +66,24 @@ MulticastDNS=no
 EOF
 	fi
 
+	# Classic interface names (eth0/wlan0) instead of predictable ones (wlp1s0,
+	# enp1s0, …) so detection + config are consistent across hardware. x86 boots
+	# via GRUB (append to /etc/default/grub.d, sourced by grub-mkconfig); ARM
+	# boards read armbianEnv.txt (extraargs).
+	display_alert "Forcing classic interface names" "net.ifnames=0 biosdevname=0" "info"
+	run_host_command_logged mkdir -p "${SDCARD}/etc/default/grub.d"
+	cat > "${SDCARD}/etc/default/grub.d/99-airwaves-cmdline.cfg" << 'EOF'
+# Airwaves OS: classic interface names (eth0/wlan0). Appended to the value the
+# Armbian grub extension sets in 98-armbian.cfg.
+GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} net.ifnames=0 biosdevname=0"
+EOF
+	if [ -f "${SDCARD}/boot/armbianEnv.txt" ]; then
+		if grep -q '^extraargs=' "${SDCARD}/boot/armbianEnv.txt"; then
+			sed -i 's/^extraargs=\(.*\)$/extraargs=\1 net.ifnames=0/' "${SDCARD}/boot/armbianEnv.txt"
+		else
+			echo 'extraargs=net.ifnames=0' >> "${SDCARD}/boot/armbianEnv.txt"
+		fi
+	fi
+
 	display_alert "Networking configured (NetworkManager + avahi)" "${EXTENSION}" "info"
 }
