@@ -47,8 +47,14 @@ else
     export DIALOGRC=/dev/null
 fi
 
-# Single themed dialog wrapper so every screen is consistent.
-dlg() { dialog --backtitle "${BT}" --no-shadow "$@"; }
+# Themed dialog wrappers. dialog draws its UI to fd 1 (stdout) via curses, so a
+# non-value dialog (infobox/msgbox/yesno/gauge) called inside a $(...) capture
+# would otherwise dump its text into the captured value (this is what put the
+# scanning-infobox text into the install target -> "not a usable disk device").
+#   dlg  = non-value dialogs: force the UI to the terminal (/dev/tty).
+#   dlgv = value dialogs (menu/input/password): UI to terminal, RESULT on stdout.
+dlg()  { dialog --backtitle "${BT}" --no-shadow "$@" 1>/dev/tty; }
+dlgv() { dialog --backtitle "${BT}" --no-shadow "$@" 3>&1 1>&2 2>&3; }
 
 # Reduce a captured value to a clean device path: first drop ANSI/CSI escape
 # sequences (their letters/digits like the "0m" in ESC[0m would otherwise
@@ -58,11 +64,10 @@ dlg() { dialog --backtitle "${BT}" --no-shadow "$@"; }
 sanitize_dev() { printf '%s' "${1:-}" | LC_ALL=C sed -e 's/\x1b\[[0-9;?]*[A-Za-z]//g' -e 's/[^A-Za-z0-9/_-]//g'; }
 
 main_menu() {
-    dlg --no-cancel --title "Welcome to Airwaves OS" \
+    dlgv --no-cancel --title "Welcome to Airwaves OS" \
         --menu "\nYou are running Airwaves OS live from this USB.\n\nChoose how to proceed:" 13 66 2 \
         live    "Run live now (no changes to any disk)" \
-        install "Install Airwaves OS to an internal disk" \
-        3>&1 1>&2 2>&3
+        install "Install Airwaves OS to an internal disk"
 }
 
 pick_disk() {
@@ -83,9 +88,8 @@ pick_disk() {
         [ -n "${dev}" ] || continue
         rows+=("${dev}" "  ${size}  ${model}  •  ${summary}")
     done < <(printf '%s' "${json}" | jq -r '.[] | [.device, .size, ((.model // "") | if .=="" then "disk" else . end), (.summary // "")] | join("\u001f")')
-    dlg --title "Select the target disk" \
-        --menu "\nThe selected disk will be COMPLETELY ERASED.\nDrives already running Airwaves OS are marked.\n" 17 78 8 "${rows[@]}" \
-        3>&1 1>&2 2>&3
+    dlgv --title "Select the target disk" \
+        --menu "\nThe selected disk will be COMPLETELY ERASED.\nDrives already running Airwaves OS are marked.\n" 17 78 8 "${rows[@]}"
 }
 
 # Collect hostname (+ optional Wi-Fi) for the installed system BEFORE writing the
@@ -95,15 +99,15 @@ ask_preinstall_config() {
     mkdir -p /run/airwaves 2>/dev/null || true
     local cur host ssid="" psk=""
     cur="$(hostname 2>/dev/null)"; [ -n "${cur}" ] || cur="airwaves"
-    host="$(dlg --title "Hostname" \
-        --inputbox "\nHostname for the installed system (letters, digits, hyphens):" 10 64 "${cur}" 3>&1 1>&2 2>&3)" || host="${cur}"
+    host="$(dlgv --title "Hostname" \
+        --inputbox "\nHostname for the installed system (letters, digits, hyphens):" 10 64 "${cur}")" || host="${cur}"
     [ -n "${host}" ] || host="${cur}"
     if dlg --title "Wi-Fi (optional)" --defaultno \
         --yesno "\nConfigure Wi-Fi for the installed system?\n\nChoose No if it will use wired Ethernet." 9 60; then
-        ssid="$(dlg --title "Wi-Fi network" --inputbox "\nWi-Fi network name (SSID):" 10 60 3>&1 1>&2 2>&3)" || ssid=""
+        ssid="$(dlgv --title "Wi-Fi network" --inputbox "\nWi-Fi network name (SSID):" 10 60)" || ssid=""
         if [ -n "${ssid}" ]; then
-            psk="$(dlg --title "Wi-Fi password" --insecure \
-                --passwordbox "\nPassword for \"${ssid}\" (leave blank for an open network):" 10 64 3>&1 1>&2 2>&3)" || psk=""
+            psk="$(dlgv --title "Wi-Fi password" --insecure \
+                --passwordbox "\nPassword for \"${ssid}\" (leave blank for an open network):" 10 64)" || psk=""
         fi
     fi
     jq -n --arg h "${host}" --arg s "${ssid}" --arg p "${psk}" \
