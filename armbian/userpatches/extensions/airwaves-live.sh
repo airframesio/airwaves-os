@@ -123,25 +123,31 @@ exit 0
 FSTABHOOK
 	run_host_command_logged chmod +x "${livebottom}/0100-airwaves-fstab"
 
-	# --- live-only tmpfs for /var/lib/docker --------------------------------
-	# On a live (overlay) root, Docker's overlay2 store can't live on overlayfs.
-	# Mount a RAM tmpfs at /var/lib/docker so the stack runs in RAM. The condition
-	# makes this a no-op on a normal/embedded boot (real disk for docker).
+	# --- live-only RAM tmpfs for the docker + containerd stores -------------
+	# On a live (overlay) root, the container stores can't live on overlayfs:
+	# this Debian docker uses the containerd image store (/var/lib/containerd/
+	# io.containerd.snapshotter.v1.overlayfs), whose overlay snapshots can't use
+	# an overlayfs dir as upperdir ("not supported as upperdir") and can't create
+	# layer whiteouts ("operation not permitted"). Mount RAM tmpfs over BOTH
+	# /var/lib/containerd (the image store) and /var/lib/docker, BEFORE containerd
+	# starts, so the stack runs from RAM. ConditionKernelCommandLine makes this a
+	# no-op on a normal/embedded boot (real disk).
 	cat > "${SDCARD}/etc/systemd/system/airwaves-live-docker-tmpfs.service" <<'UNIT'
 [Unit]
-Description=Airwaves OS live: RAM tmpfs for /var/lib/docker
+Description=Airwaves OS live: RAM tmpfs for docker/containerd stores
 Documentation=https://airwavesos.com
 ConditionKernelCommandLine=boot=live
 DefaultDependencies=no
 After=local-fs.target
-Before=docker.service airwaves-init.service airwaves-containers.service
+Before=containerd.service docker.service airwaves-init.service airwaves-containers.service
 RequiresMountsFor=/var/lib
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStartPre=-/bin/mkdir -p /var/lib/docker
-ExecStart=/bin/mount -t tmpfs -o size=75%,mode=0710 tmpfs /var/lib/docker
+ExecStartPre=-/bin/mkdir -p /var/lib/containerd /var/lib/docker
+ExecStart=/bin/mount -t tmpfs -o size=70%,mode=0711 tmpfs /var/lib/containerd
+ExecStart=/bin/mount -t tmpfs -o size=20%,mode=0711 tmpfs /var/lib/docker
 
 [Install]
 WantedBy=multi-user.target
