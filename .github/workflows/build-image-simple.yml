@@ -56,8 +56,9 @@ jobs:
         run: |
           sudo apt-get update
           # qemu/binfmt for the Armbian build; gdisk(sgdisk)+fdisk(sfdisk)+dosfstools
-          # for appending the AWCFG config partition to the built image.
-          sudo apt-get install -y qemu-user-static binfmt-support gdisk fdisk dosfstools
+          # for the AWCFG partition; squashfs-tools + grub-*-bin for the Live USB image.
+          sudo apt-get install -y qemu-user-static binfmt-support gdisk fdisk dosfstools \
+            squashfs-tools grub-efi-amd64-bin grub-pc-bin
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -170,6 +171,150 @@ jobs:
           sudo mkdir -p .armbian-build/output/debs .armbian-build/cache/rootfs .armbian-build/cache/ccache
           sudo chown -R "$(id -u):$(id -g)" \
             .armbian-build/output/debs .armbian-build/cache/rootfs .armbian-build/cache/ccache || true
+
+      # Build the separate x86 "Live USB" image from the embedded rootfs: a
+      # squashfs + live-boot layout that loads the whole OS into RAM (toram) so a
+      # USB I/O-error or unplug doesn't panic. Runs BEFORE the finalize step so
+      # the squashfs captures the rootfs WITH the container tarballs (the finalize
+      # step lean-pre-extracts + removes them from the embedded image afterward).
+      # Reads the embedded image read-only and writes a NEW Airwaves_OS_LiveUSB_*
+      # image; the embedded image is untouched.
+      - name: Build Live USB image (x86, squashfs + live-boot + toram)
+        if: ${{ github.event.inputs.board == 'uefi-x86' }}
+        run: |
+          set -euo pipefail
+          sudo chown -R "$(id -u):$(id -g)" .armbian-build/output/images 2>/dev/null || true
+          cd .armbian-build/output/images 2>/dev/null || { echo "no images dir"; exit 0; }
+          shopt -s nullglob
+          AWCFG="$GITHUB_WORKSPACE/armbian/userpatches/extensions/airwaves-os/config/awcfg"
+
+          # Decompress the embedded image if needed (the finalize step also works
+          # on the .img; leaving it decompressed here is fine).
+          imgs=( *.img ); EMB=""
+          if [ ${#imgs[@]} -gt 0 ]; then EMB="${imgs[0]}"
+          else
+            xzs=( *.img.xz ); [ ${#xzs[@]} -gt 0 ] || { echo "no image"; exit 0; }
+            echo "Decompressing ${xzs[0]} ..."; xz -d -T0 -k "${xzs[0]}"; imgs=( *.img ); EMB="${imgs[0]}"
+            rm -f "${xzs[0]}"
+          fi
+          echo "Embedded image: ${EMB}"
+
+          AWVER="$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' \
+            "$GITHUB_WORKSPACE/containers/airwaves-manager/Cargo.toml" | head -1)"
+          case "$GITHUB_REF" in refs/tags/v*) AWVER="${GITHUB_REF#refs/tags/v}" ;; *) AWVER="${AWVER:-dev}-$(git -C "$GITHUB_WORKSPACE" rev-parse --short HEAD)" ;; esac
+
+          WORK="$(mktemp -d)"; mkdir -p "${WORK}/live"
+          # --- read the embedded rootfs (read-only) ---------------------------
+          ELOOP="$(sudo losetup -fP --show "${EMB}")"
+          sudo partprobe "${ELOOP}" 2>/dev/null || true; sudo udevadm settle --timeout=30 2>/dev/null || true
+          ROOTP=""
+          for p in "${ELOOP}"p*; do
+            [ -b "$p" ] || continue
+            case "$(sudo blkid -o value -s TYPE "$p" 2>/dev/null)" in ext4|ext3) ;; *) continue ;; esac
+            m="$(mktemp -d)"
+            if sudo mount -o ro "$p" "$m" 2>/dev/null; then
+              if [ -d "$m/opt/airwaves" ] && [ -d "$m/boot" ]; then ROOTP="$p"; RMNT="$m"; break; fi
+              sudo umount "$m" 2>/dev/null
+            fi
+            rmdir "$m" 2>/dev/null
+          done
+          [ -n "$ROOTP" ] || { echo "::error::could not find embedded rootfs partition"; sudo losetup -d "${ELOOP}"; exit 1; }
+          echo "Embedded rootfs: ${ROOTP}"
+
+          # Kernel + initrd (initrd already includes live-boot via the airwaves-live extension).
+          KVER="$(ls "${RMNT}/boot"/vmlinuz-* 2>/dev/null | sed 's#.*/vmlinuz-##' | sort -V | tail -1)"
+          [ -n "$KVER" ] || { echo "::error::no kernel in embedded /boot"; sudo umount "${RMNT}"; sudo losetup -d "${ELOOP}"; exit 1; }
+          cp "${RMNT}/boot/vmlinuz-${KVER}" "${WORK}/vmlinuz"
+          cp "${RMNT}/boot/initrd.img-${KVER}" "${WORK}/initrd.img"
+
+          # --- squashfs the rootfs (keep the container tarballs; drop docker store) ---
+          echo "Creating squashfs (this takes a few minutes)..."
+          sudo mksquashfs "${RMNT}" "${WORK}/live/filesystem.squashfs" -comp xz -noappend -no-progress \
+            -e proc sys dev run tmp mnt media lost+found \
+               var/lib/docker var/lib/containerd var/lib/docker.hdd var/log.hdd \
+               etc/airwaves/install swapfile
+          sudo chown "$(id -u):$(id -g)" "${WORK}/live/filesystem.squashfs"
+          stat -c %s "${WORK}/live/filesystem.squashfs" > "${WORK}/live/filesystem.size"
+          SQ_BYTES="$(cat "${WORK}/live/filesystem.size")"
+          echo "squashfs: ${SQ_BYTES} bytes"
+          sudo umount "${RMNT}" 2>/dev/null || true; rmdir "${RMNT}" 2>/dev/null || true
+          sudo losetup -d "${ELOOP}"
+
+          # --- assemble the live image ---------------------------------------
+          SQ_MIB=$(( (SQ_BYTES + 1048575) / 1048576 ))
+          LIVE_DATA_MIB=$(( SQ_MIB + 192 ))
+          IMG_MIB=$(( 4 + 260 + LIVE_DATA_MIB + 64 + 2 ))
+          LIVE="Airwaves_OS_LiveUSB_${AWVER}_x86_UEFI_${{ github.event.inputs.release }}.img"
+          echo "Live image: ${LIVE} (${IMG_MIB} MiB)"
+          rm -f "${LIVE}"; truncate -s "${IMG_MIB}M" "${LIVE}"
+          # GPT: BIOS-boot 4M + ESP 260M + LIVE-DATA + AWCFG 64M.
+          sudo sgdisk -og \
+            -n 1:0:+4M   -t 1:EF02 -c 1:"BIOS-BOOT" \
+            -n 2:0:+260M -t 2:EF00 -c 2:"AIRWAVES_EFI" \
+            -n 3:0:+${LIVE_DATA_MIB}M -t 3:8300 -c 3:"AIRWAVES_LIVE" \
+            -n 4:0:0     -t 4:0700 -c 4:"AWCFG" "${LIVE}"
+
+          LLOOP="$(sudo losetup -fP --show "${LIVE}")"
+          sudo partprobe "${LLOOP}" 2>/dev/null || true; sudo udevadm settle --timeout=30 2>/dev/null || true
+          for n in 2 3 4; do for _ in $(seq 1 15); do [ -b "${LLOOP}p${n}" ] && break; sudo udevadm settle --timeout=5 2>/dev/null || true; sleep 1; done; done
+          sudo mkfs.fat -F32 -n AIRWAVES_EFI "${LLOOP}p2" >/dev/null
+          sudo mkfs.ext4 -q -L AIRWAVES_LIVE "${LLOOP}p3"
+          sudo mkfs.fat -F32 -n AWCFG "${LLOOP}p4" >/dev/null
+
+          ESP="$(mktemp -d)"; sudo mount "${LLOOP}p2" "${ESP}"
+          sudo mkdir -p "${ESP}/boot"
+          sudo grub-install --target=x86_64-efi --efi-directory="${ESP}" --boot-directory="${ESP}/boot" \
+            --removable --no-nvram --recheck 2>&1 | tail -3
+          sudo grub-install --target=i386-pc --boot-directory="${ESP}/boot" --recheck "${LLOOP}" 2>&1 | tail -3
+          sudo cp "${WORK}/vmlinuz" "${ESP}/boot/vmlinuz"
+          sudo cp "${WORK}/initrd.img" "${ESP}/boot/initrd.img"
+          CMN="boot=live live-media=LABEL=AIRWAVES_LIVE ignore_uuid nocomponents console=tty0 console=ttyS0,115200"
+          # Heredoc body is indented to the YAML block level; YAML strips that
+          # back to column 0 so the shell sees a normal <<GRUBCFG heredoc.
+          sudo tee "${ESP}/boot/grub/grub.cfg" >/dev/null <<GRUBCFG
+          insmod part_gpt
+          insmod fat
+          insmod ext2
+          insmod search_label
+          set timeout=5
+          set default=0
+          menuentry "Airwaves OS (Live - auto RAM)" {
+              search --no-floppy --label --set=root AIRWAVES_EFI
+              linux /boot/vmlinuz ${CMN}
+              initrd /boot/initrd.img
+          }
+          menuentry "Airwaves OS (Live - Load to RAM)" {
+              search --no-floppy --label --set=root AIRWAVES_EFI
+              linux /boot/vmlinuz ${CMN} toram
+              initrd /boot/initrd.img
+          }
+          menuentry "Airwaves OS (Live - Run from USB)" {
+              search --no-floppy --label --set=root AIRWAVES_EFI
+              linux /boot/vmlinuz ${CMN} notoram
+              initrd /boot/initrd.img
+          }
+          GRUBCFG
+          grep -q initrd "${ESP}/boot/grub/grub.cfg" || { echo "::error::live grub.cfg missing initrd"; exit 1; }
+          grep -q '/dev/' "${ESP}/boot/grub/grub.cfg" && { echo "::error::live grub.cfg has /dev path"; exit 1; }
+          sudo umount "${ESP}"; rmdir "${ESP}" 2>/dev/null || true
+
+          LDATA="$(mktemp -d)"; sudo mount "${LLOOP}p3" "${LDATA}"
+          sudo mkdir -p "${LDATA}/live"
+          sudo cp "${WORK}/live/filesystem.squashfs" "${LDATA}/live/"
+          sudo cp "${WORK}/live/filesystem.size" "${LDATA}/live/"
+          sync; sudo umount "${LDATA}"; rmdir "${LDATA}" 2>/dev/null || true
+
+          AWMP="$(mktemp -d)"; sudo mount "${LLOOP}p4" "${AWMP}"
+          sudo cp "${AWCFG}/airwaves-install.json" "${AWMP}/airwaves-install.json"
+          sudo cp "${AWCFG}/README.txt" "${AWMP}/README.txt"
+          sync; sudo umount "${AWMP}"; rmdir "${AWMP}" 2>/dev/null || true
+
+          sudo losetup -d "${LLOOP}"
+          echo "Compressing ${LIVE} ..."
+          xz -z -T0 -f "${LIVE}"
+          sudo chown -R "$(id -u):$(id -g)" . 2>/dev/null || true
+          rm -rf "${WORK}"
+          ls -lh Airwaves_OS_LiveUSB_*.img.xz
 
       # Append the AWCFG config partition (FAT32, label AWCFG) as the LAST
       # partition of the built image. It carries airwaves-install.json + README,
@@ -332,6 +477,9 @@ jobs:
           echo "Airwaves version for filename: ${AWVER}"
           shopt -s nullglob
           for f in Airwaves_OS_*.img.xz Airwaves_OS_*.img; do
+            # The Live USB image is already named with the version; skip it (its
+            # first field is "LiveUSB", not a REVISION to replace).
+            case "$f" in *LiveUSB*) continue;; esac
             rest="${f#Airwaves_OS_}"        # <REVISION>_<board>_...
             tail="${rest#*_}"              # <board>_...  (drops the REVISION field)
             new="Airwaves_OS_${AWVER}_${tail}"

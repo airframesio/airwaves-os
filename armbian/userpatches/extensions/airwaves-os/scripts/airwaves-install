@@ -135,6 +135,26 @@ detect_platform() {
 # ---- source / target discovery (mirrors armbian-install) -------------------
 
 discover_source() {
+    # Live-boot (USB installer, incl. toram): root is an overlay/tmpfs in RAM, so
+    # the source to exclude is the live MEDIUM, not "/". Resolve it from
+    # /run/live/medium, else the AIRWAVES_LIVE label, else the live-media= cmdline.
+    if grep -qw 'boot=live' /proc/cmdline 2>/dev/null || [ -d /run/live/medium ]; then
+        local live_dev lm
+        live_dev="$(findmnt -no SOURCE /run/live/medium 2>/dev/null)"
+        case "${live_dev}" in /dev/*) : ;; *) live_dev="$(blkid -L AIRWAVES_LIVE 2>/dev/null | head -1)" ;; esac
+        if [ -z "${live_dev}" ]; then
+            lm="$(sed -n 's/.*live-media=LABEL=\([^ ]*\).*/\1/p' /proc/cmdline 2>/dev/null)"
+            [ -n "${lm}" ] && live_dev="$(blkid -L "${lm}" 2>/dev/null | head -1)"
+        fi
+        if [ -n "${live_dev}" ]; then
+            SOURCE_DISK_NAME="$(lsblk -ndo pkname "${live_dev}" 2>/dev/null)"
+            [ -n "${SOURCE_DISK_NAME}" ] && { SOURCE_DISK="/dev/${SOURCE_DISK_NAME}"; return 0; }
+        fi
+        # toram + USB already removed: nothing to exclude (it can't be a target),
+        # so don't hard-fail — just mark the source unknown.
+        SOURCE_DISK_NAME=""; SOURCE_DISK="/dev/__live_in_ram__"; return 0
+    fi
+
     ROOT_UUID="$(sed -e 's/^.*root=//' -e 's/ .*$//' < /proc/cmdline)"
     ROOT_PART="$(blkid | tr -d '":' | grep -w "${ROOT_UUID#UUID=}" | awk '{print $1}' | head -1)"
     [ -z "${ROOT_PART}" ] && ROOT_PART="$(findmnt -no SOURCE / 2>/dev/null)"

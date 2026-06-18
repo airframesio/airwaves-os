@@ -21,13 +21,21 @@ SCAN="/tmp/airwaves-scan.json"   # cached output of `airwaves-install --scan-jso
 MODE="boot"
 [ "${1:-}" = "--install" ] && MODE="install"
 
+# Live = booted from the USB installer (incl. live-boot/toram, where root is an
+# overlay/tmpfs in RAM), NOT an installed internal disk.
+is_live_boot() {
+    grep -qw 'boot=live' /proc/cmdline 2>/dev/null && return 0
+    [ -d /run/live/medium ] && return 0
+    case "$(findmnt -no FSTYPE / 2>/dev/null)" in overlay|tmpfs|aufs) return 0 ;; esac
+    local rd
+    rd="$(lsblk -ndo pkname "$(findmnt -no SOURCE / 2>/dev/null)" 2>/dev/null)"
+    [ -n "$rd" ] && [ "$(cat "/sys/block/${rd}/removable" 2>/dev/null || echo 0)" = "1" ]
+}
+
 if [ "${MODE}" = "boot" ]; then
-    # If the root disk is not removable (i.e. we booted from an installed
-    # internal disk), do nothing and let getty take over.
-    root_src="$(findmnt -no SOURCE / 2>/dev/null)"
-    root_disk="$(lsblk -ndo pkname "${root_src}" 2>/dev/null)"
-    removable="$(cat "/sys/block/${root_disk}/removable" 2>/dev/null || echo 0)"
-    [ "${removable}" = "1" ] || exit 0
+    # Only run the live/install menu on the installer medium; on an installed
+    # internal disk, do nothing and let getty take over.
+    is_live_boot || exit 0
 fi
 
 # Need a real TTY and dialog; otherwise bail out quietly (never block boot).

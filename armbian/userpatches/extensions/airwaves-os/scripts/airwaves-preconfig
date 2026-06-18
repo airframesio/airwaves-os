@@ -59,6 +59,20 @@ valid_timezone() {
 
 # Whole-disk device the running system booted from (e.g. /dev/sda, /dev/mmcblk0).
 source_disk() {
+    # Live-boot (USB installer, incl. toram): resolve the live medium, not "/".
+    if grep -qw 'boot=live' /proc/cmdline 2>/dev/null || [ -d /run/live/medium ]; then
+        local live_dev lm
+        live_dev="$(findmnt -no SOURCE /run/live/medium 2>/dev/null)"
+        case "${live_dev}" in /dev/*) : ;; *) live_dev="$(blkid -L AIRWAVES_LIVE 2>/dev/null | head -1)" ;; esac
+        if [ -z "${live_dev}" ]; then
+            lm="$(sed -n 's/.*live-media=LABEL=\([^ ]*\).*/\1/p' /proc/cmdline 2>/dev/null)"
+            [ -n "${lm}" ] && live_dev="$(blkid -L "${lm}" 2>/dev/null | head -1)"
+        fi
+        [ -n "${live_dev}" ] || return 1
+        local pk; pk="$(lsblk -ndo pkname "${live_dev}" 2>/dev/null)"
+        [ -n "$pk" ] && echo "/dev/${pk}"
+        return
+    fi
     local ru rp
     ru="$(sed -e 's/^.*root=//' -e 's/ .*$//' < /proc/cmdline 2>/dev/null)"
     rp="$(blkid 2>/dev/null | tr -d '":' | grep -w "${ru#UUID=}" | awk '{print $1}' | head -1)"
