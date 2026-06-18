@@ -227,12 +227,16 @@ jobs:
           cp "${RMNT}/boot/vmlinuz-${KVER}" "${WORK}/vmlinuz"
           cp "${RMNT}/boot/initrd.img-${KVER}" "${WORK}/initrd.img"
 
-          # --- squashfs the rootfs (keep the container tarballs; drop docker store) ---
+          # --- squashfs the rootfs ---------------------------------------------
+          # Keep the container tarballs (live loads them into RAM) AND the empty
+          # mount-point dirs (/proc /sys /dev /run /tmp /var/lib/docker) — excluding
+          # those removes the directories the initramfs bind-mounts onto, which
+          # panics init ("/root/dev: mount point does not exist"). /var/lib/docker
+          # is empty at this stage (pre-extract runs later) so it costs nothing.
+          # Only drop genuine junk.
           echo "Creating squashfs (this takes a few minutes)..."
           sudo mksquashfs "${RMNT}" "${WORK}/live/filesystem.squashfs" -comp xz -noappend -no-progress \
-            -e proc sys dev run tmp mnt media lost+found \
-               var/lib/docker var/lib/containerd var/lib/docker.hdd var/log.hdd \
-               etc/airwaves/install swapfile
+            -e lost+found swapfile var/swap var/log.hdd var/lib/docker.hdd
           sudo chown "$(id -u):$(id -g)" "${WORK}/live/filesystem.squashfs"
           stat -c %s "${WORK}/live/filesystem.squashfs" > "${WORK}/live/filesystem.size"
           SQ_BYTES="$(cat "${WORK}/live/filesystem.size")"
