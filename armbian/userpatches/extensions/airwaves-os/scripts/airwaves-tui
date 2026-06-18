@@ -145,18 +145,81 @@ center_lines() {
     done
 }
 # Console dimensions. A framebuffer console (x86 monitor) can be far wider/taller
-# than 80x25, so we can't rely on dialog auto-centering a multi-widget stack —
-# we compute a centered origin ourselves.
+# than 80x25, so we size + center every multi-widget stack from the live size.
 scr_cols() { local c; c="$(tput cols 2>/dev/null)"; { [ -n "$c" ] && [ "$c" -gt 0 ] 2>/dev/null; } && echo "$c" || echo 80; }
 scr_rows() { local r; r="$(tput lines 2>/dev/null)"; { [ -n "$r" ] && [ "$r" -gt 0 ] 2>/dev/null; } && echo "$r" || echo 25; }
-# Echo "<row> <col>" to top-left-anchor a stack of total height $1, width $2 so it
-# sits centered on the console.
-center_origin() {
-    local h="$1" w="$2" rows cols r c
-    rows="$(scr_rows)"; cols="$(scr_cols)"
-    r=$(( (rows - h) / 2 )); [ "$r" -lt 0 ] && r=0
-    c=$(( (cols - w) / 2 )); [ "$c" -lt 0 ] && c=0
-    echo "$r $c"
+# Box width: a generous slice of the console, capped for readability, floored so
+# it stays usable on an 80-col terminal. Used for both the splash centering and
+# the box geometry so they always agree.
+box_width() { local c w; c="$(scr_cols)"; w=$(( c * 92 / 100 )); [ "$w" -gt 92 ] && w=92; [ "$w" -lt 52 ] && w=52; echo "$w"; }
+
+# Adaptive geometry for a centered two-box stack (a splash infobox on top + a
+# menu or status box below). Grows the lower box to use spare vertical space (so
+# all actions show and the layout breathes on big screens), shrinks to fit on
+# small ones, and centers the whole stack. Echoes: "OX OY W TOPH BOTH LISTH".
+#   $1 = splash text (its line count sets the top box height)
+#   $2 = kind: "menu" (bottom is a --menu) or "info" (bottom is an --infobox)
+#   $3 = count: menu item count, or info content line count
+layout_stack() {
+    local splash="$1" kind="$2" count="$3"
+    local rows cols W topc toph chrome botmin both listh avail spare grow total oy ox
+    rows="$(scr_rows)"; cols="$(scr_cols)"; W="$(box_width)"
+    topc="$(printf '%s\n' "$splash" | wc -l | tr -d ' ')"
+    toph=$(( topc + 2 ))                 # content + borders (splash carries its own blank-line padding)
+    case "$kind" in
+        menu) chrome=6 ;;                # 2 borders + 2-line prompt + button + spacing
+        *)    chrome=2 ;;                # infobox: just borders
+    esac
+    botmin=$(( count + chrome ))
+    avail=$(( rows - 1 ))                # leave the backtitle row
+    both="$botmin"
+    spare=$(( avail - toph - botmin ))
+    if [ "$spare" -gt 0 ]; then
+        grow=$(( spare / 2 )); [ "$grow" -gt 6 ] && grow=6   # cap so big screens don't get a cavernous box
+        both=$(( both + grow ))
+    fi
+    total=$(( toph + both ))
+    if [ "$total" -gt "$avail" ]; then  # small terminal: shrink the lower box
+        both=$(( avail - toph )); [ "$both" -lt "$botmin" ] && both="$botmin"
+        total=$(( toph + both ))
+    fi
+    listh=$(( both - 6 )); [ "$listh" -lt "$count" ] && listh="$count"
+    oy=$(( (rows - total) / 2 )); [ "$oy" -lt 0 ] && oy=0
+    ox=$(( (cols - W) / 2 )); [ "$ox" -lt 0 ] && ox=0
+    echo "$ox $oy $W $toph $both $listh"
+}
+
+# Max splash content lines that leave room for the bottom box (so a small
+# terminal sheds splash padding/banner instead of clipping the menu).
+# $1 = kind (menu|info), $2 = bottom count (items or content lines).
+splash_budget() {
+    local rows avail chrome b
+    rows="$(scr_rows)"; avail=$(( rows - 1 ))
+    case "$1" in menu) chrome=6 ;; *) chrome=2 ;; esac
+    b=$(( avail - $2 - chrome - 2 )); [ "$b" -lt 4 ] && b=4
+    echo "$b"
+}
+
+# Assemble the splash (banner / details / optional Services) to fit within $2
+# content lines, dropping decorative pieces first on small terminals and adding
+# blank-line padding when there's room. $1 = inner width, $3 = 1 to include
+# the Services block.
+build_splash() {
+    local iw="$1" max="$2" with_svc="${3:-0}"
+    local details services banner bn base out_banner=0 out_pad=0
+    details="$(id_lines | sed 's/^  *//' | center_lines "$iw")"
+    [ "$with_svc" = 1 ] && services="$(services_block | center_block "$iw")"
+    banner="$(banner_art | center_block "$iw")"
+    bn="$(printf '%s\n' "$banner" | wc -l | tr -d ' ')"
+    base=3; [ "$with_svc" = 1 ] && base=$(( base + 4 ))
+    [ "$max" -ge $(( base + bn + 1 )) ] && out_banner=1
+    [ "$max" -ge $(( base + bn + 4 )) ] && out_pad=1
+    {
+        [ "$out_pad" = 1 ] && printf '\n'
+        if [ "$out_banner" = 1 ]; then printf '%s\n' "$banner"; [ "$out_pad" = 1 ] && printf '\n'; fi
+        printf '%s\n' "$details"
+        if [ "$with_svc" = 1 ]; then [ "$out_pad" = 1 ] && printf '\n'; printf '%s\n' "$services"; fi
+    }
 }
 
 # ---- generic dialogs -------------------------------------------------------
@@ -378,20 +441,22 @@ first_boot_screen() {
     [ -n "$step" ] || step="Starting first-boot setup..."
     # Banner (centered as a block) + details (each line centered) form the splash
     # ABOVE the box; the first-boot status goes INSIDE the titled box below.
-    splash="$( { banner_art | center_block 74; printf '\n'; id_lines | sed 's/^  *//' | center_lines 74; } )"
-    local oy ox
-    read -r oy ox < <(center_origin 20 78)   # 11 (splash) + 9 (status) = 20 high
+    local W iw splash status oy ox toph both lh botc maxs
+    W="$(box_width)"; iw=$(( W - 2 ))
+    status="$( { printf '\n'; \
+        printf '     First boot — preparing your device. This happens only once.\n\n'; \
+        printf '     > %s\n\n' "${step}"; \
+        printf '     Loading the app stack from the on-board copy (no network needed).\n'; \
+        printf '     The console menu appears automatically when ready.\n'; } )"
+    botc="$(printf '%s\n' "${status}" | wc -l | tr -d ' ')"
+    maxs="$(splash_budget info "${botc}")"
+    splash="$(build_splash "${iw}" "${maxs}" 0)"   # banner + details (no services here)
+    read -r ox oy W toph both lh < <(layout_stack "${splash}" info "${botc}")
     dlg --backtitle "${BT}" --no-collapse --keep-window \
-        --begin "${oy}" "${ox}" --no-shadow --infobox "${splash}" 11 78 \
+        --begin "${oy}" "${ox}" --no-shadow --infobox "${splash}" "${toph}" "${W}" \
         --and-widget --keep-window --no-shadow \
-        --begin "$((oy + 11))" "${ox}" --title "Setting up Airwaves OS" --infobox \
-"
-  First boot — preparing your device. This happens only once.
-
-  > ${step}
-
-  Loading the app stack from the on-board copy (no network needed).
-  The console menu appears automatically when ready." 9 78
+        --begin "$((oy + toph))" "${ox}" --title "Setting up Airwaves OS" \
+        --infobox "${status}" "${both}" "${W}"
     sleep 2
 }
 
@@ -489,13 +554,18 @@ while true; do
     # banner is centered as a block; the detail/status lines are each centered.
     # Banner (block-centered) + details (line-centered) + a vertical Services
     # list (block-centered so its column stays aligned).
-    splash="$( { banner_art | center_block 74; id_lines | sed 's/^  *//' | center_lines 74; services_block | center_block 74; } )"
-    read -r oy ox < <(center_origin 24 76)   # 14 (banner) + 10 (menu) = 24 high
+    # Adaptive, centered, padded layout: splash on top, action menu below sized to
+    # show every action and grow/shrink with the terminal.
+    W="$(box_width)"; iw=$(( W - 2 ))
+    nitems=$(( ${#items[@]} / 2 ))
+    maxs="$(splash_budget menu "${nitems}")"
+    splash="$(build_splash "${iw}" "${maxs}" 1)"   # banner + details + Services
+    read -r ox oy W toph both lh < <(layout_stack "${splash}" menu "${nitems}")
     choice="$(dlg --backtitle "${BT}" --no-collapse --keep-window \
-        --begin "${oy}" "${ox}" --no-shadow --infobox "${splash}" 14 76 \
+        --begin "${oy}" "${ox}" --no-shadow --infobox "${splash}" "${toph}" "${W}" \
         --and-widget --keep-window --no-shadow --no-cancel \
-        --begin "$((oy + 14))" "${ox}" --title "Airwaves OS Console" \
-        --menu "Select an action:" 10 76 6 "${items[@]}" \
+        --begin "$((oy + toph))" "${ox}" --title "Airwaves OS Console" \
+        --menu "\n  Select an action:" "${both}" "${W}" "${lh}" "${items[@]}" \
         3>&1 1>&2 2>&3)" || { sleep 1; continue; }
 
     case "$choice" in
