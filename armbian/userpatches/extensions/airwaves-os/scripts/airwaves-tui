@@ -29,50 +29,50 @@ ISTATUS="/etc/airwaves/install/status.json"
 BT="Airwaves OS"
 export TERM="${TERM:-linux}"
 
-# Stop kernel log messages (printk) from clobbering the dialog UI on the console.
-# Only emergencies print to the console after this; `dmesg` still shows everything.
-quiet_console() { dmesg -n 1 2>/dev/null || echo 1 > /proc/sys/kernel/printk 2>/dev/null || true; }
+# Shared branded look: night-watch palette remap, the flat amber dialog theme,
+# the wordmark banner, and \Z/UTF-8-aware centering. Lives next to this script
+# (ships in /opt/airwaves/scripts). Source it; degrade gracefully (still a working
+# menu, just unbranded) if it is ever missing — tty1 must never dead-end.
+LIB="$(dirname "$0")/airwaves-tui-lib.sh"
+[ -r "$LIB" ] || LIB="/opt/airwaves/scripts/airwaves-tui-lib.sh"
+# shellcheck source=/dev/null
+if [ -r "$LIB" ]; then . "$LIB"; else
+    AW_UTF8=0
+    aw_setup_locale() { :; }; aw_palette() { :; }; aw_restore_palette() { :; }
+    quiet_console() { dmesg -n 1 2>/dev/null || echo 1 > /proc/sys/kernel/printk 2>/dev/null || true; }
+    vis_len()  { local s="${1:-}"; s="${s//\\Z?/}"; printf '%s' "${#s}"; }
+    cz()       { local s="${1:-}"; printf '%s' "${s//\\/}"; }
+    scr_cols() { tput cols 2>/dev/null || echo 80; }
+    scr_rows() { tput lines 2>/dev/null || echo 25; }
+    box_width() { echo 76; }
+    center_block() { cat; }; center_lines() { cat; }
+    banner_art() { printf 'A I R W A V E S   O S\n'; }
+    aw_dialogrc() { printf 'use_colors = ON\nuse_shadow = OFF\n'; }
+fi
+aw_setup_locale
 
-# A black/cyan dialog theme so the console reads as a branded appliance screen
-# (the banner box and menu share one cohesive black background). Prefer the
-# shipped shared theme (also used by airwaves-firstrun so the installer matches);
-# fall back to writing it to tmpfs, then to the stock theme.
+# Prefer the shipped shared theme (also used by airwaves-firstrun so the installer
+# matches); fall back to recreating it on tmpfs from the library's canonical copy.
+# The "hero" variant hides the outer box border (banner + status read as a clean
+# borderless header) while the menu keeps its solid border.
 SHARED_RC="/opt/airwaves/config/dialogrc"
+SHARED_RC_HERO="/opt/airwaves/config/dialogrc-hero"
 AWRC="/run/airwaves-tui.dialogrc"
+AWRC_HERO=""
 init_theme() {
-    if [ -r "$SHARED_RC" ]; then AWRC="$SHARED_RC"; return; fi
-    cat > "$AWRC" 2>/dev/null <<'RC' || { AWRC="/dev/null"; return; }
-use_shadow = OFF
-use_colors = ON
-screen_color = (CYAN,BLACK,ON)
-dialog_color = (CYAN,BLACK,ON)
-title_color = (YELLOW,BLACK,ON)
-border_color = (CYAN,BLACK,ON)
-border2_color = (CYAN,BLACK,ON)
-menubox_color = (WHITE,BLACK,OFF)
-menubox_border_color = (CYAN,BLACK,ON)
-menubox_border2_color = (CYAN,BLACK,ON)
-item_color = (WHITE,BLACK,OFF)
-item_selected_color = (BLACK,CYAN,ON)
-tag_color = (YELLOW,BLACK,ON)
-tag_selected_color = (BLACK,CYAN,ON)
-tag_key_color = (YELLOW,BLACK,OFF)
-tag_key_selected_color = (BLACK,CYAN,ON)
-button_active_color = (BLACK,CYAN,ON)
-button_inactive_color = (CYAN,BLACK,OFF)
-button_key_active_color = (BLACK,CYAN,ON)
-button_key_inactive_color = (YELLOW,BLACK,OFF)
-button_label_active_color = (BLACK,CYAN,ON)
-button_label_inactive_color = (CYAN,BLACK,ON)
-inputbox_color = (WHITE,BLACK,OFF)
-inputbox_border_color = (CYAN,BLACK,ON)
-searchbox_color = (WHITE,BLACK,OFF)
-position_indicator_color = (YELLOW,BLACK,ON)
-gauge_color = (CYAN,BLACK,ON)
-RC
+    if [ -r "$SHARED_RC" ]; then AWRC="$SHARED_RC"; else
+        aw_dialogrc > "$AWRC" 2>/dev/null || AWRC="/dev/null"
+    fi
+    if [ -r "$SHARED_RC_HERO" ]; then AWRC_HERO="$SHARED_RC_HERO"
+    elif [ "$AWRC" != "/dev/null" ] && sed -e 's/^border_color .*/border_color = (BLACK,BLACK,OFF)/' \
+            -e 's/^border2_color .*/border2_color = (BLACK,BLACK,OFF)/' "$AWRC" > /run/airwaves-tui-hero.dialogrc 2>/dev/null; then
+        AWRC_HERO="/run/airwaves-tui-hero.dialogrc"
+    else AWRC_HERO="$AWRC"; fi   # degrade to the bordered theme
 }
-# Run dialog with the branded theme (used for the main console + sub-dialogs).
-dlg() { DIALOGRC="$AWRC" dialog "$@"; }
+# Run dialog with the branded theme + inline \Z colours (used everywhere).
+dlg()  { DIALOGRC="$AWRC" dialog --colors "$@"; }
+# Hero variant: borderless boxes (for the banner+status header stack).
+dlgh() { DIALOGRC="$AWRC_HERO" dialog --colors "$@"; }
 
 # ---- status helpers (all bounded so the menu never hangs) -------------------
 api_up()    { curl -fsS -m3 "${API}/system/overview" >/dev/null 2>&1; }
@@ -111,59 +111,52 @@ svc() {
 }
 release_var() { [ -f "$RELEASE" ] && awk -F= "/^$1=/{gsub(/\"/,\"\",\$2);print \$2}" "$RELEASE" 2>/dev/null; }
 
-# ---- banner / identity (split so the first-boot screen can skip docker) -----
-banner_art() {
-    if command -v toilet >/dev/null 2>&1; then
-        toilet -f small "Airwaves OS" 2>/dev/null || echo "  Airwaves OS"
-    else
-        echo "  Airwaves OS"
-    fi
-}
+# ---- identity / status (split so the first-boot screen can skip docker) -----
+# (banner_art lives in airwaves-tui-lib.sh.) Detail lines: slate labels, cream
+# values, amber URLs. Centered by the caller; vis_len strips \Z so width math is
+# correct. Values are sanitized (cz) so they can't inject a colour code.
 id_lines() {
     local ver cn ch host ip mode
-    ver="$(release_var AIRWAVES_VERSION)"; ver="${ver:-?}"
-    cn="$(release_var AIRWAVES_CODENAME)"
-    ch="$(jq -r '.channel // "stable"' "$VERSIONS" 2>/dev/null || echo stable)"
-    host="$(hostname 2>/dev/null)"; ip="$(primary_ip)"
+    ver="$(cz "$(release_var AIRWAVES_VERSION)")"; ver="${ver:-?}"
+    cn="$(cz "$(release_var AIRWAVES_CODENAME)")"
+    ch="$(cz "$(jq -r '.channel // "stable"' "$VERSIONS" 2>/dev/null || echo stable)")"
+    host="$(cz "$(hostname 2>/dev/null)")"; ip="$(cz "$(primary_ip)")"
     if is_live; then mode="LIVE USB"; else mode="INSTALLED"; fi
-    printf '  Airwaves OS v%s  %s   ·   %s   ·   channel: %s\n' "$ver" "$cn" "$mode" "$ch"
-    printf '  Host: %s' "$host"; [ -n "$ip" ] && printf '    IP: %s' "$ip"; printf '\n'
-    printf '  Web UI: http://%s.local' "$host"; [ -n "$ip" ] && printf '   /   http://%s' "$ip"; printf '\n'
+    { printf '\Zb\Z7v%s\Zn' "$ver"; [ -n "$cn" ] && printf '  \Z6%s\Zn' "$cn"
+      printf '   \Z6·\Zn   \Z3%s\Zn   \Z6·\Zn   \Z6channel\Zn \Zb\Z7%s\Zn\n' "$mode" "$ch"; }
+    { printf '\Z6Host\Zn \Zb\Z7%s\Zn' "$host"; [ -n "$ip" ] && printf '     \Z6IP\Zn \Zb\Z7%s\Zn' "$ip"; printf '\n'; }
+    { printf '\Z6Web UI\Zn \Z3http://%s.local\Zn' "$host"; [ -n "$ip" ] && printf '   \Z6/\Zn   \Z3http://%s\Zn' "$ip"; printf '\n'; }
 }
-# Services listed vertically under a header (left-aligned as a block; the caller
-# centers the block). Columns align via printf width.
+# A service state -> coloured glyph + word: green Healthy / amber Starting /
+# ember Down / slate Idle. Glyphs degrade to ASCII without a UTF-8 locale.
+svc_token() {
+    local ok go no id
+    if [ "${AW_UTF8:-0}" = 1 ]; then ok='●'; go='◐'; no='●'; id='○'; else ok='*'; go='~'; no='x'; id='-'; fi
+    case "$1" in
+        healthy|running)               printf '\Zb\Z2%s Healthy\Zn' "$ok" ;;
+        starting|created|restarting)   printf '\Zb\Z3%s\Zn \Z3Starting\Zn' "$go" ;;
+        unhealthy|exited|dead|stopped) printf '\Zb\Z1%s Down\Zn' "$no" ;;
+        *)                             printf '\Z6%s %s\Zn' "$id" "$(cz "$1")" ;;
+    esac
+}
+# Services under a section header with dotted leaders (a block; caller centers it).
 services_block() {
-    local up
-    up="$(awk '{d=int($1/86400);h=int(($1%86400)/3600);m=int(($1%3600)/60); if(d)printf "%dd %dh %dm",d,h,m; else if(h)printf "%dh %dm",h,m; else printf "%dm",m}' /proc/uptime 2>/dev/null)"
-    printf 'Services\n'
-    printf '  %-9s %s\n' "manager:" "$(svc airwaves-manager)"
-    printf '  %-9s %s\n' "gateway:" "$(svc airwaves-gateway)"
-    printf '  %-9s %s\n' "uptime:"  "${up:-?}"
+    local up ldr hdr hw r v maxw=0 pad; local -a rows=()
+    up="$(uptime_str)"
+    if [ "${AW_UTF8:-0}" = 1 ]; then ldr='············'; hdr='\Z6░▒▓\Zn\Zb\Z3 SERVICES \Zn\Z6▓▒░\Zn'; hw=16
+    else ldr='............'; hdr='\Zb\Z3-- SERVICES --\Zn'; hw=14; fi
+    rows+=("$(printf '\Z6%-8s %s\Zn %s' "manager" "$ldr" "$(svc_token "$(svc airwaves-manager)")")")
+    rows+=("$(printf '\Z6%-8s %s\Zn %s' "gateway" "$ldr" "$(svc_token "$(svc airwaves-gateway)")")")
+    rows+=("$(printf '\Z6%-8s %s\Zn \Zb\Z7%s\Zn' "uptime" "$ldr" "${up:-?}")")
+    for r in "${rows[@]}"; do v="$(vis_len "$r")"; [ "$v" -gt "$maxw" ] && maxw="$v"; done
+    pad=$(( (maxw - hw) / 2 )); [ "$pad" -lt 0 ] && pad=0
+    printf '\n'                                  # margin above the SERVICES header
+    printf '%*s%s\n' "$pad" '' "$hdr"            # header centred over the rows
+    printf '%s\n' "${rows[@]}"
 }
-# Center a whole block by its widest line, padding every line equally — preserves
-# internal alignment (ASCII art would shear if each line were centered alone).
-center_block() {
-    local w="$1" max=0 len pad; local -a lines=(); local line
-    while IFS= read -r line; do lines+=("$line"); len=${#line}; [ "$len" -gt "$max" ] && max="$len"; done
-    pad=$(( (w - max) / 2 )); [ "$pad" -lt 0 ] && pad=0
-    for line in "${lines[@]}"; do printf '%*s%s\n' "$pad" '' "$line"; done
-}
-# Center each input line independently to width $1 (for single-line details).
-center_lines() {
-    local w="$1" line len pad
-    while IFS= read -r line; do
-        len=${#line}; pad=$(( (w - len) / 2 )); [ "$pad" -lt 0 ] && pad=0
-        printf '%*s%s\n' "$pad" '' "$line"
-    done
-}
-# Console dimensions. A framebuffer console (x86 monitor) can be far wider/taller
-# than 80x25, so we size + center every multi-widget stack from the live size.
-scr_cols() { local c; c="$(tput cols 2>/dev/null)"; { [ -n "$c" ] && [ "$c" -gt 0 ] 2>/dev/null; } && echo "$c" || echo 80; }
-scr_rows() { local r; r="$(tput lines 2>/dev/null)"; { [ -n "$r" ] && [ "$r" -gt 0 ] 2>/dev/null; } && echo "$r" || echo 25; }
-# Box width: a generous slice of the console, capped for readability, floored so
-# it stays usable on an 80-col terminal. Used for both the splash centering and
-# the box geometry so they always agree.
-box_width() { local c w; c="$(scr_cols)"; w=$(( c * 92 / 100 )); [ "$w" -gt 92 ] && w=92; [ "$w" -lt 52 ] && w=52; echo "$w"; }
+# (center_block, center_lines, scr_cols, scr_rows, box_width live in
+# airwaves-tui-lib.sh — \Z-colour-aware and UTF-8-aware so coloured/glyph lines
+# centre correctly.)
 
 # Adaptive geometry for a centered two-box stack (a splash infobox on top + a
 # menu or status box below). Grows the lower box to use spare vertical space (so
@@ -175,15 +168,19 @@ box_width() { local c w; c="$(scr_cols)"; w=$(( c * 92 / 100 )); [ "$w" -gt 92 ]
 layout_stack() {
     local splash="$1" kind="$2" count="$3"
     local rows cols W topc toph chrome botmin both listh avail spare grow total oy ox
+    # The backtitle occupies row 0 + a rule on row 1. Reserve a top margin so the
+    # first box never butts against that rule (>=1 blank line; more on tall
+    # screens via centering) and a small bottom margin for symmetry.
+    local TOPM=3 BOTM=1
     rows="$(scr_rows)"; cols="$(scr_cols)"; W="$(box_width)"
     topc="$(printf '%s\n' "$splash" | wc -l | tr -d ' ')"
     toph=$(( topc + 2 ))                 # content + borders (splash carries its own blank-line padding)
     case "$kind" in
-        menu) chrome=6 ;;                # 2 borders + 2-line prompt + button + spacing
+        menu) chrome=8 ;;                # borders + 2-line prompt + buttons + inter-spacing
         *)    chrome=2 ;;                # infobox: just borders
     esac
     botmin=$(( count + chrome ))
-    avail=$(( rows - 1 ))                # leave the backtitle row
+    avail=$(( rows - TOPM - BOTM ))      # vertical band for the whole stack
     both="$botmin"
     spare=$(( avail - toph - botmin ))
     if [ "$spare" -gt 0 ]; then
@@ -195,8 +192,8 @@ layout_stack() {
         both=$(( avail - toph )); [ "$both" -lt "$botmin" ] && both="$botmin"
         total=$(( toph + both ))
     fi
-    listh=$(( both - 6 )); [ "$listh" -lt "$count" ] && listh="$count"
-    oy=$(( (rows - total) / 2 )); [ "$oy" -lt 0 ] && oy=0
+    listh=$(( both - chrome )); [ "$listh" -lt "$count" ] && listh="$count"
+    oy=$(( TOPM + (avail - total) / 2 )); [ "$oy" -lt "$TOPM" ] && oy="$TOPM"
     ox=$(( (cols - W) / 2 )); [ "$ox" -lt 0 ] && ox=0
     echo "$ox $oy $W $toph $both $listh"
 }
@@ -207,7 +204,7 @@ layout_stack() {
 splash_budget() {
     local rows avail chrome b
     rows="$(scr_rows)"; avail=$(( rows - 1 ))
-    case "$1" in menu) chrome=6 ;; *) chrome=2 ;; esac
+    case "$1" in menu) chrome=8 ;; *) chrome=2 ;; esac
     b=$(( avail - $2 - chrome - 2 )); [ "$b" -lt 4 ] && b=4
     echo "$b"
 }
@@ -216,21 +213,27 @@ splash_budget() {
 # content lines, dropping decorative pieces first on small terminals and adding
 # blank-line padding when there's room. $1 = inner width, $3 = 1 to include
 # the Services block.
+# Priority when space is tight: the banner is the hero (keep it), then the detail
+# lines, then the Services block, then top padding. The banner carries a 2-line
+# bottom margin so it never crowds the details. Services brings its own top margin.
+BANNER_BMARGIN=2
 build_splash() {
     local iw="$1" max="$2" with_svc="${3:-0}"
-    local details services banner bn base out_banner=0 out_pad=0
+    local details services banner bn dn sn used=0 top=0 show_banner=0 show_svc=0
     details="$(id_lines | sed 's/^  *//' | center_lines "$iw")"
-    [ "$with_svc" = 1 ] && services="$(services_block | center_block "$iw")"
-    banner="$(banner_art | center_block "$iw")"
+    dn="$(printf '%s\n' "$details" | wc -l | tr -d ' ')"
+    banner="$(banner_art "$iw" | center_block "$iw")"
     bn="$(printf '%s\n' "$banner" | wc -l | tr -d ' ')"
-    base=3; [ "$with_svc" = 1 ] && base=$(( base + 4 ))
-    [ "$max" -ge $(( base + bn + 1 )) ] && out_banner=1
-    [ "$max" -ge $(( base + bn + 4 )) ] && out_pad=1
+    if [ "$with_svc" = 1 ]; then services="$(services_block | center_block "$iw")"; sn="$(printf '%s\n' "$services" | wc -l | tr -d ' ')"; else sn=0; fi
+    used="$dn"
+    [ "$max" -ge $(( used + bn + BANNER_BMARGIN )) ] && { show_banner=1; used=$(( used + bn + BANNER_BMARGIN )); }
+    [ "$with_svc" = 1 ] && [ "$max" -ge $(( used + sn )) ] && { show_svc=1; used=$(( used + sn )); }
+    [ "$max" -ge $(( used + 1 )) ] && top=1
     {
-        [ "$out_pad" = 1 ] && printf '\n'
-        if [ "$out_banner" = 1 ]; then printf '%s\n' "$banner"; [ "$out_pad" = 1 ] && printf '\n'; fi
+        [ "$top" = 1 ] && printf '\n'
+        if [ "$show_banner" = 1 ]; then printf '%s\n' "$banner"; printf '%0.s\n' $(seq 1 "$BANNER_BMARGIN"); fi
         printf '%s\n' "$details"
-        if [ "$with_svc" = 1 ]; then [ "$out_pad" = 1 ] && printf '\n'; printf '%s\n' "$services"; fi
+        [ "$show_svc" = 1 ] && printf '%s\n' "$services"
     }
 }
 
@@ -242,39 +245,41 @@ need_api() { api_up && return 0; msg "Manager unavailable" "\nThe manager servic
 # Returns 0 to proceed, 1 to cancel.
 rescue_warn() {
     dlg --backtitle "${BT}" --title "Manager not running — rescue mode" --defaultno --yesno \
-"\nThe manager service isn't responding, so '$1' can't be set the normal way (through the manager, like the web UI).\n\nYou can configure it DIRECTLY now as a rescue:\n\n  * Changes apply to the host immediately.\n  * They BYPASS the manager and may differ from what the\n    manager shows once it comes back up.\n  * The manager reconciles/observes them on its next start.\n\nProceed with direct (rescue) configuration?" 18 70
+"\n\Zb\Z1Direct change — bypasses the manager.\Zn\n\nThe manager service isn't responding, so '\Z3$(cz "$1")\Zn' can't be set the normal way (through the manager, like the web UI).\n\nYou can configure it DIRECTLY now as a rescue:\n\n  \Z6•\Zn Changes apply to the host immediately.\n  \Z6•\Zn They BYPASS the manager and may differ from what the\n    manager shows once it comes back up.\n  \Z6•\Zn The manager reconciles/observes them on its next start.\n\nProceed with direct (rescue) configuration?" 18 70
 }
 
 # ---- Wi-Fi: API path + local nmcli rescue path -----------------------------
 cfg_wifi_api() {
     dlg --backtitle "${BT}" --infobox "\nScanning for Wi-Fi networks..." 5 44
-    local json rows=() ssid pw
+    local json rows=() ssid pw ssid_d
     json="$(api_get /wifi/scan)"
-    [ -n "${json}" ] || { msg "Wi-Fi" "\nNo Wi-Fi interface found, or the scan failed.\n\n(Wired Ethernet needs no configuration.)" 11 62; return; }
+    [ -n "${json}" ] || { msg "Wi-Fi" "\nNo Wi-Fi interface found, or the scan failed.\n\n\Z6(Wired Ethernet needs no configuration.)\Zn" 11 62; return; }
     while IFS= read -r ssid; do [ -n "$ssid" ] && rows+=("$ssid" ""); done \
         < <(echo "${json}" | jq -r '.[].ssid // empty' 2>/dev/null | awk 'NF' | sort -u)
     [ "${#rows[@]}" -gt 0 ] || { msg "Wi-Fi" "\nNo networks found in range."; return; }
     ssid="$(dlg --backtitle "${BT}" --title "Wi-Fi networks" --menu "\nSelect a network:" 18 60 10 "${rows[@]}" 3>&1 1>&2 2>&3)" || return
-    pw="$(dlg --backtitle "${BT}" --title "Wi-Fi password" --insecure --passwordbox "\nPassword for ${ssid} (blank for open):" 10 60 3>&1 1>&2 2>&3)" || return
-    dlg --backtitle "${BT}" --infobox "\nConnecting to ${ssid}..." 5 44
+    ssid_d="$(cz "$ssid")"   # display copy; raw ssid is kept for the API call
+    pw="$(dlg --backtitle "${BT}" --title "Wi-Fi password" --insecure --passwordbox "\nPassword for \Z3${ssid_d}\Zn (blank for open):" 10 60 3>&1 1>&2 2>&3)" || return
+    dlg --backtitle "${BT}" --infobox "\nConnecting to \Z3${ssid_d}\Zn..." 5 44
     if api_post /wifi/connect "{\"ssid\":\"${ssid}\",\"password\":\"${pw}\"}" >/dev/null; then
-        msg "Wi-Fi" "\nConnect request sent for: ${ssid}"
+        msg "Wi-Fi" "\n\Zb\Z2Connect request sent\Zn for: \Z3${ssid_d}\Zn"
     else
-        msg "Wi-Fi" "\nFailed to connect to ${ssid}."
+        msg "Wi-Fi" "\n\Zb\Z1Failed to connect\Zn to \Z3${ssid_d}\Zn."
     fi
 }
 cfg_wifi_local() {
     command -v nmcli >/dev/null 2>&1 || { msg "Wi-Fi" "\nNetworkManager (nmcli) is not available, so a direct rescue connect isn't possible on this image."; return; }
     dlg --backtitle "${BT}" --infobox "\nScanning for Wi-Fi networks (direct / nmcli)..." 5 52
-    local rows=() ssid pw out
+    local rows=() ssid pw out ssid_d
     # nmcli --terse escapes ':' as '\:' and '\' as '\\'; unescape via placeholder.
     while IFS= read -r ssid; do [ -n "$ssid" ] && rows+=("$ssid" ""); done \
         < <(nmcli -t -f SSID device wifi list --rescan yes 2>/dev/null \
             | sed -e 's/\\\\/\x01/g' -e 's/\\:/:/g' -e 's/\x01/\\/g' | awk 'NF' | sort -u)
-    [ "${#rows[@]}" -gt 0 ] || { msg "Wi-Fi" "\nNo Wi-Fi networks found (or no Wi-Fi adapter).\n\n(Wired Ethernet needs no configuration.)" 11 62; return; }
+    [ "${#rows[@]}" -gt 0 ] || { msg "Wi-Fi" "\nNo Wi-Fi networks found (or no Wi-Fi adapter).\n\n\Z6(Wired Ethernet needs no configuration.)\Zn" 11 62; return; }
     ssid="$(dlg --backtitle "${BT}" --title "Wi-Fi networks (rescue)" --menu "\nSelect a network:" 18 60 10 "${rows[@]}" 3>&1 1>&2 2>&3)" || return
-    pw="$(dlg --backtitle "${BT}" --title "Wi-Fi password (rescue)" --insecure --passwordbox "\nPassword for ${ssid} (blank for open):" 10 60 3>&1 1>&2 2>&3)" || return
-    dlg --backtitle "${BT}" --infobox "\nConnecting to ${ssid} (direct / nmcli)..." 5 52
+    ssid_d="$(cz "$ssid")"   # display copy; raw ssid is kept for nmcli
+    pw="$(dlg --backtitle "${BT}" --title "Wi-Fi password (rescue)" --insecure --passwordbox "\nPassword for \Z3${ssid_d}\Zn (blank for open):" 10 60 3>&1 1>&2 2>&3)" || return
+    dlg --backtitle "${BT}" --infobox "\nConnecting to \Z3${ssid_d}\Zn (direct / nmcli)..." 5 52
     nmcli radio wifi on >/dev/null 2>&1 || true
     local rc
     if [ -n "${pw}" ]; then
@@ -283,9 +288,9 @@ cfg_wifi_local() {
         out="$(nmcli device wifi connect "${ssid}" 2>&1)"; rc=$?
     fi
     if [ "$rc" -eq 0 ]; then
-        msg "Wi-Fi (rescue)" "\nConnected directly to: ${ssid}\n\nThis bypassed the manager. It will reconcile this\nconnection the next time it starts." 11 64
+        msg "Wi-Fi (rescue)" "\n\Zb\Z2Connected directly\Zn to: \Z3${ssid_d}\Zn\n\n\Z6This bypassed the manager. It will reconcile this\nconnection the next time it starts.\Zn" 11 64
     else
-        msg "Wi-Fi (rescue)" "\nFailed to connect to ${ssid}.\n\n${out}" 12 64
+        msg "Wi-Fi (rescue)" "\n\Zb\Z1Failed to connect\Zn to \Z3${ssid_d}\Zn.\n\n\Z6$(cz "${out}")\Zn" 12 64
     fi
 }
 cfg_wifi() {
@@ -300,9 +305,9 @@ cfg_hostname() {
         new="$(dlg --backtitle "${BT}" --title "Hostname" --inputbox "\nDevice hostname (letters, digits, hyphens):" 10 60 "${cur}" 3>&1 1>&2 2>&3)" || return
         [ -n "${new}" ] || { msg "Hostname" "\nHostname cannot be empty."; return; }
         if api_post /system/hostname "{\"hostname\":\"${new}\"}" >/dev/null; then
-            msg "Hostname" "\nHostname set to: ${new}"
+            msg "Hostname" "\nHostname set to: \Zb\Z7$(cz "${new}")\Zn"
         else
-            msg "Hostname" "\nFailed to set hostname (the manager rejected it or is unavailable)."
+            msg "Hostname" "\n\Zb\Z1Failed to set hostname\Zn (the manager rejected it or is unavailable)."
         fi
     else
         rescue_warn "Hostname" || return
@@ -312,9 +317,9 @@ cfg_hostname() {
         if hostnamectl set-hostname "${new}" 2>/dev/null; then
             echo "${new}" > /etc/hostname 2>/dev/null || true
             systemctl restart avahi-daemon 2>/dev/null || true
-            msg "Hostname (rescue)" "\nHostname set directly to: ${new}\n\nThis bypassed the manager." 10 60
+            msg "Hostname (rescue)" "\nHostname set directly to: \Zb\Z7$(cz "${new}")\Zn\n\n\Z6This bypassed the manager.\Zn" 10 60
         else
-            msg "Hostname (rescue)" "\nFailed to set hostname directly."
+            msg "Hostname (rescue)" "\n\Zb\Z1Failed to set hostname directly.\Zn"
         fi
     fi
 }
@@ -324,7 +329,7 @@ cfg_channel() {
     local cur new
     cur="$(jq -r '.channel // "stable"' "$VERSIONS" 2>/dev/null || echo stable)"
     new="$(dlg --backtitle "${BT}" --title "Update channel" --default-item "${cur}" \
-        --menu "\nCurrent: ${cur}\n\nChoose the update channel:" 14 60 3 \
+        --menu "\nCurrent: \Zb\Z7$(cz "${cur}")\Zn\n\nChoose the update channel:" 14 60 3 \
         stable "Tested releases (recommended)" \
         beta   "Pre-release candidates" \
         dev    "Latest development builds" 3>&1 1>&2 2>&3)" || return
@@ -405,7 +410,7 @@ update_gauge() {
             pct="$(printf '%s' "$p" | jq -r '.percent // 0' 2>/dev/null || echo 0)"
             phase="$(printf '%s' "$p" | jq -r '.phase // "working"' 2>/dev/null || echo working)"
             state="$(printf '%s' "$p" | jq -r '.state // "running"' 2>/dev/null || echo running)"
-            echo "XXX"; echo "${pct:-0}"; printf '%s\nStep: %s\n' "$1" "$phase"; echo "XXX"
+            echo "XXX"; echo "${pct:-0}"; printf '%s\nStep: \Zb\Z3%s\Zn\n' "$1" "$(cz "$phase")"; echo "XXX"
             case "$state" in success|failed|rolled_back) break;; esac
             sleep 2
         done
@@ -425,16 +430,18 @@ apply_update() {   # $1 = upgrade | repair
     prog="$(curl -fsS -m4 "${API}/system/update/progress" 2>/dev/null)"
     st="$(printf '%s' "$prog" | jq -r '.state // "unknown"' 2>/dev/null || echo unknown)"
     if [ "$st" = success ]; then
-        msg "${1^}" "\n${1^} completed successfully." 8 50
+        msg "${1^}" "\n\Zb\Z2${1^} completed successfully.\Zn" 8 50
     else
         err="$(printf '%s' "$prog" | jq -r '.error // "see /var/log/airwaves-update.log"' 2>/dev/null)"
-        msg "${1^} did not complete" "\nState: ${st}\n\n${err}" 12 64
+        msg "${1^} did not complete" "\n\Z6State:\Zn $(cz "${st}")\n\n$(cz "${err}")" 12 64
     fi
 }
 open_shell() {
+    aw_restore_palette   # hand the plain shell the console's default palette
     clear
     echo "Airwaves OS shell — type 'exit' to return to the console menu."; echo
     AIRWAVES_TUI_SHELL=1 bash -l || true
+    aw_palette           # re-apply the brand palette when returning to the menu
 }
 
 # ---- first-boot status screen (#20) ----------------------------------------
@@ -451,24 +458,36 @@ first_boot_screen() {
     step="$(journalctl -u airwaves-init.service -o cat --no-pager 2>/dev/null | awk 'NF' | tail -1)"
     step="${step#\[airwaves-init\] }"
     [ -n "$step" ] || step="Starting first-boot setup..."
-    # Banner (centered as a block) + details (each line centered) form the splash
-    # ABOVE the box; the first-boot status goes INSIDE the titled box below.
-    local W iw splash status oy ox toph both lh botc maxs
+    step="$(cz "$step")"
+    # Banner + details form the borderless header (splash); the first-boot status
+    # goes in a HAND-DRAWN framed box below (so it reads as a proper card even
+    # though the hero infobox is borderless), with a blank top-margin row above it.
+    # The amber ▸ cursor + step is the one moving accent; the rest is calm slate.
+    local W iw splash status fb oy ox toph both lh botc maxs cur
     W="$(box_width)"; iw=$(( W - 2 ))
-    status="$( { printf '\n'; \
-        printf '     First boot — preparing your device. This happens only once.\n\n'; \
-        printf '     > %s\n\n' "${step}"; \
-        printf '     Loading the app stack from the on-board copy (no network needed).\n'; \
-        printf '     The console menu appears automatically when ready.\n'; } )"
-    botc="$(printf '%s\n' "${status}" | wc -l | tr -d ' ')"
+    if [ "${AW_UTF8:-0}" = 1 ]; then cur='▸'; else cur='>'; fi
+    status="$( {
+        printf '\Zb\Z7First boot — preparing your device.\Zn \Z6This happens only once.\Zn\n'
+        printf '\n'
+        printf '\Zb\Z3%s\Zn \Zb\Z3%s\Zn\n' "${cur}" "${step}"
+        printf '\n'
+        printf '\Z6Loading the app stack from the on-board copy (no network needed).\Zn\n'
+        printf '\Z6The console menu appears automatically when ready.\Zn\n'
+    } )"
+    # Frame width W-6 fits inside the infobox text area (dialog reserves a border
+    # + margin on each side); wider frames wrap and shatter the box-drawing.
+    fb="$(printf '%s\n' "${status}" | framebox "$(( W - 6 ))" "Setting up Airwaves OS")"
+    fb="$(printf '\n%s\n' "${fb}")"                 # blank top-margin row above the box
+    botc="$(printf '%s\n' "${fb}" | wc -l | tr -d ' ')"
     maxs="$(splash_budget info "${botc}")"
-    splash="$(build_splash "${iw}" "${maxs}" 0)"   # banner + details (no services here)
+    splash="$(build_splash "${iw}" "${maxs}" 0)"    # banner + details (no services here)
     read -r ox oy W toph both lh < <(layout_stack "${splash}" info "${botc}")
-    dlg --backtitle "${BT}" --no-collapse --keep-window \
+    # Borderless (dlgh) header; the framed status box draws its own border.
+    # --colors is per-widget in --and-widget chains, so repeat it before the box.
+    dlgh --backtitle "${BT}" --no-collapse --keep-window \
         --begin "${oy}" "${ox}" --no-shadow --infobox "${splash}" "${toph}" "${W}" \
-        --and-widget --keep-window --no-shadow \
-        --begin "$((oy + toph))" "${ox}" --title "Setting up Airwaves OS" \
-        --infobox "${status}" "${both}" "${W}"
+        --and-widget --colors --no-collapse --keep-window --no-shadow \
+        --begin "$((oy + toph))" "${ox}" --infobox "${fb}" "${both}" "${W}"
     sleep 2
 }
 
@@ -494,7 +513,7 @@ run_unattended_install() {
     fi
 
     dlg --backtitle "$BT" --title "Unattended install (from AWCFG config)" --pause \
-        "\nThe config partition requests an UNATTENDED install to:\n\n    ${target}\n\nTHIS WILL ERASE ${target}.\nCancel now to use the menu instead." 15 64 8 \
+        "\nThe config partition requests an UNATTENDED install to:\n\n    \Zb\Z7$(cz "${target}")\Zn\n\nThis will \Zb\Z1ERASE ALL DATA\ZB\Zn on \Zb\Z7$(cz "${target}")\Zn.\n\Z6Cancel now to use the menu instead.\Zn" 15 64 8 \
         || { rm -f "$TRIGGER"; return 1; }
 
     rm -f "$ISTATUS" 2>/dev/null || true
@@ -508,7 +527,7 @@ run_unattended_install() {
         while kill -0 "$pid" 2>/dev/null; do
             pct="$(jq -r '.percent // 0' "$ISTATUS" 2>/dev/null || echo 0)"
             phase="$(jq -r '.phase // "working"' "$ISTATUS" 2>/dev/null || echo working)"
-            echo "XXX"; echo "${pct:-0}"; printf 'Installing to %s\nStep: %s\n' "$target" "$phase"; echo "XXX"
+            echo "XXX"; echo "${pct:-0}"; printf 'Installing to \Zb\Z7%s\Zn\nStep: \Zb\Z3%s\Zn\n\Z6Keep the power connected.\Zn\n' "$(cz "$target")" "$(cz "$phase")"; echo "XXX"
             sleep 2
         done
         echo 100
@@ -525,10 +544,10 @@ run_unattended_install() {
         docker compose -f /etc/airwaves/docker-compose.yml down --timeout 10 2>/dev/null || true
         sync; sync
         if [ "$post" = "reboot" ]; then
-            dlg --backtitle "$BT" --title "Installed" --infobox "\nInstall complete. Rebooting into ${target}..." 7 56
+            dlg --backtitle "$BT" --title "Installed" --infobox "\n\Zb\Z2Install complete.\Zn Rebooting into \Zb\Z7$(cz "${target}")\Zn..." 7 56
             sleep 2; clear; systemctl reboot
         else
-            dlg --backtitle "$BT" --title "Installed" --msgbox "\nInstall complete.\n\nThe device will POWER OFF. Remove the install media,\nthen power on to boot ${target}." 12 64
+            dlg --backtitle "$BT" --title "Installed" --msgbox "\n\Zb\Z2Install complete.\Zn\n\nThe device will \Z3POWER OFF\Zn. Remove the install media,\nthen power on to boot \Zb\Z7$(cz "${target}")\Zn." 12 64
             clear; echo "Powering off..."; mount -o remount,ro / 2>/dev/null || true; systemctl poweroff
         fi
         return 0
@@ -536,12 +555,13 @@ run_unattended_install() {
 
     err="$(jq -r '.error // "see /var/log/airwaves-install.log"' "$ISTATUS" 2>/dev/null)"
     rm -f "$TRIGGER"
-    msg "Unattended install failed" "\nState: ${state}\n\n${err}\n\nUsing the interactive menu." 13 66
+    msg "Unattended install failed" "\n\Z6State:\Zn $(cz "${state}")\n\n$(cz "${err}")\n\n\Z6Using the interactive menu.\Zn" 13 66
     return 1
 }
 
 command -v dialog >/dev/null 2>&1 || { echo "dialog not available; opening a shell."; exec bash -l; }
 quiet_console
+aw_palette        # remap the 16 console slots to the night-watch brand colours
 init_theme
 
 while true; do
@@ -574,22 +594,23 @@ while true; do
     maxs="$(splash_budget menu "${nitems}")"
     splash="$(build_splash "${iw}" "${maxs}" 1)"   # banner + details + Services
     read -r ox oy W toph both lh < <(layout_stack "${splash}" menu "${nitems}")
-    choice="$(dlg --backtitle "${BT}" --no-collapse --keep-window \
+    # dlgh: the header infobox is borderless; the menu (menubox_border) stays boxed.
+    choice="$(dlgh --backtitle "${BT}" --no-collapse --keep-window \
         --begin "${oy}" "${ox}" --no-shadow --infobox "${splash}" "${toph}" "${W}" \
-        --and-widget --keep-window --no-shadow --no-cancel \
+        --and-widget --colors --keep-window --no-shadow --no-cancel \
         --begin "$((oy + toph))" "${ox}" --title "Airwaves OS Console" \
-        --menu "\n  Select an action:" "${both}" "${W}" "${lh}" "${items[@]}" \
+        --menu "\n  \Z6Select an action:\Zn" "${both}" "${W}" "${lh}" "${items[@]}" \
         3>&1 1>&2 2>&3)" || { sleep 1; continue; }
 
     case "$choice" in
         install)  clear; "$FIRSTRUN" --install || true ;;
         config)   configuration_menu ;;
         upgrade)  apply_update upgrade ;;
-        repair)   dlg --backtitle "$BT" --defaultno \
-                      --yesno "\nRepair re-pulls and recreates the app containers (no version change). Continue?" 9 62 \
+        repair)   dlg --backtitle "$BT" --title "Repair" --defaultno \
+                      --yesno "\nRepair re-pulls and recreates the app containers\n(no version change).\n\n\Z6Continue?\Zn" 10 62 \
                       && apply_update repair ;;
         shell)    open_shell ;;
-        reboot)   dlg --backtitle "$BT" --defaultno --yesno "\nReboot now?" 7 36 && { clear; systemctl reboot; } ;;
-        poweroff) dlg --backtitle "$BT" --defaultno --yesno "\nPower off now?" 7 36 && { clear; systemctl poweroff; } ;;
+        reboot)   dlg --backtitle "$BT" --title "Reboot" --defaultno --yesno "\n\Z3Reboot\Zn now?" 7 40 && { clear; systemctl reboot; } ;;
+        poweroff) dlg --backtitle "$BT" --title "Power off" --defaultno --yesno "\n\Z1Power off\Zn now?" 7 40 && { clear; systemctl poweroff; } ;;
     esac
 done

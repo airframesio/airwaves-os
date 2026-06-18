@@ -25,8 +25,8 @@ dialog_color           = (WHITE,BLACK,OFF)
 # --- titles & borders -------------------------------------------------------
 # Title is the accent (amber-bright). Borders are a quiet hairline — restraint.
 title_color            = (YELLOW,BLACK,ON)
-border_color           = (BLACK,BLACK,ON)
-border2_color          = (BLACK,BLACK,ON)
+border_color           = (BLACK,BLACK,OFF)
+border2_color          = (BLACK,BLACK,OFF)
 
 # --- menu box ---------------------------------------------------------------
 menubox_color          = (WHITE,BLACK,OFF)

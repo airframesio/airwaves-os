@@ -14,6 +14,26 @@ PRECONF="/run/airwaves/install-config.json"
 BT="Airwaves OS Installer"
 export TERM="${TERM:-linux}"
 
+# Shared branded look (palette remap, flat amber theme, wordmark banner, \Z/UTF-8
+# centering) — identical to the console TUI. Lives next to this script. Source it;
+# degrade gracefully (plain installer) if it is somehow missing.
+LIB="$(dirname "$0")/airwaves-tui-lib.sh"
+[ -r "$LIB" ] || LIB="/opt/airwaves/scripts/airwaves-tui-lib.sh"
+# shellcheck source=/dev/null
+if [ -r "$LIB" ]; then . "$LIB"; else
+    # shellcheck disable=SC2034  # AW_UTF8 is read by the lib's banner; set here for parity
+    AW_UTF8=0
+    aw_setup_locale() { :; }; aw_palette() { :; }; aw_restore_palette() { :; }
+    quiet_console() { dmesg -n 1 2>/dev/null || echo 1 > /proc/sys/kernel/printk 2>/dev/null || true; }
+    cz() { local s="${1:-}"; printf '%s' "${s//\\/}"; }
+    scr_cols() { tput cols 2>/dev/null || echo 80; }
+    box_width() { echo 72; }
+    center_block() { cat; }
+    banner_art() { printf 'A I R W A V E S   O S\n'; }
+    aw_dialogrc() { printf 'use_colors = ON\nuse_shadow = OFF\n'; }
+fi
+aw_setup_locale
+
 # Modes: default "boot" = live/install menu (only on the installer medium).
 # "--install" = launched on demand — skip the menu/gate, go to disk select.
 MODE="boot"
@@ -38,13 +58,26 @@ fi
 [ -t 0 ] || { [ "${MODE}" = "install" ] && echo "airwaves-install: no interactive terminal." >&2; exit 0; }
 command -v dialog >/dev/null || { [ "${MODE}" = "install" ] && echo "airwaves-install: 'dialog' is not installed." >&2; exit 0; }
 
-# Branded black/cyan theme, shared with the console TUI so every screen matches.
+# Branded theme, shared with the console TUI so every screen matches. The "hero"
+# variant hides the outer box border so the banner reads as a proud borderless
+# header; the menu keeps its solid border.
 if [ -r /opt/airwaves/config/dialogrc ]; then
-    export DIALOGRC=/opt/airwaves/config/dialogrc
+    DIALOGRC=/opt/airwaves/config/dialogrc
 elif [ -r /run/airwaves-tui.dialogrc ]; then
-    export DIALOGRC=/run/airwaves-tui.dialogrc
+    DIALOGRC=/run/airwaves-tui.dialogrc
+elif aw_dialogrc > /run/airwaves-tui.dialogrc 2>/dev/null; then
+    DIALOGRC=/run/airwaves-tui.dialogrc      # recreate the shared theme on tmpfs
 else
-    export DIALOGRC=/dev/null
+    DIALOGRC=/dev/null
+fi
+export DIALOGRC
+if [ -r /opt/airwaves/config/dialogrc-hero ]; then
+    DIALOGRC_HERO=/opt/airwaves/config/dialogrc-hero
+elif [ "$DIALOGRC" != /dev/null ] && sed -e 's/^border_color .*/border_color = (BLACK,BLACK,OFF)/' \
+        -e 's/^border2_color .*/border2_color = (BLACK,BLACK,OFF)/' "$DIALOGRC" > /run/airwaves-hero.dialogrc 2>/dev/null; then
+    DIALOGRC_HERO=/run/airwaves-hero.dialogrc
+else
+    DIALOGRC_HERO="$DIALOGRC"
 fi
 
 # Themed dialog wrappers. dialog draws its UI to fd 1 (stdout) via curses, so a
@@ -53,12 +86,21 @@ fi
 # scanning-infobox text into the install target -> "not a usable disk device").
 #   dlg  = non-value dialogs: force the UI to the terminal (/dev/tty).
 #   dlgv = value dialogs (menu/input/password): UI to terminal, RESULT on stdout.
-dlg()  { dialog --backtitle "${BT}" --no-shadow "$@" 1>/dev/tty; }
-dlgv() { dialog --backtitle "${BT}" --no-shadow "$@" 3>&1 1>&2 2>&3; }
+#   dlgvh = value dialog with the borderless hero theme (the welcome banner stack).
+# --colors enables the inline \Z brand accents (the theme expects them).
+dlg()   { dialog --colors --backtitle "${BT}" --no-shadow "$@" 1>/dev/tty; }
+dlgv()  { dialog --colors --backtitle "${BT}" --no-shadow "$@" 3>&1 1>&2 2>&3; }
+dlgvh() { DIALOGRC="$DIALOGRC_HERO" dialog --colors --backtitle "${BT}" --no-shadow "$@" 3>&1 1>&2 2>&3; }
 
-# Stop kernel log messages (printk) from clobbering the dialog UI — the install
-# (partitioning, mkfs, USB events) generates a lot of them. `dmesg` keeps them.
-dmesg -n 1 2>/dev/null || echo 1 > /proc/sys/kernel/printk 2>/dev/null || true
+# Quiet kernel log spam (printk) so it can't clobber the dialog UI during install
+# (partitioning, mkfs, USB events); `dmesg` keeps everything. Then remap the 16
+# console slots to the night-watch brand palette so the installer matches the OS.
+quiet_console
+aw_palette
+# Restore the default console palette on ANY exit (e.g. the 'live' hand-off to a
+# login shell) so a plain shell isn't left with the remapped colours. No-op when
+# TERM!=linux or the lib is absent.
+trap 'aw_restore_palette' EXIT
 
 # Reduce a captured value to a clean device path: first drop ANSI/CSI escape
 # sequences (their letters/digits like the "0m" in ESC[0m would otherwise
@@ -68,8 +110,25 @@ dmesg -n 1 2>/dev/null || echo 1 > /proc/sys/kernel/printk 2>/dev/null || true
 sanitize_dev() { printf '%s' "${1:-}" | LC_ALL=C sed -e 's/\x1b\[[0-9;?]*[A-Za-z]//g' -e 's/[^A-Za-z0-9/_-]//g'; }
 
 main_menu() {
-    dlgv --no-cancel --title "Welcome to Airwaves OS" \
-        --menu "\nYou are running Airwaves OS live from this USB.\n\nChoose how to proceed:" 13 66 2 \
+    # Proud borderless banner (hero) above a boxed action menu — matches the
+    # console. The banner sits in its own borderless infobox; the menu keeps a
+    # solid border. A top margin keeps both clear of the backtitle rule.
+    local cols rows W iw banner bn toph menuh total oy ox TOPM=3
+    cols="$(scr_cols)"; rows="$(scr_rows)"; W="$(box_width)"; [ "$W" -gt 74 ] && W=74; iw=$(( W - 2 ))
+    banner="$(banner_art "$iw" | center_block "$iw")"
+    bn="$(printf '%s\n' "$banner" | wc -l | tr -d ' ')"
+    # banner + 2 (invisible) borders + 2 extra rows = a 2-line bottom margin under
+    # the banner (dialog top-aligns infobox content).
+    toph=$(( bn + 4 ))
+    menuh=11                      # 2-line prompt + 2 items + borders + buttons + spacing
+    total=$(( toph + menuh ))
+    oy=$(( TOPM + (rows - TOPM - 1 - total) / 2 )); [ "$oy" -lt "$TOPM" ] && oy="$TOPM"
+    ox=$(( (cols - W) / 2 )); [ "$ox" -lt 0 ] && ox=0
+    dlgvh --no-collapse --no-cancel --keep-window \
+        --begin "$oy" "$ox" --no-shadow --infobox "$banner" "$toph" "$W" \
+        --and-widget --colors --keep-window --no-shadow --no-cancel \
+        --begin "$(( oy + toph ))" "$ox" --title "Welcome to Airwaves OS" \
+        --menu "$(printf '\n  \Z6Running live from USB — choose how to proceed:\Zn\n')" "$menuh" "$W" 2 \
         live    "Run live now (no changes to any disk)" \
         install "Install Airwaves OS to an internal disk"
 }
@@ -78,22 +137,25 @@ pick_disk() {
     local json rows=() dev size model summary n
     # Scan (mounts each candidate read-only) so we can show what's on each drive
     # and flag any that already run Airwaves OS. Cache it so run_install can warn.
-    dlg --infobox "\n  Scanning drives — reading partitions and checking for\n  existing installations (each is briefly mounted read-only)..." 7 64
+    dlg --infobox "\n  \Z3Scanning drives\Zn — reading partitions and checking for\n  existing installations (each is briefly mounted read-only)..." 7 64
     json="$("${INSTALL}" --scan-json 2>/dev/null)"
     printf '%s' "${json}" > "${SCAN}" 2>/dev/null || true
     n="$(printf '%s' "${json}" | jq 'length' 2>/dev/null || echo 0)"
     if ! [ "${n}" -gt 0 ] 2>/dev/null; then
-        dlg --title "No disks found" --msgbox "\nNo internal disks were found to install onto.\n\nAttach an internal drive (NVMe / SATA / eMMC) and try again,\nor choose \"Run live\"." 11 64
+        dlg --title "No disks found" --msgbox "\nNo internal disks were found to install onto.\n\n\Z6Attach an internal drive (NVMe / SATA / eMMC) and try again,\nor choose \"Run live\".\Zn" 11 64
         return 1
     fi
     # tag = device; item = "size  model  •  <contents>". Join with the ASCII Unit
     # Separator (0x1F), not a tab: read collapses tabs and would shift columns.
+    # Rows are PLAIN (no \Z): the highlighted row is an amber bar and cream/slate
+    # on amber is unreadable (~1.6:1), so the selected target must stay crisp
+    # ink-on-amber. Still sanitize (cz) so disk metadata can't inject a colour code.
     while IFS=$'\037' read -r dev size model summary; do
         [ -n "${dev}" ] || continue
-        rows+=("${dev}" "  ${size}  ${model}  •  ${summary}")
+        rows+=("${dev}" "  $(cz "${size}")  $(cz "${model}")  •  $(cz "${summary}")")
     done < <(printf '%s' "${json}" | jq -r '.[] | [.device, .size, ((.model // "") | if .=="" then "disk" else . end), (.summary // "")] | join("\u001f")')
     dlgv --title "Select the target disk" \
-        --menu "\nThe selected disk will be COMPLETELY ERASED.\nDrives already running Airwaves OS are marked.\n" 17 78 8 "${rows[@]}"
+        --menu "\nThe selected disk will be \Zb\Z1COMPLETELY ERASED\ZB\Zn.\n\Z6Drives already running Airwaves OS are marked.\Zn\n" 17 78 8 "${rows[@]}"
 }
 
 # Collect hostname (+ optional Wi-Fi) for the installed system BEFORE writing the
@@ -111,7 +173,7 @@ ask_preinstall_config() {
         ssid="$(dlgv --title "Wi-Fi network" --inputbox "\nWi-Fi network name (SSID):" 10 60)" || ssid=""
         if [ -n "${ssid}" ]; then
             psk="$(dlgv --title "Wi-Fi password" --insecure \
-                --passwordbox "\nPassword for \"${ssid}\" (leave blank for an open network):" 10 64)" || psk=""
+                --passwordbox "\nPassword for \Z3$(cz "${ssid}")\Zn (leave blank for an open network):" 10 64)" || psk=""
         fi
     fi
     jq -n --arg h "${host}" --arg s "${ssid}" --arg p "${psk}" \
@@ -123,7 +185,7 @@ ask_preinstall_config() {
 run_install() {
     local target; target="$(sanitize_dev "$1")"
     if [ -z "${target}" ] || [ ! -b "${target}" ]; then
-        dlg --title "Invalid disk" --msgbox "\n\"${target}\" is not a usable disk device.\n\nPlease pick another target." 10 60
+        dlg --title "Invalid disk" --msgbox "\n\Zb\Z1\"${target}\" is not a usable disk device.\Zn\n\n\Z6Please pick another target.\Zn" 10 60
         return 1
     fi
 
@@ -134,10 +196,10 @@ run_install() {
     aw_ver="$(jq -r --arg d "${target}" '.[]|select(.device==$d)|(.airwaves.version // "")' "${SCAN}" 2>/dev/null)"
     if [ "${aw_present}" = "true" ]; then
         dlg --title "Airwaves OS already installed here" --defaultno \
-            --yesno "\n${target} already has Airwaves OS${aw_ver:+ v${aw_ver}} installed.\n\nContinuing will ERASE that installation and ALL data on\nthe drive. Overwrite it?" 12 64 || return 1
+            --yesno "\n\Zb\Z7${target}\Zn already has Airwaves OS${aw_ver:+ \Zb\Z7v$(cz "${aw_ver}")\Zn} installed.\n\nContinuing will \Zb\Z1ERASE\ZB\Zn that installation and \Zb\Z1ALL data\ZB\Zn on\nthe drive. Overwrite it?" 12 64 || return 1
     fi
     dlg --title "Confirm install" --defaultno \
-        --yesno "\nThis will ERASE ALL DATA on:\n\n      ${target}\n\nand install Airwaves OS onto it.\n\nContinue?" 13 60 || return 1
+        --yesno "\nThis will \Zb\Z1ERASE ALL DATA\ZB\Zn on:\n\n      \Zb\Z7${target}\Zn\n\nand install Airwaves OS onto it. \Z6This cannot be undone.\Zn\n\nContinue?" 13 64 || return 1
 
     # Ask for hostname / Wi-Fi to provision the installed system.
     ask_preinstall_config
@@ -155,11 +217,11 @@ run_install() {
                 phase="$(jq -r '.phase // "working"' "${STATUS}" 2>/dev/null || echo "${phase}")"
             fi
             # Real newlines (printf, not echo) so the gauge text renders cleanly.
-            printf 'XXX\n%s\nInstalling to %s\n\nStep: %s\nXXX\n' "${pct:-0}" "${target}" "${phase}"
+            printf 'XXX\n%s\nInstalling to \Zb\Z7%s\Zn\n\nStep: \Zb\Z3%s\Zn\n\Z6Keep the power connected. This takes a few minutes.\Zn\nXXX\n' "${pct:-0}" "${target}" "$(cz "${phase}")"
             sleep 2
         done
         printf '100\n'
-    ) | dlg --title "Installing Airwaves OS" --gauge "\nPreparing..." 11 64 0
+    ) | dlg --title "Installing Airwaves OS" --gauge "\nPreparing..." 12 64 0
 
     wait "${pid}"; local rc=$? state
     state="$(jq -r '.state // "unknown"' "${STATUS}" 2>/dev/null || echo unknown)"
@@ -168,7 +230,7 @@ run_install() {
         # spews I/O errors. Power off, let the user remove the USB while OFF, then
         # power on to boot the installed disk. Quiesce + remount-ro first.
         dlg --title "Installation complete" --no-collapse \
-            --msgbox "\nAirwaves OS was installed to:\n\n      ${target}\n\nThe device will now POWER OFF. Then:\n  1. Remove the USB drive\n  2. Power the device back on\n\nIt will boot Airwaves OS from ${target}." 16 64
+            --msgbox "\n\Zb\Z2Airwaves OS was installed\Zn to:\n\n      \Zb\Z7${target}\Zn\n\nThe device will now \Z3POWER OFF\Zn. Then:\n  \Z6 1.\Zn Remove the USB drive\n  \Z6 2.\Zn Power the device back on\n\nIt will boot Airwaves OS from \Zb\Z7${target}\Zn." 16 64
         clear
         echo "Shutting down cleanly — please wait..."
         systemctl stop airwaves-containers.service 2>/dev/null || true
@@ -180,7 +242,7 @@ run_install() {
         return 0
     else
         local err; err="$(jq -r '.error // "see /var/log/airwaves-install.log"' "${STATUS}" 2>/dev/null)"
-        dlg --title "Install failed" --msgbox "\nThe install did not complete.\n\n${err}\n\nLog: /var/log/airwaves-install.log" 13 66
+        dlg --title "Install failed" --msgbox "\n\Zb\Z1The install did not complete.\Zn\n\n$(cz "${err}")\n\nLog: \Z6/var/log/airwaves-install.log\Zn" 13 66
         return 1
     fi
 }
