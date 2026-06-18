@@ -10,7 +10,9 @@ on:
         options:
           - rpi4b
           - rock-5b
+          - rock-5a
           - orangepi5
+          - orangepi5-plus
           - uefi-x86
       release:
         description: "Release"
@@ -35,6 +37,15 @@ on:
         required: true
         default: true
         type: boolean
+      channel:
+        description: "Release channel manifest to bundle containers + os_version from"
+        required: true
+        default: "stable"
+        type: choice
+        options:
+          - stable
+          - dev
+          - beta
 
 # The Armbian build framework tag is pinned in armbian/build.sh (single source
 # of truth); this workflow invokes build.sh, so no override is needed here.
@@ -96,11 +107,12 @@ jobs:
         if: ${{ inputs.bundle_containers }}
         env:
           BOARD: ${{ github.event.inputs.board }}
+          CHANNEL_INPUT: ${{ github.event.inputs.channel }}
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          REL="releases/stable.json"
+          REL="releases/${CHANNEL_INPUT:-stable}.json"
           [ -f "$REL" ] || { echo "::error::$REL not found"; exit 1; }
 
           CHANNEL="$(jq -r '.channel // "stable"' "$REL")"
@@ -519,7 +531,9 @@ jobs:
           RELEASE: ${{ github.event.inputs.release }}
         run: |
           if [ "$BOARD" = "rpi4b" ]; then
-            echo "name=airwaves-os-raspberrypi-3-4-5-${RELEASE}" >> "$GITHUB_OUTPUT"
+            # arm64 Armbian rpi4b boots Pi 3 (64-bit) and Pi 4. Pi 5 (BCM2712/RP1)
+            # needs the downstream RPi kernel Armbian does not ship, so it's excluded.
+            echo "name=airwaves-os-raspberrypi-3-4-${RELEASE}" >> "$GITHUB_OUTPUT"
           else
             echo "name=airwaves-os-${BOARD}-${RELEASE}" >> "$GITHUB_OUTPUT"
           fi
