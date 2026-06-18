@@ -97,6 +97,32 @@ exit 0
 HOOK
 	run_host_command_logged chmod +x "${premount}/0050-airwaves-autotoram"
 
+	# --- neutralize /etc/fstab on live boot ---------------------------------
+	# The squashfs carries the embedded image's /etc/fstab (root + ESP UUIDs that
+	# don't exist on a live overlay root); systemd would try to mount them and
+	# drop to emergency mode. A live-bottom hook (runs after the overlay root is
+	# mounted, before pivot) replaces it with a neutral live fstab. Only runs on a
+	# live boot (live-bottom scripts run only under boot=live).
+	local livebottom="${SDCARD}/usr/share/initramfs-tools/scripts/live-bottom"
+	run_host_command_logged mkdir -p "${livebottom}"
+	cat > "${livebottom}/0100-airwaves-fstab" <<'FSTABHOOK'
+#!/bin/sh
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in prereqs) prereqs; exit 0 ;; esac
+# Replace the baked (embedded-image) fstab so live boot doesn't try to mount the
+# nonexistent root/ESP and fall into emergency mode.
+R="${rootmnt:-/root}"
+if [ -d "$R/etc" ]; then
+    {
+        echo "# Airwaves OS live system: root is a live-boot overlay (no fstab root)."
+        echo "# /var/lib/docker is a tmpfs mounted by airwaves-live-docker-tmpfs.service."
+    } > "$R/etc/fstab"
+fi
+exit 0
+FSTABHOOK
+	run_host_command_logged chmod +x "${livebottom}/0100-airwaves-fstab"
+
 	# --- live-only tmpfs for /var/lib/docker --------------------------------
 	# On a live (overlay) root, Docker's overlay2 store can't live on overlayfs.
 	# Mount a RAM tmpfs at /var/lib/docker so the stack runs in RAM. The condition
@@ -114,6 +140,7 @@ RequiresMountsFor=/var/lib
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+ExecStartPre=-/bin/mkdir -p /var/lib/docker
 ExecStart=/bin/mount -t tmpfs -o size=75%,mode=0710 tmpfs /var/lib/docker
 
 [Install]
