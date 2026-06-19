@@ -37,15 +37,21 @@ lists:
     - { BOARD: orangepi5-plus, BRANCH: vendor }
     - { BOARD: uefi-x86, BRANCH: current }
 
-  # Tier 2: Extended board support (enable when Tier 1 is stable)
-  # tier2-boards: &tier2-boards
-  #   - { BOARD: rockpro64, BRANCH: current }
-  #   - { BOARD: odroidn2, BRANCH: current }
-  #   - { BOARD: odroidc4, BRANCH: current }
-  #   - { BOARD: orangepi3-lts, BRANCH: current }
-  #   - { BOARD: nanopi-r6s, BRANCH: current }
-  #   - { BOARD: khadas-vim3, BRANCH: current }
-  #   - { BOARD: uefi-arm64, BRANCH: current }
+  # Tier 2: Extended popular boards (Debian Trixie). All arm64 (the manager +
+  # gateway containers are arm64-only). rk3588 -> vendor (Rockchip BSP); the
+  # Amlogic/Allwinner boards -> current (mainline). Verified against Armbian
+  # v26.2.1 board configs (KERNEL_TARGET).
+  tier2-boards: &tier2-boards
+    - { BOARD: rock-5c, BRANCH: vendor }        # Radxa ROCK 5C (rk3588)
+    - { BOARD: rock-5b-plus, BRANCH: vendor }   # Radxa ROCK 5B Plus (rk3588; no current branch)
+    - { BOARD: nanopct6, BRANCH: vendor }       # FriendlyELEC NanoPC-T6 (rk3588)
+    - { BOARD: nanopi-r6s, BRANCH: vendor }     # FriendlyELEC NanoPi R6S (rk3588)
+    - { BOARD: odroidn2, BRANCH: current }      # Hardkernel Odroid N2/N2+ (meson-g12b)
+    - { BOARD: odroidc4, BRANCH: current }      # Hardkernel Odroid C4 (meson-sm1)
+    - { BOARD: orangepizero3, BRANCH: current } # Orange Pi Zero 3 (Allwinner H618)
+    - { BOARD: orangepi3-lts, BRANCH: current } # Orange Pi 3 LTS (Allwinner H6)
+    - { BOARD: lepotato, BRANCH: current }      # Libre Computer Le Potato (meson-gxl)
+    - { BOARD: khadas-vim3, BRANCH: current }   # Khadas VIM3 (meson-g12b)
 
 targets:
 
@@ -61,6 +67,7 @@ targets:
       CLOUD_IMAGE: "no"
     items:
       - *tier1-boards
+      - *tier2-boards
 
   # Legacy: Debian Bookworm (community support in Armbian v26.2)
   cli-bookworm:

@@ -14,6 +14,16 @@ on:
           - orangepi5
           - orangepi5-plus
           - uefi-x86
+          - rock-5c
+          - rock-5b-plus
+          - nanopct6
+          - nanopi-r6s
+          - odroidn2
+          - odroidc4
+          - orangepizero3
+          - orangepi3-lts
+          - lepotato
+          - khadas-vim3
       release:
         description: "Release"
         required: true
