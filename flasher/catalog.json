@@ -1,0 +1,211 @@
+{
+  "schema": 1,
+  "name": "Airwaves OS",
+  "updated": "2026-06-19T04:11:11Z",
+  "channels": [
+    "stable",
+    "beta",
+    "dev"
+  ],
+  "devices": [
+    {
+      "id": "orangepi5",
+      "name": "Orange Pi 5",
+      "description": "Compact RK3588S board, a strong-value feeder.",
+      "icon": "orangepi",
+      "arch": "arm64",
+      "vendor": "Orange Pi",
+      "tags": [
+        "supported"
+      ]
+    },
+    {
+      "id": "orangepi5-plus",
+      "name": "Orange Pi 5 Plus",
+      "description": "RK3588 board with dual 2.5GbE for multi-feed stations.",
+      "icon": "orangepi",
+      "arch": "arm64",
+      "vendor": "Orange Pi",
+      "tags": [
+        "supported"
+      ]
+    },
+    {
+      "id": "uefi-x86",
+      "name": "PC / Mini-PC (x86 UEFI)",
+      "description": "Any 64-bit UEFI PC or mini-PC.",
+      "icon": "x86",
+      "arch": "amd64",
+      "vendor": "PC / x86",
+      "tags": [
+        "supported",
+        "popular"
+      ]
+    },
+    {
+      "id": "rock-5a",
+      "name": "Radxa ROCK 5A",
+      "description": "Compact RK3588S board; a strong-value feeder.",
+      "icon": "rock",
+      "arch": "arm64",
+      "vendor": "Radxa",
+      "tags": [
+        "supported"
+      ]
+    },
+    {
+      "id": "rock-5b",
+      "name": "Radxa ROCK 5B",
+      "description": "High-performance RK3588 board for demanding multi-band stations.",
+      "icon": "rock",
+      "arch": "arm64",
+      "vendor": "Radxa",
+      "tags": [
+        "supported"
+      ]
+    },
+    {
+      "id": "rpi4b",
+      "name": "Raspberry Pi 3 / 4",
+      "description": "Popular 64-bit feeder board with great SDR support. (Pi 5 not yet supported.)",
+      "icon": "rpi",
+      "arch": "arm64",
+      "vendor": "Raspberry Pi",
+      "tags": [
+        "supported",
+        "popular"
+      ]
+    }
+  ],
+  "images": [
+    {
+      "id": "orangepi5-plus-dev-1.0.38",
+      "device": "orangepi5-plus",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (Orange Pi 5 Plus)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-98c83db_Orangepi5-plus_trixie_vendor_6.1.115_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 490641732,
+      "downloadSha256": "686d9c3866af0213fed9b4ef52208650329fe77546d22c89fbdfc969cd0a89e4",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "orangepi5-dev-1.0.38",
+      "device": "orangepi5",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (Orange Pi 5)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-98c83db_Orangepi5_trixie_vendor_6.1.115_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 492357196,
+      "downloadSha256": "f3c73381d8a075bef59691291b379e089864d7e1a1419e8fd87f43063f666455",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "rock-5a-dev-1.0.38",
+      "device": "rock-5a",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (ROCK 5A)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-98c83db_Rock-5a_trixie_vendor_6.1.115_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 490146036,
+      "downloadSha256": "5b630a25c96e5f0715ceb4a1e5ff7760d88c7f0d023865abbaaca01a32f222aa",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "rock-5b-dev-1.0.38",
+      "device": "rock-5b",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (ROCK 5B)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-98c83db_Rock-5b_trixie_vendor_6.1.115_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 489670904,
+      "downloadSha256": "2caa706455bc12bc1cd239325ebc46acb2b3709a1669d37028165c9bb1a99127",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "rpi4b-dev-1.0.38",
+      "device": "rpi4b",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (Raspberry Pi)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-98c83db_Rpi4b_noble_current_6.18.35_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 389971080,
+      "downloadSha256": "51a4c48b61e32fe62d446f14ba191de36de2cf0a3122c08fda4eba07d504483e",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "uefi-x86-dev-1.0.38",
+      "device": "uefi-x86",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (x86 UEFI)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-98c83db_Uefi-x86_trixie_current_6.18.35_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 1368392160,
+      "downloadSha256": "a8e129c269ee638a7fc1e43408f7fb2dbf99c2e9d61456bd71625ab35beecb11",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "rock-5b-stable-1.0.37",
+      "device": "rock-5b",
+      "channel": "stable",
+      "osVersion": "1.0.37",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.37 (ROCK 5B)",
+      "released": "2026-06-16",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/v1.0.37",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/v1.0.37/Airwaves_OS_1.0.37_Rock-5b_bookworm_vendor_6.1.115_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 428493840,
+      "downloadSha256": "15c19f16d532643162dad1eff0c657be6b99790cbb0da4dbe40508145f24d3ff",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "uefi-x86-stable-1.0.37",
+      "device": "uefi-x86",
+      "channel": "stable",
+      "osVersion": "1.0.37",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.37 (x86 UEFI)",
+      "released": "2026-06-16",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/v1.0.37",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/v1.0.37/Airwaves_OS_1.0.37_Uefi-x86_trixie_current_6.18.35_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 1345474988,
+      "downloadSha256": "c418dfecdf6b324a3130c56b84372e55fd95565d470c63c1b320e3c30dfa376b",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    }
+  ],
+  "source": "remote"
+}
