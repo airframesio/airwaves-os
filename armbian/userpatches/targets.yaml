@@ -53,6 +53,22 @@ lists:
     - { BOARD: lepotato, BRANCH: current }      # Libre Computer Le Potato (meson-gxl)
     - { BOARD: khadas-vim3, BRANCH: current }   # Khadas VIM3 (meson-g12b)
 
+  # Tier 3: Further popular arm64 boards. Branch = each board's first (Armbian-
+  # recommended) KERNEL_TARGET at v26.2.1: rk3588 -> vendor; rk356x/rk3399/Amlogic
+  # /Allwinner -> current, except orangepi3b/radxa-zero3 whose configs default to
+  # vendor.
+  tier3-boards: &tier3-boards
+    - { BOARD: rock-5t, BRANCH: vendor }         # Radxa ROCK 5T (rk3588, vendor-only)
+    - { BOARD: orangepi5-max, BRANCH: vendor }   # Orange Pi 5 Max (rk3588)
+    - { BOARD: orangepi3b, BRANCH: vendor }      # Orange Pi 3B (rk3566; config defaults vendor)
+    - { BOARD: radxa-zero3, BRANCH: vendor }     # Radxa ZERO 3 (rk3566; config defaults vendor)
+    - { BOARD: rock-3a, BRANCH: current }        # Radxa ROCK 3A (rk3568)
+    - { BOARD: odroidm1, BRANCH: current }       # Hardkernel Odroid M1 (rk3568)
+    - { BOARD: odroidc2, BRANCH: current }       # Hardkernel Odroid C2 (Amlogic S905)
+    - { BOARD: orangepizero2w, BRANCH: current } # Orange Pi Zero 2W (Allwinner H618)
+    - { BOARD: nanopi-r4s, BRANCH: current }     # FriendlyELEC NanoPi R4S (rk3399)
+    - { BOARD: orangepi4-lts, BRANCH: current }  # Orange Pi 4 LTS (rk3399)
+
 targets:
 
   # Primary: Debian Trixie for ARM and x86 boards
@@ -68,6 +84,7 @@ targets:
     items:
       - *tier1-boards
       - *tier2-boards
+      - *tier3-boards
 
   # Legacy: Debian Bookworm (community support in Armbian v26.2)
   cli-bookworm:

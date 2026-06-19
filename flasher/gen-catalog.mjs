@@ -32,8 +32,36 @@ const DEVICES = {
   'rock-5a':        { name: 'Radxa ROCK 5A',      description: 'Compact RK3588S board; a strong-value feeder.',       icon: 'rock',    arch: 'arm64', vendor: 'Radxa',        tags: ['supported'] },
   orangepi5:        { name: 'Orange Pi 5',        description: 'Compact RK3588S board, a strong-value feeder.',       icon: 'orangepi',arch: 'arm64', vendor: 'Orange Pi',    tags: ['supported'] },
   'orangepi5-plus': { name: 'Orange Pi 5 Plus',   description: 'RK3588 board with dual 2.5GbE for multi-feed stations.', icon: 'orangepi', arch: 'arm64', vendor: 'Orange Pi', tags: ['supported'] },
+  // Tier 2
+  'rock-5c':        { name: 'Radxa ROCK 5C',      description: 'RK3588S2 board, compact and efficient.',             icon: 'rock',    arch: 'arm64', vendor: 'Radxa',          tags: ['supported'] },
+  'rock-5b-plus':   { name: 'Radxa ROCK 5B Plus', description: 'RK3588 board with onboard eMMC and PoE option.',      icon: 'rock',    arch: 'arm64', vendor: 'Radxa',          tags: ['supported'] },
+  nanopct6:         { name: 'FriendlyELEC NanoPC-T6', description: 'RK3588 board with dual 2.5GbE and M.2.',          icon: 'sbc',     arch: 'arm64', vendor: 'FriendlyELEC',   tags: ['supported'] },
+  'nanopi-r6s':     { name: 'FriendlyELEC NanoPi R6S', description: 'RK3588S router/feeder with dual 2.5GbE + GbE.',  icon: 'sbc',     arch: 'arm64', vendor: 'FriendlyELEC',   tags: ['supported'] },
+  odroidn2:         { name: 'Hardkernel Odroid N2/N2+', description: 'Amlogic S922X board, a long-time favourite.',   icon: 'sbc',     arch: 'arm64', vendor: 'Hardkernel',     tags: ['supported'] },
+  odroidc4:         { name: 'Hardkernel Odroid C4', description: 'Amlogic S905X3 board, low-cost and efficient.',     icon: 'sbc',     arch: 'arm64', vendor: 'Hardkernel',     tags: ['supported'] },
+  orangepizero3:    { name: 'Orange Pi Zero 3',   description: 'Tiny, inexpensive Allwinner H618 feeder.',            icon: 'orangepi',arch: 'arm64', vendor: 'Orange Pi',      tags: ['supported'] },
+  'orangepi3-lts':  { name: 'Orange Pi 3 LTS',    description: 'Allwinner H6 board with Wi-Fi and eMMC.',             icon: 'orangepi',arch: 'arm64', vendor: 'Orange Pi',      tags: ['supported'] },
+  lepotato:         { name: 'Libre Computer Le Potato', description: 'Amlogic S905X board, very low cost.',           icon: 'sbc',     arch: 'arm64', vendor: 'Libre Computer', tags: ['supported'] },
+  'khadas-vim3':    { name: 'Khadas VIM3',        description: 'Amlogic A311D board with NPU and eMMC.',              icon: 'sbc',     arch: 'arm64', vendor: 'Khadas',         tags: ['supported'] },
+  // Tier 3
+  'rock-5t':        { name: 'Radxa ROCK 5T',      description: 'RK3588 board with dual 2.5GbE.',                      icon: 'rock',    arch: 'arm64', vendor: 'Radxa',          tags: ['supported'] },
+  'orangepi5-max':  { name: 'Orange Pi 5 Max',    description: 'Top-end RK3588 board with 2.5GbE.',                   icon: 'orangepi',arch: 'arm64', vendor: 'Orange Pi',      tags: ['supported'] },
+  orangepi3b:       { name: 'Orange Pi 3B',       description: 'RK3566 board, a strong-value feeder.',                icon: 'orangepi',arch: 'arm64', vendor: 'Orange Pi',      tags: ['supported'] },
+  'radxa-zero3':    { name: 'Radxa ZERO 3W',      description: 'Tiny RK3566 board, Pi-Zero form factor.',             icon: 'rock',    arch: 'arm64', vendor: 'Radxa',          tags: ['supported'] },
+  'rock-3a':        { name: 'Radxa ROCK 3A',      description: 'RK3568 board with M.2 and GbE.',                      icon: 'rock',    arch: 'arm64', vendor: 'Radxa',          tags: ['supported'] },
+  odroidm1:         { name: 'Hardkernel Odroid M1', description: 'RK3568 board with NVMe and eMMC.',                  icon: 'sbc',     arch: 'arm64', vendor: 'Hardkernel',     tags: ['supported'] },
+  odroidc2:         { name: 'Hardkernel Odroid C2', description: 'Classic Amlogic S905 board.',                       icon: 'sbc',     arch: 'arm64', vendor: 'Hardkernel',     tags: ['supported'] },
+  orangepizero2w:   { name: 'Orange Pi Zero 2W',  description: 'Tiny Allwinner H618 board, Pi-Zero form factor.',     icon: 'orangepi',arch: 'arm64', vendor: 'Orange Pi',      tags: ['supported'] },
+  'nanopi-r4s':     { name: 'FriendlyELEC NanoPi R4S', description: 'RK3399 router/feeder with dual GbE.',           icon: 'sbc',     arch: 'arm64', vendor: 'FriendlyELEC',   tags: ['supported'] },
+  'orangepi4-lts':  { name: 'Orange Pi 4 LTS',    description: 'RK3399 board with Wi-Fi and eMMC.',                   icon: 'orangepi',arch: 'arm64', vendor: 'Orange Pi',      tags: ['supported'] },
 };
-const SHORT = { rpi4b: 'Raspberry Pi', 'uefi-x86': 'x86 UEFI', 'rock-5b': 'ROCK 5B', 'rock-5a': 'ROCK 5A', orangepi5: 'Orange Pi 5', 'orangepi5-plus': 'Orange Pi 5 Plus' };
+const SHORT = {
+  rpi4b: 'Raspberry Pi', 'uefi-x86': 'x86 UEFI', 'rock-5b': 'ROCK 5B', 'rock-5a': 'ROCK 5A', orangepi5: 'Orange Pi 5', 'orangepi5-plus': 'Orange Pi 5 Plus',
+  'rock-5c': 'ROCK 5C', 'rock-5b-plus': 'ROCK 5B+', nanopct6: 'NanoPC-T6', 'nanopi-r6s': 'NanoPi R6S', odroidn2: 'Odroid N2', odroidc4: 'Odroid C4',
+  orangepizero3: 'Orange Pi Zero 3', 'orangepi3-lts': 'Orange Pi 3 LTS', lepotato: 'Le Potato', 'khadas-vim3': 'Khadas VIM3',
+  'rock-5t': 'ROCK 5T', 'orangepi5-max': 'Orange Pi 5 Max', orangepi3b: 'Orange Pi 3B', 'radxa-zero3': 'Radxa ZERO 3W', 'rock-3a': 'ROCK 3A',
+  odroidm1: 'Odroid M1', odroidc2: 'Odroid C2', orangepizero2w: 'Orange Pi Zero 2W', 'nanopi-r4s': 'NanoPi R4S', 'orangepi4-lts': 'Orange Pi 4 LTS',
+};
 const CODENAME = 'Sideband';
 // No shell: args passed directly to gh (all inputs are constants anyway).
 const gh = (...args) => execFileSync('gh', args, { encoding: 'utf8' });

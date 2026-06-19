@@ -24,6 +24,16 @@ on:
           - orangepi3-lts
           - lepotato
           - khadas-vim3
+          - rock-5t
+          - orangepi5-max
+          - orangepi3b
+          - radxa-zero3
+          - rock-3a
+          - odroidm1
+          - odroidc2
+          - orangepizero2w
+          - nanopi-r4s
+          - orangepi4-lts
       release:
         description: "Release"
         required: true
