@@ -54,6 +54,17 @@ const DEVICES = {
   orangepizero2w:   { name: 'Orange Pi Zero 2W',  description: 'Tiny Allwinner H618 board, Pi-Zero form factor.',     icon: 'orangepi',arch: 'arm64', vendor: 'Orange Pi',      tags: ['supported'] },
   'nanopi-r4s':     { name: 'FriendlyELEC NanoPi R4S', description: 'RK3399 router/feeder with dual GbE.',           icon: 'sbc',     arch: 'arm64', vendor: 'FriendlyELEC',   tags: ['supported'] },
   'orangepi4-lts':  { name: 'Orange Pi 4 LTS',    description: 'RK3399 board with Wi-Fi and eMMC.',                   icon: 'orangepi',arch: 'arm64', vendor: 'Orange Pi',      tags: ['supported'] },
+  // Tier 4
+  'nanopct6-lts':   { name: 'FriendlyELEC NanoPC-T6 LTS', description: 'Flagship RK3588 board: up to 32GB RAM, dual 2.5GbE, M.2 NVMe and USB3. A powerful multi-SDR feeder host.', icon: 'sbc', arch: 'arm64', vendor: 'FriendlyELEC', tags: ['supported'] },
+  'nanopi-m6':      { name: 'FriendlyELEC NanoPi M6', description: 'Pi-form-factor RK3588S board with 2.5GbE, M.2 and USB3. Low-cost high-performance feeder.', icon: 'sbc', arch: 'arm64', vendor: 'FriendlyELEC', tags: ['supported'] },
+  orangepi5pro:     { name: 'Orange Pi 5 Pro',    description: 'Refined RK3588S board, up to 32GB RAM with M.2 NVMe, USB3 and Wi-Fi. Excellent multi-dongle feeder.', icon: 'orangepi', arch: 'arm64', vendor: 'Orange Pi', tags: ['supported'] },
+  'rockpi-4b':      { name: 'Radxa ROCK Pi 4B',   description: 'Classic RK3399 board with true USB 3.0, GbE and Wi-Fi/BT. A perennial favourite ADS-B/SDR feeder.', icon: 'rock', arch: 'arm64', vendor: 'Radxa', tags: ['supported'] },
+  rockpro64:        { name: 'Pine64 RockPro64',   description: 'RK3399 workhorse with USB 3.0, GbE and a PCIe x4 slot. Plenty of clean USB3 bandwidth for multi-dongle feeds.', icon: 'sbc', arch: 'arm64', vendor: 'Pine64', tags: ['supported'] },
+  'nanopi-r5s':     { name: 'FriendlyELEC NanoPi R5S', description: 'Fanless RK3568 mini box with dual 2.5GbE + GbE. Low-power always-on feeder host.', icon: 'sbc', arch: 'arm64', vendor: 'FriendlyELEC', tags: ['supported'] },
+  'nanopi-r2s':     { name: 'FriendlyELEC NanoPi R2S', description: 'Tiny RK3328 router board with GbE + USB3 GbE. Inexpensive headless always-on feeder.', icon: 'sbc', arch: 'arm64', vendor: 'FriendlyELEC', tags: ['supported'] },
+  orangepizero2:    { name: 'Orange Pi Zero 2',   description: 'Tiny, cheap Allwinner H616 board with GbE. The budget single-dongle ADS-B/ACARS feeder.', icon: 'orangepi', arch: 'arm64', vendor: 'Orange Pi', tags: ['supported'] },
+  'khadas-vim3l':   { name: 'Khadas VIM3L',       description: 'Fanless Amlogic S905D3 board with GbE, M.2 and USB3. Low-cost feeder with first-class mainline support.', icon: 'sbc', arch: 'arm64', vendor: 'Khadas', tags: ['supported'] },
+  bananapim5:       { name: 'Banana Pi M5',       description: 'Amlogic S905X3 board with GbE and 4x USB3. Cheap, widely-stocked Pi-alternative feeder.', icon: 'sbc', arch: 'arm64', vendor: 'Banana Pi', tags: ['supported'] },
 };
 const SHORT = {
   rpi4b: 'Raspberry Pi', 'uefi-x86': 'x86 UEFI', 'rock-5b': 'ROCK 5B', 'rock-5a': 'ROCK 5A', orangepi5: 'Orange Pi 5', 'orangepi5-plus': 'Orange Pi 5 Plus',
@@ -61,6 +72,8 @@ const SHORT = {
   orangepizero3: 'Orange Pi Zero 3', 'orangepi3-lts': 'Orange Pi 3 LTS', lepotato: 'Le Potato', 'khadas-vim3': 'Khadas VIM3',
   'rock-5t': 'ROCK 5T', 'orangepi5-max': 'Orange Pi 5 Max', orangepi3b: 'Orange Pi 3B', 'radxa-zero3': 'Radxa ZERO 3W', 'rock-3a': 'ROCK 3A',
   odroidm1: 'Odroid M1', odroidc2: 'Odroid C2', orangepizero2w: 'Orange Pi Zero 2W', 'nanopi-r4s': 'NanoPi R4S', 'orangepi4-lts': 'Orange Pi 4 LTS',
+  'nanopct6-lts': 'NanoPC-T6 LTS', 'nanopi-m6': 'NanoPi M6', orangepi5pro: 'Orange Pi 5 Pro', 'rockpi-4b': 'ROCK Pi 4B', rockpro64: 'RockPro64',
+  'nanopi-r5s': 'NanoPi R5S', 'nanopi-r2s': 'NanoPi R2S', orangepizero2: 'Orange Pi Zero 2', 'khadas-vim3l': 'Khadas VIM3L', bananapim5: 'Banana Pi M5',
 };
 const CODENAME = 'Sideband';
 // No shell: args passed directly to gh (all inputs are constants anyway).

@@ -34,6 +34,16 @@ on:
           - orangepizero2w
           - nanopi-r4s
           - orangepi4-lts
+          - nanopct6-lts
+          - nanopi-m6
+          - orangepi5pro
+          - rockpi-4b
+          - rockpro64
+          - nanopi-r5s
+          - nanopi-r2s
+          - orangepizero2
+          - khadas-vim3l
+          - bananapim5
       release:
         description: "Release"
         required: true

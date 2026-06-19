@@ -4,7 +4,13 @@ set -euo pipefail
 # Airwaves OS Build Script
 # Clones armbian/build at a pinned tag and runs compile with our userpatches.
 
-ARMBIAN_BUILD_TAG="${ARMBIAN_BUILD_TAG:-v26.2.1}"
+# v26.5.1: bumped from v26.2.1 to fix mainline-kernel archive patch drift that
+# blocked the sunxi (Allwinner) and mainline-rockchip (rk3399/rk3568/rk3328)
+# boards — at v26.2.1 the verisilicon-AV1 / megous usb-gadget patches failed to
+# apply and Armbian's prebuilt kernel was absent from the OCI cache, forcing a
+# from-source build that aborted. v26.5.1's archive patches match the kernel tags
+# (validated: sunxi orangepizero3 + vendor rock-5b canaries build clean).
+ARMBIAN_BUILD_TAG="${ARMBIAN_BUILD_TAG:-v26.5.1}"
 ARMBIAN_BUILD_DIR="${ARMBIAN_BUILD_DIR:-.armbian-build}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

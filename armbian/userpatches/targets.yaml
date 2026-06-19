@@ -69,6 +69,23 @@ lists:
     - { BOARD: nanopi-r4s, BRANCH: current }     # FriendlyELEC NanoPi R4S (rk3399)
     - { BOARD: orangepi4-lts, BRANCH: current }  # Orange Pi 4 LTS (rk3399)
 
+  # Tier 4: Next-most-popular arm64 boards (added with the Armbian v26.5.1 pin
+  # bump, which unblocks the mainline-rockchip + sunxi families that drifted at
+  # v26.2.1). rk3588/rk3588s -> vendor (Rockchip BSP); rk3399/rk3568/rk3328/
+  # Allwinner/Amlogic -> current (mainline). Branches per each board's Armbian
+  # KERNEL_TARGET at v26.5.1.
+  tier4-boards: &tier4-boards
+    - { BOARD: nanopct6-lts, BRANCH: vendor }    # FriendlyELEC NanoPC-T6 LTS (rk3588)
+    - { BOARD: nanopi-m6, BRANCH: vendor }       # FriendlyELEC NanoPi M6 (rk3588s)
+    - { BOARD: orangepi5pro, BRANCH: vendor }    # Orange Pi 5 Pro (rk3588s)
+    - { BOARD: rockpi-4b, BRANCH: current }      # Radxa ROCK Pi 4B (rk3399)
+    - { BOARD: rockpro64, BRANCH: current }      # Pine64 RockPro64 (rk3399)
+    - { BOARD: nanopi-r5s, BRANCH: current }     # FriendlyELEC NanoPi R5S (rk3568)
+    - { BOARD: nanopi-r2s, BRANCH: current }     # FriendlyELEC NanoPi R2S (rk3328)
+    - { BOARD: orangepizero2, BRANCH: current }  # Orange Pi Zero 2 (Allwinner H616)
+    - { BOARD: khadas-vim3l, BRANCH: current }   # Khadas VIM3L (Amlogic S905D3)
+    - { BOARD: bananapim5, BRANCH: current }     # Banana Pi M5 (Amlogic S905X3)
+
 targets:
 
   # Primary: Debian Trixie for ARM and x86 boards
@@ -85,6 +102,7 @@ targets:
       - *tier1-boards
       - *tier2-boards
       - *tier3-boards
+      - *tier4-boards
 
   # Legacy: Debian Bookworm (community support in Armbian v26.2)
   cli-bookworm:
