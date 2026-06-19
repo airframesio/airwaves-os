@@ -19,7 +19,9 @@ lists:
     # kernel breaks on Armbian patch drift and has weaker rk3588 support (NVMe,
     # GPU). x86 stays on current.
     - { BOARD: rock-5b, BRANCH: vendor }
+    - { BOARD: rock-5a, BRANCH: vendor }
     - { BOARD: orangepi5, BRANCH: vendor }
+    - { BOARD: orangepi5-plus, BRANCH: vendor }
     - { BOARD: uefi-x86, BRANCH: current }
 
   # Tier 1: RPi boards (Ubuntu Noble - requires flash-kernel)
@@ -30,7 +32,9 @@ lists:
   tier1-boards-bookworm: &tier1-boards-bookworm
     # rk3588 on the vendor (Rockchip BSP) kernel; x86 on current. See note above.
     - { BOARD: rock-5b, BRANCH: vendor }
+    - { BOARD: rock-5a, BRANCH: vendor }
     - { BOARD: orangepi5, BRANCH: vendor }
+    - { BOARD: orangepi5-plus, BRANCH: vendor }
     - { BOARD: uefi-x86, BRANCH: current }
 
   # Tier 2: Extended board support (enable when Tier 1 is stable)

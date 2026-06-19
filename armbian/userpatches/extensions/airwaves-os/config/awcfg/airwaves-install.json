@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "hostname": "",
+  "wifi": {
+    "ssid": "",
+    "psk": ""
+  },
+  "channel": "",
+  "timezone": "",
+  "ssh_keys": [],
+
+  "auto_install": false,
+  "confirm_destructive": false,
+  "target": "auto",
+  "ab": false,
+  "self_install": false,
+  "post_install": "poweroff"
+}

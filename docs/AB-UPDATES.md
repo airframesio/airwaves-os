@@ -25,6 +25,11 @@ Two **equal** root slots (so either can receive any future image) + one shared
 - **Rockchip rk3588**: raw 0–16 MiB reserved for u-boot (unchanged) · `p1 rootA(16M→,aw-root-a)` · `p2 rootB(aw-root-b)` · `p3 data(aw-data)`
 - **Raspberry Pi bcm2711**: **dual firmware** so a bad kernel can't brick both slots · `p1 fwA(FAT32,256M,AW-FW-A)` · `p2 rootA(aw-root-a)` · `p3 fwB(FAT32,256M,AW-FW-B)` · `p4 rootB(aw-root-b)` · `p5 data(aw-data)`
 
+All installer layouts (single-root and A/B) also append a small **`AWCFG`**
+FAT32 config partition (~100 MiB) as the **last** partition — the offline
+provisioning / headless-recovery surface. It is inert on a running system unless
+first-setup or an `apply.conf` trigger is present. See `docs/PRECONFIG.md`.
+
 ## Data model
 
 `aw-data` holds everything that must survive a slot swap; each root is otherwise

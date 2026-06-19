@@ -10,7 +10,9 @@ on:
         options:
           - rpi4b
           - rock-5b
+          - rock-5a
           - orangepi5
+          - orangepi5-plus
           - uefi-x86
       release:
         description: "Release"
@@ -30,6 +32,20 @@ on:
           - vendor
           - legacy
           - edge
+      bundle_containers:
+        description: "Bake the release's manager+gateway containers into the image (offline first boot)"
+        required: true
+        default: true
+        type: boolean
+      channel:
+        description: "Release channel manifest to bundle containers + os_version from"
+        required: true
+        default: "stable"
+        type: choice
+        options:
+          - stable
+          - dev
+          - beta
 
 # The Armbian build framework tag is pinned in armbian/build.sh (single source
 # of truth); this workflow invokes build.sh, so no override is needed here.
@@ -50,7 +66,10 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-user-static binfmt-support
+          # qemu/binfmt for the Armbian build; gdisk(sgdisk)+fdisk(sfdisk)+dosfstools
+          # for the AWCFG partition; squashfs-tools + grub-*-bin for the Live USB image.
+          sudo apt-get install -y qemu-user-static binfmt-support gdisk fdisk dosfstools \
+            squashfs-tools grub-efi-amd64-bin grub-pc-bin
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -75,6 +94,73 @@ jobs:
             armbian-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}-${{ github.event.inputs.branch }}-
             armbian-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}-
 
+      # Bake the release's manager+gateway container images INTO the rootfs so the
+      # device's FIRST boot needs no network. Without this, first boot can't pull
+      # the containers when there's no connectivity, so the manager/web UI never
+      # comes up and even Wi-Fi setup is impossible (chicken-and-egg). We pull the
+      # exact images pinned in releases/stable.json at the board's CPU arch, tag
+      # them with the version + channel alias + :latest, and docker-save each into
+      # the userpatches images/ dir, which the airwaves-base extension copies into
+      # the image and airwaves-init loads on first boot. Runs AFTER the cache step
+      # so the tarballs never perturb the kernel/rootfs cache key.
+      - name: Bundle release containers (offline first boot)
+        if: ${{ inputs.bundle_containers }}
+        env:
+          BOARD: ${{ github.event.inputs.board }}
+          CHANNEL_INPUT: ${{ github.event.inputs.channel }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REL="releases/${CHANNEL_INPUT:-stable}.json"
+          [ -f "$REL" ] || { echo "::error::$REL not found"; exit 1; }
+
+          CHANNEL="$(jq -r '.channel // "stable"' "$REL")"
+          OSVER="$(jq -r '.os_version // empty' "$REL")"
+          MGR_IMG="$(jq -r '.components.manager.image' "$REL")"
+          MGR_TAG="$(jq -r '.components.manager.tag' "$REL")"
+          GW_IMG="$(jq -r '.components.gateway.image' "$REL")"
+          GW_TAG="$(jq -r '.components.gateway.tag' "$REL")"
+          for v in "$CHANNEL" "$MGR_IMG" "$MGR_TAG" "$GW_IMG" "$GW_TAG"; do
+            [ -n "$v" ] && [ "$v" != "null" ] || { echo "::error::missing field in $REL"; exit 1; }
+          done
+
+          case "$BOARD" in
+            uefi-x86) PLAT="linux/amd64" ;;
+            *)        PLAT="linux/arm64" ;;
+          esac
+          echo "channel=$CHANNEL os_version=${OSVER:-?} platform=$PLAT"
+          echo "manager=${MGR_IMG}:${MGR_TAG}  gateway=${GW_IMG}:${GW_TAG}"
+
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+
+          OUT="armbian/userpatches/extensions/airwaves-os/images"
+          mkdir -p "$OUT"
+
+          # Pull the exact pinned image for this arch, then attach the moving tags
+          # the device may reference (channel alias + :latest) so the loaded image
+          # satisfies the compose file offline regardless of which tag it pins.
+          bundle() {
+            local img="$1" tag="$2" svc="$3"
+            echo "==> Pulling ${img}:${tag} (${PLAT})"
+            docker pull --platform "$PLAT" "${img}:${tag}"
+            docker tag "${img}:${tag}" "${img}:${CHANNEL}"
+            docker tag "${img}:${tag}" "${img}:latest"
+            echo "==> Saving ${svc} -> ${OUT}/airwaves-${svc}.tar"
+            docker save -o "${OUT}/airwaves-${svc}.tar" \
+              "${img}:${tag}" "${img}:${CHANNEL}" "${img}:latest"
+          }
+
+          bundle "$MGR_IMG" "$MGR_TAG" "manager"
+          bundle "$GW_IMG" "$GW_TAG" "gateway"
+
+          # Reclaim docker's overlay storage before the heavy Armbian build; the
+          # tarballs we just wrote to disk are what matter from here on.
+          docker image prune -af >/dev/null 2>&1 || true
+          ls -lh "$OUT"/*.tar
+          df -h /
+          echo "Bundled ${CHANNEL} (${OSVER:-?}) containers for ${PLAT}"
+
       - name: Build image
         env:
           BOARD: ${{ github.event.inputs.board }}
@@ -98,6 +184,303 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" \
             .armbian-build/output/debs .armbian-build/cache/rootfs .armbian-build/cache/ccache || true
 
+      # Build the separate x86 "Live USB" image from the embedded rootfs: a
+      # squashfs + live-boot layout that loads the whole OS into RAM (toram) so a
+      # USB I/O-error or unplug doesn't panic. Runs BEFORE the finalize step so
+      # the squashfs captures the rootfs WITH the container tarballs (the finalize
+      # step lean-pre-extracts + removes them from the embedded image afterward).
+      # Reads the embedded image read-only and writes a NEW Airwaves_OS_LiveUSB_*
+      # image; the embedded image is untouched.
+      - name: Build Live USB image (x86, squashfs + live-boot + toram)
+        if: ${{ github.event.inputs.board == 'uefi-x86' }}
+        run: |
+          set -euo pipefail
+          sudo chown -R "$(id -u):$(id -g)" .armbian-build/output/images 2>/dev/null || true
+          cd .armbian-build/output/images 2>/dev/null || { echo "no images dir"; exit 0; }
+          shopt -s nullglob
+          AWCFG="$GITHUB_WORKSPACE/armbian/userpatches/extensions/airwaves-os/config/awcfg"
+
+          # Decompress the embedded image if needed (the finalize step also works
+          # on the .img; leaving it decompressed here is fine).
+          imgs=( *.img ); EMB=""
+          if [ ${#imgs[@]} -gt 0 ]; then EMB="${imgs[0]}"
+          else
+            xzs=( *.img.xz ); [ ${#xzs[@]} -gt 0 ] || { echo "no image"; exit 0; }
+            echo "Decompressing ${xzs[0]} ..."; xz -d -T0 -k "${xzs[0]}"; imgs=( *.img ); EMB="${imgs[0]}"
+            rm -f "${xzs[0]}"
+          fi
+          echo "Embedded image: ${EMB}"
+
+          AWVER="$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' \
+            "$GITHUB_WORKSPACE/containers/airwaves-manager/Cargo.toml" | head -1)"
+          case "$GITHUB_REF" in refs/tags/v*) AWVER="${GITHUB_REF#refs/tags/v}" ;; *) AWVER="${AWVER:-dev}-$(git -C "$GITHUB_WORKSPACE" rev-parse --short HEAD)" ;; esac
+
+          WORK="$(mktemp -d)"; mkdir -p "${WORK}/live"
+          # --- read the embedded rootfs (read-only) ---------------------------
+          ELOOP="$(sudo losetup -fP --show "${EMB}")"
+          sudo partprobe "${ELOOP}" 2>/dev/null || true; sudo udevadm settle --timeout=30 2>/dev/null || true
+          ROOTP=""
+          for p in "${ELOOP}"p*; do
+            [ -b "$p" ] || continue
+            case "$(sudo blkid -o value -s TYPE "$p" 2>/dev/null)" in ext4|ext3) ;; *) continue ;; esac
+            m="$(mktemp -d)"
+            if sudo mount -o ro "$p" "$m" 2>/dev/null; then
+              if [ -d "$m/opt/airwaves" ] && [ -d "$m/boot" ]; then ROOTP="$p"; RMNT="$m"; break; fi
+              sudo umount "$m" 2>/dev/null
+            fi
+            rmdir "$m" 2>/dev/null
+          done
+          [ -n "$ROOTP" ] || { echo "::error::could not find embedded rootfs partition"; sudo losetup -d "${ELOOP}"; exit 1; }
+          echo "Embedded rootfs: ${ROOTP}"
+
+          # Kernel + initrd (initrd already includes live-boot via the airwaves-live extension).
+          KVER="$(ls "${RMNT}/boot"/vmlinuz-* 2>/dev/null | sed 's#.*/vmlinuz-##' | sort -V | tail -1)"
+          [ -n "$KVER" ] || { echo "::error::no kernel in embedded /boot"; sudo umount "${RMNT}"; sudo losetup -d "${ELOOP}"; exit 1; }
+          cp "${RMNT}/boot/vmlinuz-${KVER}" "${WORK}/vmlinuz"
+          cp "${RMNT}/boot/initrd.img-${KVER}" "${WORK}/initrd.img"
+
+          # --- squashfs the rootfs ---------------------------------------------
+          # Keep the container tarballs (live loads them into RAM) AND the empty
+          # mount-point dirs (/proc /sys /dev /run /tmp /var/lib/docker) — excluding
+          # those removes the directories the initramfs bind-mounts onto, which
+          # panics init ("/root/dev: mount point does not exist"). /var/lib/docker
+          # is empty at this stage (pre-extract runs later) so it costs nothing.
+          # Only drop genuine junk.
+          echo "Creating squashfs (this takes a few minutes)..."
+          sudo mksquashfs "${RMNT}" "${WORK}/live/filesystem.squashfs" -comp xz -noappend -no-progress \
+            -e lost+found swapfile var/swap var/log.hdd var/lib/docker.hdd
+          sudo chown "$(id -u):$(id -g)" "${WORK}/live/filesystem.squashfs"
+          stat -c %s "${WORK}/live/filesystem.squashfs" > "${WORK}/live/filesystem.size"
+          SQ_BYTES="$(cat "${WORK}/live/filesystem.size")"
+          echo "squashfs: ${SQ_BYTES} bytes"
+          sudo umount "${RMNT}" 2>/dev/null || true; rmdir "${RMNT}" 2>/dev/null || true
+          sudo losetup -d "${ELOOP}"
+
+          # --- assemble the live image ---------------------------------------
+          SQ_MIB=$(( (SQ_BYTES + 1048575) / 1048576 ))
+          LIVE_DATA_MIB=$(( SQ_MIB + 192 ))
+          IMG_MIB=$(( 4 + 260 + LIVE_DATA_MIB + 64 + 2 ))
+          LIVE="Airwaves_OS_LiveUSB_${AWVER}_x86_UEFI_${{ github.event.inputs.release }}.img"
+          echo "Live image: ${LIVE} (${IMG_MIB} MiB)"
+          rm -f "${LIVE}"; truncate -s "${IMG_MIB}M" "${LIVE}"
+          # GPT: BIOS-boot 4M + ESP 260M + LIVE-DATA + AWCFG 64M.
+          sudo sgdisk -og \
+            -n 1:0:+4M   -t 1:EF02 -c 1:"BIOS-BOOT" \
+            -n 2:0:+260M -t 2:EF00 -c 2:"AIRWAVESEFI" \
+            -n 3:0:+${LIVE_DATA_MIB}M -t 3:8300 -c 3:"AIRWAVES_LIVE" \
+            -n 4:0:0     -t 4:0700 -c 4:"AWCFG" "${LIVE}"
+
+          LLOOP="$(sudo losetup -fP --show "${LIVE}")"
+          sudo partprobe "${LLOOP}" 2>/dev/null || true; sudo udevadm settle --timeout=30 2>/dev/null || true
+          for n in 2 3 4; do for _ in $(seq 1 15); do [ -b "${LLOOP}p${n}" ] && break; sudo udevadm settle --timeout=5 2>/dev/null || true; sleep 1; done; done
+          sudo mkfs.fat -F32 -n AIRWAVESEFI "${LLOOP}p2" >/dev/null
+          sudo mkfs.ext4 -q -L AIRWAVES_LIVE "${LLOOP}p3"
+          sudo mkfs.fat -F32 -n AWCFG "${LLOOP}p4" >/dev/null
+
+          ESP="$(mktemp -d)"; sudo mount "${LLOOP}p2" "${ESP}"
+          sudo mkdir -p "${ESP}/boot"
+          sudo grub-install --target=x86_64-efi --efi-directory="${ESP}" --boot-directory="${ESP}/boot" \
+            --removable --no-nvram --recheck 2>&1 | tail -3
+          sudo grub-install --target=i386-pc --boot-directory="${ESP}/boot" --recheck "${LLOOP}" 2>&1 | tail -3
+          sudo cp "${WORK}/vmlinuz" "${ESP}/boot/vmlinuz"
+          sudo cp "${WORK}/initrd.img" "${ESP}/boot/initrd.img"
+          # No live-media= here: it expects a DEVICE (not LABEL=), and a bad value
+          # makes live-boot search nothing ("Unable to find a medium"). Let live-boot
+          # auto-scan all partitions for /live/filesystem.squashfs — only the live
+          # USB carries it.
+          # net.ifnames=0 biosdevname=0 -> classic eth0/wlan0 names (consistent
+          # across hardware; predictable names like wlp1s0 vary per board).
+          CMN="boot=live ignore_uuid nocomponents net.ifnames=0 biosdevname=0 console=tty0 console=ttyS0,115200"
+          # Heredoc body is indented to the YAML block level; YAML strips that
+          # back to column 0 so the shell sees a normal <<GRUBCFG heredoc.
+          sudo tee "${ESP}/boot/grub/grub.cfg" >/dev/null <<GRUBCFG
+          insmod part_gpt
+          insmod fat
+          insmod ext2
+          insmod search_label
+          set timeout=5
+          set default=0
+          menuentry "Airwaves OS (Live - auto RAM)" {
+              search --no-floppy --label --set=root AIRWAVESEFI
+              linux /boot/vmlinuz ${CMN}
+              initrd /boot/initrd.img
+          }
+          menuentry "Airwaves OS (Live - Load to RAM)" {
+              search --no-floppy --label --set=root AIRWAVESEFI
+              linux /boot/vmlinuz ${CMN} toram
+              initrd /boot/initrd.img
+          }
+          menuentry "Airwaves OS (Live - Run from USB)" {
+              search --no-floppy --label --set=root AIRWAVESEFI
+              linux /boot/vmlinuz ${CMN} notoram
+              initrd /boot/initrd.img
+          }
+          GRUBCFG
+          grep -q initrd "${ESP}/boot/grub/grub.cfg" || { echo "::error::live grub.cfg missing initrd"; exit 1; }
+          grep -q '/dev/' "${ESP}/boot/grub/grub.cfg" && { echo "::error::live grub.cfg has /dev path"; exit 1; }
+          sudo umount "${ESP}"; rmdir "${ESP}" 2>/dev/null || true
+
+          LDATA="$(mktemp -d)"; sudo mount "${LLOOP}p3" "${LDATA}"
+          sudo mkdir -p "${LDATA}/live"
+          sudo cp "${WORK}/live/filesystem.squashfs" "${LDATA}/live/"
+          sudo cp "${WORK}/live/filesystem.size" "${LDATA}/live/"
+          sync; sudo umount "${LDATA}"; rmdir "${LDATA}" 2>/dev/null || true
+
+          AWMP="$(mktemp -d)"; sudo mount "${LLOOP}p4" "${AWMP}"
+          sudo cp "${AWCFG}/airwaves-install.json" "${AWMP}/airwaves-install.json"
+          sudo cp "${AWCFG}/README.txt" "${AWMP}/README.txt"
+          sync; sudo umount "${AWMP}"; rmdir "${AWMP}" 2>/dev/null || true
+
+          sudo losetup -d "${LLOOP}"
+          echo "Compressing ${LIVE} ..."
+          xz -z -T0 -f "${LIVE}"
+          sudo chown -R "$(id -u):$(id -g)" . 2>/dev/null || true
+          rm -rf "${WORK}"
+          ls -lh Airwaves_OS_LiveUSB_*.img.xz
+
+      # Append the AWCFG config partition (FAT32, label AWCFG) as the LAST
+      # partition of the built image. It carries airwaves-install.json + README,
+      # is editable on any OS, survives dd-flash (it's recorded in the partition
+      # table), and is consumed at first setup / via an apply.conf trigger by
+      # airwaves-preconfig. Handles both GPT (x86/rockchip) and MBR (Pi) tables,
+      # and never touches the existing partitions or the rockchip raw u-boot area.
+      - name: Pre-extract containers + add AWCFG config partition
+        run: |
+          set -euo pipefail
+          sudo chown -R "$(id -u):$(id -g)" .armbian-build/output/images 2>/dev/null || true
+          cd .armbian-build/output/images 2>/dev/null || { echo "no images dir"; exit 0; }
+          shopt -s nullglob
+          PAYLOAD="$GITHUB_WORKSPACE/armbian/userpatches/extensions/airwaves-os/config/awcfg"
+          [ -f "${PAYLOAD}/airwaves-install.json" ] || { echo "::error::AWCFG payload missing"; exit 1; }
+
+          # Work on an uncompressed .img; decompress the .xz if that's all we have.
+          imgs=( *.img )
+          if [ ${#imgs[@]} -gt 0 ]; then
+            IMG="${imgs[0]}"
+            rm -f "${IMG}.xz" "${IMG}.xz.sha" "${IMG}.sha"   # stale; regenerated below
+          else
+            xzs=( *.img.xz )
+            [ ${#xzs[@]} -gt 0 ] || { echo "no image to modify"; exit 0; }
+            echo "Decompressing ${xzs[0]} ..."
+            xz -d -T0 "${xzs[0]}"
+            imgs=( *.img ); IMG="${imgs[0]}"
+          fi
+          echo "Appending AWCFG to ${IMG}"
+
+          # -p = low-level probe (reads the table from the file itself); without
+          # it blkid uses its cache and returns empty for a plain .img, which
+          # would send GPT images down the MBR branch and corrupt the GPT.
+          PTTYPE="$(sudo blkid -p -o value -s PTTYPE "${IMG}" 2>/dev/null || echo)"
+          echo "Partition table type: ${PTTYPE:-unknown}"
+
+          # Grow the image to make room (64 MiB partition + alignment/secondary GPT).
+          truncate -s +68M "${IMG}"
+
+          case "${PTTYPE}" in
+            gpt)
+              sudo sgdisk -e "${IMG}"                                   # move backup GPT to new end
+              sudo sgdisk --new=0:0:+64M --typecode=0:0700 --change-name=0:AWCFG "${IMG}"
+              ;;
+            dos|"")
+              # MBR (Pi) or undetected: append a primary FAT32-LBA partition.
+              echo ',64M,c' | sudo sfdisk --append "${IMG}"
+              ;;
+            *)
+              echo "::error::unsupported partition table '${PTTYPE}'"; exit 1 ;;
+          esac
+
+          LOOP="$(sudo losetup -fP --show "${IMG}")"
+          echo "Loop device: ${LOOP}"
+          sudo partprobe "${LOOP}" 2>/dev/null || true
+          sudo udevadm settle --timeout=30 2>/dev/null || true
+          # AWCFG is the LAST partition. Target that EXACT node from the on-disk
+          # table count — do NOT grab the first node that appears, which could be
+          # the ESP/firmware (mkfs on it would destroy the image).
+          NPARTS="$(sudo partx -g "${IMG}" 2>/dev/null | wc -l | tr -d ' ')"
+          [ "${NPARTS:-0}" -ge 1 ] || { echo "::error::could not read partition table from ${IMG}"; sudo losetup -d "${LOOP}"; exit 1; }
+          PART="${LOOP}p${NPARTS}"
+          for _ in $(seq 1 15); do
+            [ -b "${PART}" ] && break
+            sudo udevadm settle --timeout=5 2>/dev/null || true
+            sleep 1
+          done
+          [ -b "${PART}" ] || { echo "::error::AWCFG partition node ${PART} not found"; sudo losetup -d "${LOOP}"; exit 1; }
+          echo "AWCFG partition node: ${PART} (last of ${NPARTS} partitions)"
+
+          # --- Pre-extract containers into the image's docker store (lean) ------
+          # `docker load` of the ~100 MB tarballs on first boot is slow on cheap
+          # USB media (it re-writes every layer). Do it here: run a throwaway
+          # dockerd against the image's /var/lib/docker, load the baked tarballs,
+          # and on success delete them so first boot just runs. Fully guarded in a
+          # `set +e` subshell — any failure leaves the tarballs in place so the
+          # device still loads them on first boot (never ships with neither).
+          (
+            set +e
+            command -v dockerd >/dev/null 2>&1 || { echo "::warning::dockerd absent; keeping tarballs"; exit 0; }
+            ROOTMNT="";
+            for cand in $(seq 1 "$NPARTS"); do
+              [ "$cand" -eq "$NPARTS" ] && continue          # skip the new AWCFG partition
+              dev="${LOOP}p${cand}"; [ -b "$dev" ] || continue
+              case "$(sudo blkid -o value -s TYPE "$dev" 2>/dev/null)" in ext4|ext3|ext2) ;; *) continue ;; esac
+              m="$(mktemp -d)"
+              if sudo mount "$dev" "$m" 2>/dev/null; then
+                if ls "$m"/opt/airwaves/images/*.tar >/dev/null 2>&1; then ROOTMNT="$m"; break; fi
+                sudo umount "$m" 2>/dev/null
+              fi
+              rmdir "$m" 2>/dev/null
+            done
+            [ -n "$ROOTMNT" ] || { echo "::warning::no rootfs with baked tarballs; skipping pre-extract"; exit 0; }
+            echo "Pre-extracting containers into $(basename "$ROOTMNT")/var/lib/docker"
+            # Free the runner's docker so our throwaway daemon owns the namespace.
+            sudo systemctl stop docker.service docker.socket containerd.service 2>/dev/null
+            sudo mkdir -p "$ROOTMNT/var/lib/docker"
+            SOCK=/tmp/aw-preload.sock; PIDF=/tmp/aw-preload.pid
+            sudo dockerd --data-root="$ROOTMNT/var/lib/docker" --exec-root=/tmp/aw-preload-exec \
+              --host="unix://$SOCK" --pidfile="$PIDF" --iptables=false --bridge=none \
+              --storage-driver=overlay2 >/tmp/aw-preload-dockerd.log 2>&1 &
+            up=0; for _ in $(seq 1 40); do sudo docker --host="unix://$SOCK" info >/dev/null 2>&1 && { up=1; break; }; sleep 1; done
+            loaded=1
+            if [ "$up" = 1 ]; then
+              for t in "$ROOTMNT"/opt/airwaves/images/*.tar; do
+                echo "  loading $(basename "$t")"
+                sudo docker --host="unix://$SOCK" load -i "$t" || loaded=0
+              done
+              sudo docker --host="unix://$SOCK" images
+            else
+              loaded=0; echo "::warning::transient dockerd failed to start"; cat /tmp/aw-preload-dockerd.log 2>/dev/null | tail -20
+            fi
+            # Stop the throwaway daemon and let it flush the store before unmount.
+            sudo kill "$(sudo cat "$PIDF" 2>/dev/null)" 2>/dev/null
+            for _ in $(seq 1 20); do sudo docker --host="unix://$SOCK" info >/dev/null 2>&1 || break; sleep 1; done
+            sudo pkill -f "data-root=$ROOTMNT/var/lib/docker" 2>/dev/null
+            sleep 2
+            if [ "$loaded" = 1 ]; then
+              echo "  pre-extract OK — removing tarballs (lean)"
+              sudo rm -f "$ROOTMNT"/opt/airwaves/images/*.tar
+            else
+              echo "::warning::container pre-extract failed; keeping tarballs for first-boot load"
+            fi
+            sync
+            sudo umount "$ROOTMNT" 2>/dev/null || sudo umount -l "$ROOTMNT" 2>/dev/null
+            rmdir "$ROOTMNT" 2>/dev/null
+          ) || true
+          # ---------------------------------------------------------------------
+
+          sudo mkfs.vfat -F 32 -n AWCFG "${PART}"
+          MP="$(mktemp -d)"
+          sudo mount "${PART}" "${MP}"
+          sudo cp "${PAYLOAD}/airwaves-install.json" "${MP}/airwaves-install.json"
+          sudo cp "${PAYLOAD}/README.txt" "${MP}/README.txt"
+          sync
+          sudo umount "${MP}"
+          sudo losetup -d "${LOOP}"
+          rmdir "${MP}" 2>/dev/null || true
+
+          echo "Recompressing ${IMG} ..."
+          xz -z -T0 -f "${IMG}"
+          sudo chown -R "$(id -u):$(id -g)" . 2>/dev/null || true
+          ls -lh
+
       # Stamp the Airwaves OS version into the image filename. We can't do this
       # via Armbian's REVISION (it feeds base-files' package version, which must
       # outrank stock Debian), so rename the output here: replace the REVISION
@@ -116,6 +499,9 @@ jobs:
           echo "Airwaves version for filename: ${AWVER}"
           shopt -s nullglob
           for f in Airwaves_OS_*.img.xz Airwaves_OS_*.img; do
+            # The Live USB image is already named with the version; skip it (its
+            # first field is "LiveUSB", not a REVISION to replace).
+            case "$f" in *LiveUSB*) continue;; esac
             rest="${f#Airwaves_OS_}"        # <REVISION>_<board>_...
             tail="${rest#*_}"              # <board>_...  (drops the REVISION field)
             new="Airwaves_OS_${AWVER}_${tail}"
@@ -145,7 +531,9 @@ jobs:
           RELEASE: ${{ github.event.inputs.release }}
         run: |
           if [ "$BOARD" = "rpi4b" ]; then
-            echo "name=airwaves-os-raspberrypi-3-4-5-${RELEASE}" >> "$GITHUB_OUTPUT"
+            # arm64 Armbian rpi4b boots Pi 3 (64-bit) and Pi 4. Pi 5 (BCM2712/RP1)
+            # needs the downstream RPi kernel Armbian does not ship, so it's excluded.
+            echo "name=airwaves-os-raspberrypi-3-4-${RELEASE}" >> "$GITHUB_OUTPUT"
           else
             echo "name=airwaves-os-${BOARD}-${RELEASE}" >> "$GITHUB_OUTPUT"
           fi

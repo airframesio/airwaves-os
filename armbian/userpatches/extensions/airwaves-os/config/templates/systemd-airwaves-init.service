@@ -1,8 +1,13 @@
 [Unit]
 Description=Airwaves OS Initialization
 Documentation=https://airwavesos.com
-After=local-fs.target
-Before=docker.service airwaves-containers.service
+# airwaves-init runs docker load / network create / compose up, so the daemon
+# must already be up. Order AFTER docker and BEFORE the steady-state container
+# service (which does the same compose up on later boots). No network-online dep:
+# first boot must work offline by loading the pre-baked image tarballs.
+After=local-fs.target docker.service
+Requires=docker.service
+Before=airwaves-containers.service
 ConditionPathExists=/opt/airwaves/.needs-first-run
 
 [Service]

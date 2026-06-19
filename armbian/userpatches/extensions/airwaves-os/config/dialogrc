@@ -1,0 +1,76 @@
+# Airwaves OS — shared dialog(1) theme  ·  "The Listening Station" (night-watch)
+# Flat single-line borders, NO shadow, cream-on-ink, ONE amber accent (title +
+# active selection + buttons + gauge). Everything else cream & slate. Used by
+# BOTH airwaves-tui and airwaves-firstrun so every screen matches.
+#
+# REQUIRES: (1) the 16 console slots remapped to brand RGB FIRST (aw_palette,
+# ESC]P.. in airwaves-tui-lib.sh), and (2) dialog invoked with --colors so the
+# \Z accents render. After the remap the standard names carry brand hex:
+#   BLACK=ink  WHITE=cream-dim  bright WHITE=cream  YELLOW=amber  bright YELLOW=amber-bright
+#   GREEN=ok(dim)  bright GREEN=ok-bright  RED=ember  CYAN=slate  bright BLACK=hairline
+#   BLUE=scene-blue (input wells only)  MAGENTA=rose (chrome only)
+# Reminder: HIGHLIGHT=ON makes the FOREGROUND bright (slot+8); backgrounds are
+# always one of the 8 NORMAL slots (no bright bg, no blink).
+
+use_shadow = OFF
+use_colors = ON
+
+# --- canvas -----------------------------------------------------------------
+# Whole screen + box interiors are ink with calm cream-dim text. Flat ink
+# backdrop (NOT slate) so the backtitle stays quiet behind the boxes.
+screen_color           = (WHITE,BLACK,OFF)
+shadow_color           = (BLACK,BLACK,OFF)
+dialog_color           = (WHITE,BLACK,OFF)
+
+# --- titles & borders -------------------------------------------------------
+# Title is the accent (amber-bright). Borders are a quiet hairline — restraint.
+title_color            = (YELLOW,BLACK,ON)
+border_color           = (BLACK,BLACK,ON)
+border2_color          = (BLACK,BLACK,ON)
+
+# --- menu box ---------------------------------------------------------------
+menubox_color          = (WHITE,BLACK,OFF)
+menubox_border_color   = (BLACK,BLACK,ON)
+menubox_border2_color  = (BLACK,BLACK,ON)
+
+# items: cream-dim normal; the ONE selected row is the only amber fill.
+# ink-on-amber (BLACK,YELLOW,OFF) = 9.87:1 — keep HIGHLIGHT OFF for true ink.
+item_color             = (WHITE,BLACK,OFF)
+item_selected_color    = (BLACK,YELLOW,OFF)
+tag_color              = (CYAN,BLACK,OFF)
+tag_selected_color     = (BLACK,YELLOW,OFF)
+tag_key_color          = (YELLOW,BLACK,ON)
+tag_key_selected_color = (BLACK,YELLOW,ON)
+
+# --- buttons ----------------------------------------------------------------
+# Active = ink on amber. Inactive = quiet slate, no fill.
+button_active_color         = (BLACK,YELLOW,OFF)
+button_inactive_color       = (CYAN,BLACK,OFF)
+button_key_active_color     = (BLACK,YELLOW,ON)
+button_key_inactive_color   = (YELLOW,BLACK,ON)
+button_label_active_color   = (BLACK,YELLOW,ON)
+button_label_inactive_color = (WHITE,BLACK,OFF)
+
+# --- inputs (recessed scene-blue well) --------------------------------------
+inputbox_color           = (WHITE,BLUE,OFF)
+inputbox_border_color    = (BLACK,BLACK,ON)
+inputbox_border2_color   = (BLACK,BLACK,ON)
+form_active_text_color   = (BLACK,YELLOW,OFF)
+form_text_color          = (WHITE,BLUE,OFF)
+form_item_readonly_color = (CYAN,BLACK,OFF)
+
+# --- search box -------------------------------------------------------------
+searchbox_color          = (WHITE,BLUE,OFF)
+searchbox_title_color    = (YELLOW,BLACK,ON)
+searchbox_border_color   = (BLACK,BLACK,ON)
+searchbox_border2_color  = (BLACK,BLACK,ON)
+
+# --- scroll / list affordances ----------------------------------------------
+position_indicator_color = (YELLOW,BLACK,ON)
+uarrow_color             = (CYAN,BLACK,OFF)
+darrow_color             = (CYAN,BLACK,OFF)
+itemhelp_color           = (CYAN,BLACK,OFF)
+
+# --- gauge ------------------------------------------------------------------
+# Filled bar = amber-bright on ink; % text inherits dialog cream.
+gauge_color              = (YELLOW,BLACK,ON)

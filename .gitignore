@@ -10,6 +10,10 @@ output/
 *.img
 *.img.xz
 
+# Pre-baked container tarballs staged into the image at build time
+# (docker-save'd by the CI bundle step; never committed)
+armbian/userpatches/extensions/airwaves-os/images/*.tar
+
 # Dev environment
 dev/config/
 

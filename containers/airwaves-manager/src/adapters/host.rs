@@ -6,6 +6,7 @@ use crate::ports::HostPort;
 /// Services the manager is allowed to restart on the host.
 const ALLOWED_SERVICES: &[&str] = &[
     "avahi-daemon",
+    "NetworkManager",
     "systemd-networkd",
     "systemd-resolved",
     "docker",
@@ -95,6 +96,27 @@ impl HostAdapter {
         .await
         .ok()
         .flatten()
+    }
+
+    /// Run an `nmcli` subcommand on the host and capture stdout (None on
+    /// failure). argv[0] is hard-coded to "nmcli", so callers only supply
+    /// subargs and this can never be coerced into running another binary.
+    /// Args are passed as discrete argv (never a shell string), so SSID /
+    /// password values cannot inject commands.
+    pub async fn nmcli_capture(&self, args: &[&str]) -> Option<String> {
+        let mut full = Vec::with_capacity(args.len() + 1);
+        full.push("nmcli".to_string());
+        full.extend(args.iter().map(|s| s.to_string()));
+        self.run_capture(full).await
+    }
+
+    /// Run an `nmcli` subcommand on the host, mapping a non-zero exit to an
+    /// error. Same argv[0]="nmcli" constraint as [`nmcli_capture`].
+    pub async fn nmcli_run(&self, args: &[&str]) -> Result<(), AppError> {
+        let mut full = Vec::with_capacity(args.len() + 1);
+        full.push("nmcli".to_string());
+        full.extend(args.iter().map(|s| s.to_string()));
+        self.run(full).await
     }
 
     /// Count upgradable apt packages on the host (best-effort, uses cached

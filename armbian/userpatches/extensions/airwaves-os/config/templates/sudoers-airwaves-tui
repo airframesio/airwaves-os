@@ -1,0 +1,5 @@
+# Airwaves OS: let the appliance operator open the console over SSH with full
+# privileges without a second password prompt. 'airwaves' is already a sudoer
+# (sudo group), so this grants no new power — it just removes the prompt for the
+# one launcher path used by /etc/profile.d/zz-airwaves-tui.sh.
+airwaves ALL=(root) NOPASSWD: /opt/airwaves/scripts/airwaves-tui
