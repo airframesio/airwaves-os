@@ -1,13 +1,13 @@
 {
   "schema": 1,
   "channel": "dev",
-  "os_version": "1.0.24",
+  "os_version": "1.0.38",
   "codename": "Sideband",
-  "released": "2026-06-10",
+  "released": "2026-06-18",
   "severity": "recommended",
   "min_os_version": "1.0.0",
-  "summary": "Airwaves OS 1.0.24 dev - updater host-file repair reliability for the ACARS Hub release.",
-  "notes_url": "https://github.com/airframesio/airwaves-os/releases/tag/v1.0.24",
+  "summary": "Airwaves OS 1.0.38 dev - branded console + installer TUI redesign, classic interface names (wlan0) with quiet console, AWCFG config-driven install, and expanded board support (Radxa ROCK 5A/5B, Orange Pi 5 / 5 Plus, Raspberry Pi 3/4, x86).",
+  "notes_url": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
   "components": {
     "manager": {
       "version": "1.0.38",
@@ -25,13 +25,13 @@
     "compose": {
       "version": "2",
       "severity": "required",
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/f3b84f117aad95cf89747e68244b2b0c4855a5aa/armbian/userpatches/extensions/airwaves-os/config/templates/docker-compose.yml.template",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/templates/docker-compose.yml.template",
       "sha256": "0b2d94681c8c30a7a301455a6b9fe6a7ea408b9bb81e5d4c8c1dbd45537bdc4b"
     },
     "catalog": {
       "version": "10",
       "severity": "nice-to-have",
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/5e660153b8f14d4bea9a67b90c5fa77da10c3324/armbian/userpatches/extensions/airwaves-os/config/catalog.json",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/catalog.json",
       "sha256": "ace0a78a156e2b3c185eb339e105c295c172d36c36053c4bea59675a2b580bd8"
     }
   },
@@ -41,107 +41,107 @@
   },
   "host_files": [
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/scripts/airwaves-update",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/scripts/airwaves-update",
       "dest": "/opt/airwaves/scripts/airwaves-update",
       "sha256": "a16baccd0644e40feebdc234f9b8d8be70dc6ced9ee6d1ede17abd8841475716",
       "mode": "0755"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/scripts/airwaves-growfs",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/scripts/airwaves-growfs",
       "dest": "/opt/airwaves/scripts/airwaves-growfs",
       "sha256": "8ee3d3eb616e3cd7c565ff43cf8a8ed4b435e32a079858c2005d4e512969ef93",
       "mode": "0755"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/scripts/airwaves-init",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/scripts/airwaves-init",
       "dest": "/opt/airwaves/scripts/airwaves-init",
-      "sha256": "5b79586c8b24524b2134c419a7766053658ef89106e9c58959914551c20be954",
+      "sha256": "57fc5ad337b3e817573ea264449a484de8ec83a5b384d471e745525c5a7c3669",
       "mode": "0755"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/config/15-airwaves-header",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/15-airwaves-header",
       "dest": "/opt/airwaves/config/15-airwaves-header",
       "sha256": "6383366ac87d74600324bad1d689293ee4145dc1b82a7ac3410dbaa8f6d55b6c"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/config/15-airwaves-header",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/15-airwaves-header",
       "dest": "/etc/update-motd.d/15-airwaves-header",
       "sha256": "6383366ac87d74600324bad1d689293ee4145dc1b82a7ac3410dbaa8f6d55b6c",
       "mode": "0755"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/config/50-airwaves-help",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/50-airwaves-help",
       "dest": "/opt/airwaves/config/50-airwaves-help",
-      "sha256": "e091ade95024682538ca33ab63e51a20c824dc28f7394164cfaf391434d497d6"
+      "sha256": "ebc5053114ddda47ee9feb3bb91ede9f011581ec5868a06072c453d15c47474b"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/config/50-airwaves-help",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/50-airwaves-help",
       "dest": "/etc/update-motd.d/50-airwaves-help",
-      "sha256": "e091ade95024682538ca33ab63e51a20c824dc28f7394164cfaf391434d497d6",
+      "sha256": "ebc5053114ddda47ee9feb3bb91ede9f011581ec5868a06072c453d15c47474b",
       "mode": "0755"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/config/airwaves-release",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/airwaves-release",
       "dest": "/opt/airwaves/config/airwaves-release",
       "sha256": "47e2ae9953a29cbc2294b78f9a84ab0edd70bb9fd7631b23a75e5e74a73830b5"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/5e660153b8f14d4bea9a67b90c5fa77da10c3324/armbian/userpatches/extensions/airwaves-os/config/catalog.json",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/catalog.json",
       "dest": "/opt/airwaves/config/catalog.json",
       "sha256": "ace0a78a156e2b3c185eb339e105c295c172d36c36053c4bea59675a2b580bd8"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/config/templates/config.json.template",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/templates/config.json.template",
       "dest": "/opt/airwaves/config/templates/config.json.template",
       "sha256": "46448d77ce96ce6891656213ead7344ffad66ec3fe28ae5ae0c9aee13326bb2b"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/f3b84f117aad95cf89747e68244b2b0c4855a5aa/armbian/userpatches/extensions/airwaves-os/config/templates/docker-compose.yml.template",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/templates/docker-compose.yml.template",
       "dest": "/opt/airwaves/config/templates/docker-compose.yml.template",
       "sha256": "0b2d94681c8c30a7a301455a6b9fe6a7ea408b9bb81e5d4c8c1dbd45537bdc4b"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/config/templates/systemd-airwaves-update.service",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/templates/systemd-airwaves-update.service",
       "dest": "/opt/airwaves/config/templates/systemd-airwaves-update.service",
       "sha256": "3b64a508ea4e4f8fd6dcc2bee12f887be1fa366a5ab1137880dbb7816b046856"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/config/templates/systemd-airwaves-update.service",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/templates/systemd-airwaves-update.service",
       "dest": "/etc/systemd/system/airwaves-update.service",
       "sha256": "3b64a508ea4e4f8fd6dcc2bee12f887be1fa366a5ab1137880dbb7816b046856"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/config/templates/systemd-airwaves-growfs.service",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/templates/systemd-airwaves-growfs.service",
       "dest": "/opt/airwaves/config/templates/systemd-airwaves-growfs.service",
       "sha256": "27045fdaa40020d9cafa9c30923e4a519fe9ab15ca21ee530b6adb9f74b65b7c"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/config/templates/systemd-airwaves-growfs.service",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/templates/systemd-airwaves-growfs.service",
       "dest": "/etc/systemd/system/airwaves-growfs.service",
       "sha256": "27045fdaa40020d9cafa9c30923e4a519fe9ab15ca21ee530b6adb9f74b65b7c"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/config/templates/systemd-airwaves-init.service",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/templates/systemd-airwaves-init.service",
       "dest": "/opt/airwaves/config/templates/systemd-airwaves-init.service",
-      "sha256": "2a4ff1a6abed8a712cea6f347602e8dc9f1ea9df1574019d988722f004c1aa18"
+      "sha256": "47ab93d2830ec3249f18dc3937515727f01511644543ffd90495e1c36a35403f"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/config/templates/systemd-airwaves-init.service",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/templates/systemd-airwaves-init.service",
       "dest": "/etc/systemd/system/airwaves-init.service",
-      "sha256": "2a4ff1a6abed8a712cea6f347602e8dc9f1ea9df1574019d988722f004c1aa18"
+      "sha256": "47ab93d2830ec3249f18dc3937515727f01511644543ffd90495e1c36a35403f"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/config/templates/systemd-airwaves-containers.service",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/templates/systemd-airwaves-containers.service",
       "dest": "/opt/airwaves/config/templates/systemd-airwaves-containers.service",
       "sha256": "9f966a2d0c82e4b65615fb3a68abbf32b1af346a016deb7548baa0ae4ec0716a"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/config/templates/systemd-airwaves-containers.service",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/templates/systemd-airwaves-containers.service",
       "dest": "/etc/systemd/system/airwaves-containers.service",
       "sha256": "9f966a2d0c82e4b65615fb3a68abbf32b1af346a016deb7548baa0ae4ec0716a"
     },
     {
-      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/v1.0.24/armbian/userpatches/extensions/airwaves-os/config/templates/avahi-airwaves-web.service",
+      "url": "https://raw.githubusercontent.com/airframesio/airwaves-os/08217cf7f3db4985f3fccec3ca3b0b4d8782e3b6/armbian/userpatches/extensions/airwaves-os/config/templates/avahi-airwaves-web.service",
       "dest": "/opt/airwaves/config/templates/avahi-airwaves-web.service",
       "sha256": "4972958ca29578522acea839ad4920170a1dae766eacb656b161cbfeac49fd8d"
     }
