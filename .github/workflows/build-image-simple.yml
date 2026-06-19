@@ -66,9 +66,17 @@ on:
           - stable
           - dev
           - beta
+      armbian_tag:
+        description: "Override Armbian build framework tag (blank = pinned default in build.sh). Use to canary a newer tag."
+        required: false
+        default: ""
+        type: string
 
-# The Armbian build framework tag is pinned in armbian/build.sh (single source
-# of truth); this workflow invokes build.sh, so no override is needed here.
+# The Armbian build framework tag is normally pinned in armbian/build.sh (single
+# source of truth). The optional armbian_tag input overrides it per-dispatch
+# (via ARMBIAN_BUILD_TAG) so a newer tag can be canaried without editing build.sh;
+# it is also folded into the cache key so a canary rebuilds rather than reusing
+# the pinned tag's kernel debs.
 
 jobs:
   build:
@@ -109,9 +117,9 @@ jobs:
             .armbian-build/output/debs
             .armbian-build/cache/rootfs
             .armbian-build/cache/ccache
-          key: armbian-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}-${{ github.event.inputs.branch }}-${{ hashFiles('armbian/build.sh', 'armbian/userpatches/**') }}
+          key: armbian-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}-${{ github.event.inputs.branch }}-${{ github.event.inputs.armbian_tag }}-${{ hashFiles('armbian/build.sh', 'armbian/userpatches/**') }}
           restore-keys: |
-            armbian-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}-${{ github.event.inputs.branch }}-
+            armbian-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}-${{ github.event.inputs.branch }}-${{ github.event.inputs.armbian_tag }}-
             armbian-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}-
 
       # Bake the release's manager+gateway container images INTO the rootfs so the
@@ -186,9 +194,12 @@ jobs:
           BOARD: ${{ github.event.inputs.board }}
           RELEASE: ${{ github.event.inputs.release }}
           BRANCH: ${{ github.event.inputs.branch }}
+          ARMBIAN_BUILD_TAG: ${{ github.event.inputs.armbian_tag }}
           COLUMNS: "160"
         run: |
-          sudo -E ./armbian/build.sh airwaves BOARD="$BOARD" BRANCH="$BRANCH" RELEASE="$RELEASE"
+          # `env` guarantees ARMBIAN_BUILD_TAG reaches the command regardless of
+          # sudo env handling; empty falls back to build.sh's pinned default (:-).
+          sudo -E env ARMBIAN_BUILD_TAG="$ARMBIAN_BUILD_TAG" ./armbian/build.sh airwaves BOARD="$BOARD" BRANCH="$BRANCH" RELEASE="$RELEASE"
 
       - name: List output
         run: ls -lh .armbian-build/output/images/ 2>/dev/null || echo "No images found"
