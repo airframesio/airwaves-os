@@ -66,6 +66,22 @@ const CODENAME = 'Sideband';
 // No shell: args passed directly to gh (all inputs are constants anyway).
 const gh = (...args) => execFileSync('gh', args, { encoding: 'utf8' });
 
+// GitHub's release-asset listing is eventually-consistent: a single
+// `gh release view --json assets` can return an incomplete set right after an
+// upload (some assets transiently absent). Assets never legitimately vanish, so
+// read a few times and union by name — converges to the complete list.
+function fetchAssets(tag) {
+  const byName = new Map();
+  let stable = 0, last = -1;
+  for (let i = 0; i < 6 && stable < 2; i++) {
+    const assets = JSON.parse(gh('release', 'view', tag, '--repo', REPO, '--json', 'assets')).assets;
+    for (const a of assets) if (!byName.has(a.name)) byName.set(a.name, a);
+    stable = byName.size === last ? stable + 1 : 0;
+    last = byName.size;
+  }
+  return [...byName.values()];
+}
+
 // board id from an asset name: Airwaves_OS_<verfield>_<Board>_<release>_... .img.xz
 function boardOf(name) {
   const p = name.split('_');
@@ -77,15 +93,20 @@ const images = [];
 const usedDevices = new Set();
 
 for (const rel of RELEASES) {
-  const assets = JSON.parse(gh('release', 'view', rel.tag, '--repo', REPO, '--json', 'assets')).assets;
-  // pull the .sha256 sidecars so we can publish download_sha256
+  const assets = fetchAssets(rel.tag);
+  const wantSha = new Set(assets.filter((a) => a.name.endsWith('.img.xz')).map((a) => a.name));
+  // pull the .sha256 sidecars so we can publish download_sha256. The download is
+  // likewise flaky, so retry into the same dir until every image has a hash.
   const dir = mkdtempSync(join(tmpdir(), 'awcat-'));
-  gh('release', 'download', rel.tag, '--repo', REPO, '--dir', dir, '--pattern', '*.img.xz.sha256');
   const shaByFile = {};
-  for (const f of readdirSync(dir)) {
-    const txt = readFileSync(join(dir, f), 'utf8').trim();
-    const [hash, fname] = txt.split(/\s+/);
-    if (hash && fname) shaByFile[fname.replace(/^\*/, '')] = hash;
+  for (let i = 0; i < 4; i++) {
+    try { gh('release', 'download', rel.tag, '--repo', REPO, '--dir', dir, '--pattern', '*.img.xz.sha256', '--clobber'); } catch {}
+    for (const f of readdirSync(dir)) {
+      const txt = readFileSync(join(dir, f), 'utf8').trim();
+      const [hash, fname] = txt.split(/\s+/);
+      if (hash && fname) shaByFile[fname.replace(/^\*/, '')] = hash;
+    }
+    if ([...wantSha].every((n) => shaByFile[n])) break;
   }
 
   for (const a of assets) {

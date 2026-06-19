@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "Airwaves OS",
-  "updated": "2026-06-19T04:11:11Z",
+  "updated": "2026-06-19T11:15:58Z",
   "channels": [
     "stable",
     "beta",
@@ -9,9 +9,108 @@
   ],
   "devices": [
     {
+      "id": "nanopct6",
+      "name": "FriendlyELEC NanoPC-T6",
+      "description": "RK3588 board with dual 2.5GbE and M.2.",
+      "icon": "sbc",
+      "arch": "arm64",
+      "vendor": "FriendlyELEC",
+      "tags": [
+        "supported"
+      ]
+    },
+    {
+      "id": "nanopi-r6s",
+      "name": "FriendlyELEC NanoPi R6S",
+      "description": "RK3588S router/feeder with dual 2.5GbE + GbE.",
+      "icon": "sbc",
+      "arch": "arm64",
+      "vendor": "FriendlyELEC",
+      "tags": [
+        "supported"
+      ]
+    },
+    {
+      "id": "odroidc2",
+      "name": "Hardkernel Odroid C2",
+      "description": "Classic Amlogic S905 board.",
+      "icon": "sbc",
+      "arch": "arm64",
+      "vendor": "Hardkernel",
+      "tags": [
+        "supported"
+      ]
+    },
+    {
+      "id": "odroidc4",
+      "name": "Hardkernel Odroid C4",
+      "description": "Amlogic S905X3 board, low-cost and efficient.",
+      "icon": "sbc",
+      "arch": "arm64",
+      "vendor": "Hardkernel",
+      "tags": [
+        "supported"
+      ]
+    },
+    {
+      "id": "odroidn2",
+      "name": "Hardkernel Odroid N2/N2+",
+      "description": "Amlogic S922X board, a long-time favourite.",
+      "icon": "sbc",
+      "arch": "arm64",
+      "vendor": "Hardkernel",
+      "tags": [
+        "supported"
+      ]
+    },
+    {
+      "id": "khadas-vim3",
+      "name": "Khadas VIM3",
+      "description": "Amlogic A311D board with NPU and eMMC.",
+      "icon": "sbc",
+      "arch": "arm64",
+      "vendor": "Khadas",
+      "tags": [
+        "supported"
+      ]
+    },
+    {
+      "id": "lepotato",
+      "name": "Libre Computer Le Potato",
+      "description": "Amlogic S905X board, very low cost.",
+      "icon": "sbc",
+      "arch": "arm64",
+      "vendor": "Libre Computer",
+      "tags": [
+        "supported"
+      ]
+    },
+    {
+      "id": "orangepi3b",
+      "name": "Orange Pi 3B",
+      "description": "RK3566 board, a strong-value feeder.",
+      "icon": "orangepi",
+      "arch": "arm64",
+      "vendor": "Orange Pi",
+      "tags": [
+        "supported"
+      ]
+    },
+    {
       "id": "orangepi5",
       "name": "Orange Pi 5",
       "description": "Compact RK3588S board, a strong-value feeder.",
+      "icon": "orangepi",
+      "arch": "arm64",
+      "vendor": "Orange Pi",
+      "tags": [
+        "supported"
+      ]
+    },
+    {
+      "id": "orangepi5-max",
+      "name": "Orange Pi 5 Max",
+      "description": "Top-end RK3588 board with 2.5GbE.",
       "icon": "orangepi",
       "arch": "arm64",
       "vendor": "Orange Pi",
@@ -65,6 +164,50 @@
       ]
     },
     {
+      "id": "rock-5b-plus",
+      "name": "Radxa ROCK 5B Plus",
+      "description": "RK3588 board with onboard eMMC and PoE option.",
+      "icon": "rock",
+      "arch": "arm64",
+      "vendor": "Radxa",
+      "tags": [
+        "supported"
+      ]
+    },
+    {
+      "id": "rock-5c",
+      "name": "Radxa ROCK 5C",
+      "description": "RK3588S2 board, compact and efficient.",
+      "icon": "rock",
+      "arch": "arm64",
+      "vendor": "Radxa",
+      "tags": [
+        "supported"
+      ]
+    },
+    {
+      "id": "rock-5t",
+      "name": "Radxa ROCK 5T",
+      "description": "RK3588 board with dual 2.5GbE.",
+      "icon": "rock",
+      "arch": "arm64",
+      "vendor": "Radxa",
+      "tags": [
+        "supported"
+      ]
+    },
+    {
+      "id": "radxa-zero3",
+      "name": "Radxa ZERO 3W",
+      "description": "Tiny RK3566 board, Pi-Zero form factor.",
+      "icon": "rock",
+      "arch": "arm64",
+      "vendor": "Radxa",
+      "tags": [
+        "supported"
+      ]
+    },
+    {
       "id": "rpi4b",
       "name": "Raspberry Pi 3 / 4",
       "description": "Popular 64-bit feeder board with great SDR support. (Pi 5 not yet supported.)",
@@ -78,6 +221,102 @@
     }
   ],
   "images": [
+    {
+      "id": "odroidc2-dev-1.0.38",
+      "device": "odroidc2",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (Odroid C2)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-1448012_Odroidc2_trixie_current_6.18.35_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 515052816,
+      "downloadSha256": "3d3fc51f7465a3cbb4b70aff2f6004500be6d3b87ef44e83cbd7ec44ff70988d",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "orangepi3b-dev-1.0.38",
+      "device": "orangepi3b",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (Orange Pi 3B)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-1448012_Orangepi3b_trixie_vendor_6.1.115_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 489548736,
+      "downloadSha256": "2e054c3196393afaa538101fda672b40e76782214b884888e8e08f07d956aab3",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "orangepi5-max-dev-1.0.38",
+      "device": "orangepi5-max",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (Orange Pi 5 Max)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-1448012_Orangepi5-max_trixie_vendor_6.1.115_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 572206716,
+      "downloadSha256": "c8b6a44e5839cef77796d79a03c4f915a90a13100fb33c37d8c3a19d504df3b3",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "radxa-zero3-dev-1.0.38",
+      "device": "radxa-zero3",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (Radxa ZERO 3W)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-1448012_Radxa-zero3_trixie_vendor_6.1.115_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 576316232,
+      "downloadSha256": "c3c7808d05dea5989141c31a0accdf4e823d9a2d14417cbd7e59d4b8d4f315b0",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "rock-5c-dev-1.0.38",
+      "device": "rock-5c",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (ROCK 5C)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-1448012_Rock-5c_trixie_vendor_6.1.115_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 577633808,
+      "downloadSha256": "16484fee8ac5466c86de1e1e9b49e68f749232482d5b69f538f73316e4b04a6d",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "rock-5t-dev-1.0.38",
+      "device": "rock-5t",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (ROCK 5T)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-1448012_Rock-5t_trixie_vendor_6.1.115_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 490209868,
+      "downloadSha256": "a10491c3f3fd9de94f727dfc25002f787ae79544e3294cba9dde16d78a5888a6",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
     {
       "id": "orangepi5-plus-dev-1.0.38",
       "device": "orangepi5-plus",
@@ -171,6 +410,118 @@
       "compression": "xz",
       "downloadSize": 1368392160,
       "downloadSha256": "a8e129c269ee638a7fc1e43408f7fb2dbf99c2e9d61456bd71625ab35beecb11",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "khadas-vim3-dev-1.0.38",
+      "device": "khadas-vim3",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (Khadas VIM3)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-d9ab176_Khadas-vim3_trixie_current_6.18.35_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 513290316,
+      "downloadSha256": "a1e4ef0e05bf4d4587a9c5eb67533c14f0a57bf26cbb8a2c2c5d17816962fbe9",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "lepotato-dev-1.0.38",
+      "device": "lepotato",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (Le Potato)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-d9ab176_Lepotato_trixie_current_6.18.35_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 514891316,
+      "downloadSha256": "7aec8c18362c6a3ab8ffe9842a30db050071af9bd4fe895cd8ee9c3bedee8a47",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "nanopct6-dev-1.0.38",
+      "device": "nanopct6",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (NanoPC-T6)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-d9ab176_Nanopct6_trixie_vendor_6.1.115_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 490144268,
+      "downloadSha256": "6c6b3d55280d0c98ff580cb76edd67d33f031e7d8fc9723605bc0e37848cfc0d",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "nanopi-r6s-dev-1.0.38",
+      "device": "nanopi-r6s",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (NanoPi R6S)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-d9ab176_Nanopi-r6s_trixie_vendor_6.1.115_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 487686720,
+      "downloadSha256": "522f9227dcadc2adc356a591b3194920148c4905d78c3bfca0d613f8421102fa",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "odroidc4-dev-1.0.38",
+      "device": "odroidc4",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (Odroid C4)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-d9ab176_Odroidc4_trixie_current_6.18.35_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 515875352,
+      "downloadSha256": "54c799c5fda4495721dfc41048c41e8ae2f89f999ea5bba414dc8c64c6321c38",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "odroidn2-dev-1.0.38",
+      "device": "odroidn2",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (Odroid N2)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-d9ab176_Odroidn2_trixie_current_6.18.35_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 515168480,
+      "downloadSha256": "1b0be7e6ffafb0f127c5342dd1f2deaf18ef8b8b23619e08a267a3383d774f47",
+      "minStorageBytes": 4294967296,
+      "latest": true
+    },
+    {
+      "id": "rock-5b-plus-dev-1.0.38",
+      "device": "rock-5b-plus",
+      "channel": "dev",
+      "osVersion": "1.0.38",
+      "codename": "Sideband",
+      "name": "Airwaves OS 1.0.38 (ROCK 5B+)",
+      "released": "2026-06-18",
+      "notesUrl": "https://github.com/airframesio/airwaves-os/releases/tag/1.0.38-dev",
+      "url": "https://github.com/airframesio/airwaves-os/releases/download/1.0.38-dev/Airwaves_OS_1.0.38-d9ab176_Rock-5b-plus_trixie_vendor_6.1.115_minimal.img.xz",
+      "compression": "xz",
+      "downloadSize": 490713108,
+      "downloadSha256": "9375ed8c3cf3835a77c403679963202bbff170791be8551b0f903ae6927458f1",
       "minStorageBytes": 4294967296,
       "latest": true
     },
