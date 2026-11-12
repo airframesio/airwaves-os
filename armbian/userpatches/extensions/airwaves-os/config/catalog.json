@@ -124,6 +124,15 @@
         "description": "Optional ADS-B feed destination using Ultrafeeder output."
       },
       {
+        "id": "theairtraffic-ultrafeeder",
+        "name": "TheAirTraffic ADS-B",
+        "feed_type": "integrated_option",
+        "protocol": "tcp",
+        "host": "feed.theairtraffic.com",
+        "port": 30004,
+        "description": "Optional ADS-B feed destination using Ultrafeeder output."
+      },
+      {
         "id": "custom-adsb-ultrafeeder",
         "name": "Custom ADS-B Beast Output",
         "feed_type": "raw_stream",
@@ -258,6 +267,15 @@
         "feed_type": "integrated_option",
         "protocol": "tcp",
         "host": "feed.airplanes.live",
+        "port": 30004,
+        "description": "Optional ADS-B feed destination from readsb Beast output."
+      },
+      {
+        "id": "theairtraffic-readsb",
+        "name": "TheAirTraffic ADS-B",
+        "feed_type": "integrated_option",
+        "protocol": "tcp",
+        "host": "feed.theairtraffic.com",
         "port": 30004,
         "description": "Optional ADS-B feed destination from readsb Beast output."
       },
