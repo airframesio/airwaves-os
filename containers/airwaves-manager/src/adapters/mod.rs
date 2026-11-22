@@ -2,7 +2,7 @@ mod docker;
 mod system;
 mod hardware;
 mod config;
-mod host;
+pub mod host;
 mod updater;
 
 pub use docker::DockerAdapter;

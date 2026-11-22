@@ -221,6 +221,59 @@ impl HostAdapter {
         Ok(())
     }
 
+    /// Whether the host's OpenSSH server is enabled at boot and running now.
+    /// `systemctl show` always exits 0, so a missing unit reads as
+    /// LoadState=not-found rather than an error.
+    pub async fn ssh_status(&self) -> SshStatus {
+        let out = self
+            .run_capture(vec![
+                "systemctl".into(),
+                "show".into(),
+                "-p".into(),
+                "LoadState".into(),
+                "-p".into(),
+                "UnitFileState".into(),
+                "-p".into(),
+                "ActiveState".into(),
+                "ssh.service".into(),
+            ])
+            .await;
+        SshStatus::parse(out.as_deref())
+    }
+
+    /// Enable and start, or disable and stop, the host's OpenSSH server.
+    /// ssh.socket is stopped too when disabling, so socket activation cannot
+    /// bring sshd back.
+    pub async fn set_ssh(&self, enabled: bool) -> Result<SshStatus, AppError> {
+        if enabled {
+            self.run(vec![
+                "systemctl".into(),
+                "enable".into(),
+                "--now".into(),
+                "ssh.service".into(),
+            ])
+            .await?;
+        } else {
+            self.run(vec![
+                "systemctl".into(),
+                "disable".into(),
+                "--now".into(),
+                "ssh.service".into(),
+            ])
+            .await?;
+            // Not every image has the socket unit; ignore failures here.
+            let _ = self
+                .run(vec![
+                    "systemctl".into(),
+                    "disable".into(),
+                    "--now".into(),
+                    "ssh.socket".into(),
+                ])
+                .await;
+        }
+        Ok(self.ssh_status().await)
+    }
+
     /// Start the host-side updater oneshot service.
     pub async fn start_update_service(&self) -> Result<(), AppError> {
         self.run(vec![
@@ -438,5 +491,53 @@ mod tests {
         assert!(!HostAdapter::is_running_state("inactive"));
         assert!(!HostAdapter::is_running_state("failed"));
         assert!(!HostAdapter::is_running_state(""));
+    }
+}
+
+/// State of the host's OpenSSH server (ssh.service).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct SshStatus {
+    /// False when ssh.service is not installed (or systemd was unreachable).
+    pub available: bool,
+    /// Starts at boot.
+    pub enabled: bool,
+    /// Running now.
+    pub active: bool,
+}
+
+impl SshStatus {
+    fn parse(out: Option<&str>) -> Self {
+        let mut load = "";
+        let mut unit_file = "";
+        let mut active = "";
+        for line in out.unwrap_or_default().lines() {
+            match line.split_once('=') {
+                Some(("LoadState", v)) => load = v.trim(),
+                Some(("UnitFileState", v)) => unit_file = v.trim(),
+                Some(("ActiveState", v)) => active = v.trim(),
+                _ => {}
+            }
+        }
+        Self {
+            available: load == "loaded",
+            enabled: matches!(unit_file, "enabled" | "enabled-runtime" | "alias"),
+            active: matches!(active, "active" | "activating" | "reloading"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod ssh_status_tests {
+    use super::SshStatus;
+
+    #[test]
+    fn parses_systemctl_show() {
+        let s = SshStatus::parse(Some("LoadState=loaded\nUnitFileState=enabled\nActiveState=active\n"));
+        assert_eq!(s, SshStatus { available: true, enabled: true, active: true });
+        let s = SshStatus::parse(Some("LoadState=loaded\nUnitFileState=disabled\nActiveState=inactive\n"));
+        assert_eq!(s, SshStatus { available: true, enabled: false, active: false });
+        let s = SshStatus::parse(Some("LoadState=not-found\nUnitFileState=\nActiveState=inactive\n"));
+        assert!(!s.available);
+        assert!(!SshStatus::parse(None).available);
     }
 }
