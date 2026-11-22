@@ -117,8 +117,8 @@ impl DockerAdapter {
     /// to (e.g. "sha256:…"). Used by app auto-update to see whether a tag moved.
     pub async fn pull_image(&self, image: &str) -> Result<String, AppError> {
         let mut stream = self.client.create_image(
-            Some(bollard::image::CreateImageOptions {
-                from_image: image.to_string(),
+            Some(CreateImageOptions {
+                from_image: Some(image.to_string()),
                 ..Default::default()
             }),
             None,
