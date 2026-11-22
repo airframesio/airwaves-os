@@ -9,6 +9,7 @@ use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod adapters;
+mod airframes;
 mod domain;
 mod error;
 mod forwarding;
@@ -98,6 +99,9 @@ fn api_router(state: AppState) -> Router {
         .route("/api/v1/fleet/pair", axum::routing::post(handlers::fleet::pair_node))
         .route("/api/v1/fleet/{id}", axum::routing::delete(handlers::fleet::unpair_node))
         // Feed management endpoints
+        .route("/api/v1/airframes/account", axum::routing::get(airframes::get_account).delete(airframes::sign_out))
+        .route("/api/v1/airframes/signin/start", axum::routing::post(airframes::start_signin))
+        .route("/api/v1/airframes/signin/poll", axum::routing::post(airframes::poll_signin))
         .route("/api/v1/feeds", axum::routing::get(handlers::feeds::list_feeds))
         .route("/api/v1/feeds", axum::routing::post(handlers::feeds::upsert_feed))
         .route("/api/v1/feeds/{id}", axum::routing::delete(handlers::feeds::delete_feed))
