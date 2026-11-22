@@ -75,8 +75,7 @@ fn is_command_allowed(input: &str) -> bool {
         if trimmed == *base {
             return true;
         }
-        if trimmed.starts_with(base) {
-            let rest = &trimmed[base.len()..];
+        if let Some(rest) = trimmed.strip_prefix(base) {
             if rest.starts_with(' ') {
                 return true;
             }

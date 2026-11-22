@@ -1,7 +1,7 @@
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
-use bollard::container::LogsOptions;
+use bollard::query_parameters::LogsOptions;
 use futures::{SinkExt, StreamExt};
 
 use crate::AppState;
@@ -59,7 +59,7 @@ async fn handle_logs_socket(socket: WebSocket, container_id: String, state: AppS
 
     // Stream logs from Docker
     let send_task = tokio::spawn(async move {
-        let opts = LogsOptions::<String> {
+        let opts = LogsOptions {
             follow: true,
             stdout: true,
             stderr: true,
