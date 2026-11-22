@@ -9,6 +9,7 @@ use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod adapters;
+mod auto_update;
 mod domain;
 mod error;
 mod forwarding;
@@ -46,6 +47,9 @@ fn api_router(state: AppState) -> Router {
         .route("/api/v1/system/shutdown", axum::routing::post(handlers::host::shutdown))
         .route("/api/v1/system/timezone", axum::routing::post(handlers::host::set_timezone))
         .route("/api/v1/system/service/restart", axum::routing::post(handlers::host::restart_service))
+        // Host SSH server on/off
+        .route("/api/v1/system/ssh", axum::routing::get(handlers::ssh::get_ssh))
+        .route("/api/v1/system/ssh", axum::routing::put(handlers::ssh::set_ssh))
         // System updater
         .route("/api/v1/system/update/status", axum::routing::get(handlers::update::get_status))
         .route("/api/v1/system/update/check", axum::routing::post(handlers::update::check))
@@ -90,6 +94,10 @@ fn api_router(state: AppState) -> Router {
             axum::routing::put(handlers::apps::update_app_config),
         )
         .route("/api/v1/apps/{id}", axum::routing::delete(handlers::apps::uninstall_app))
+        // Automatic app updates
+        .route("/api/v1/apps/auto-update", axum::routing::get(handlers::auto_update::get_auto_update))
+        .route("/api/v1/apps/auto-update", axum::routing::put(handlers::auto_update::set_auto_update))
+        .route("/api/v1/apps/auto-update/run", axum::routing::post(handlers::auto_update::run_auto_update))
         // Tracking (aircraft/ship positions from decoder containers)
         .route("/api/v1/tracking/vehicles", axum::routing::get(handlers::tracking::get_vehicles))
         // Fleet management (multi-node)
@@ -159,6 +167,7 @@ async fn main() -> anyhow::Result<()> {
     spawn_docker_event_watcher(state.docker.clone(), state.events_tx.clone());
     spawn_update_checker(state.updater.clone(), state.events_tx.clone());
     spawn_app_reconciler(state.clone());
+    auto_update::spawn_auto_updater(state.clone());
 
     // Spawn message forwarding service
     forwarding::spawn_forwarding_service(
