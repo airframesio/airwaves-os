@@ -12,7 +12,7 @@ pub struct SystemAdapter {
 impl SystemAdapter {
     pub fn new() -> Self {
         Self {
-            sys: Mutex::new(System::new_all()),
+            sys: Mutex::new(System::new_all().expect("sysinfo supports Linux")),
         }
     }
 }
@@ -46,7 +46,10 @@ fn parse_kv(content: &str, key: &str) -> Option<String> {
 /// Detect the hardware model from the host filesystem (ARM device-tree or x86 DMI).
 fn detect_model(root: &str) -> String {
     // ARM / SBC boards expose a device-tree model (NUL-terminated).
-    for p in ["/proc/device-tree/model", "/sys/firmware/devicetree/base/model"] {
+    for p in [
+        "/proc/device-tree/model",
+        "/sys/firmware/devicetree/base/model",
+    ] {
         if let Ok(s) = std::fs::read_to_string(format!("{root}{p}")) {
             let s = s.trim_matches(|c: char| c == '\0' || c.is_whitespace());
             if !s.is_empty() {
@@ -94,7 +97,7 @@ impl SystemPort for SystemAdapter {
         let hostname = read_host_file("/etc/hostname")
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
-            .or_else(System::host_name)
+            .or_else(|| System::host_name().ok())
             .unwrap_or_else(|| "airwaves".to_string());
 
         // OS: parse the host's /etc/os-release for the real distro, falling
@@ -106,7 +109,7 @@ impl SystemPort for SystemAdapter {
             .unwrap_or_else(|| {
                 format!(
                     "{} {}",
-                    System::name().unwrap_or_else(|| "Linux".to_string()),
+                    System::name().unwrap_or_else(|_| "Linux".to_string()),
                     System::os_version().unwrap_or_default()
                 )
                 .trim()
@@ -117,7 +120,7 @@ impl SystemPort for SystemAdapter {
             .and_then(|c| parse_kv(c, "VERSION_CODENAME"))
             .unwrap_or_default();
 
-        // cpu_arch returns a String directly in sysinfo 0.33
+        // cpu_arch returns a String directly (not a Result)
         let architecture = {
             let a = System::cpu_arch();
             if a.is_empty() {
@@ -126,13 +129,16 @@ impl SystemPort for SystemAdapter {
                 a
             }
         };
-        let kernel = System::kernel_version().unwrap_or_else(|| "unknown".to_string());
-        let uptime = System::uptime();
+        let kernel = System::kernel_version().unwrap_or_else(|_| "unknown".to_string());
+        let uptime = System::uptime().unwrap_or(0);
         let model = detect_model(&root);
 
         // CPU details from the (host-visible) /proc.
         let (cpu_model, cpu_cores) = {
-            let sys = self.sys.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+            let sys = self
+                .sys
+                .lock()
+                .map_err(|e| AppError::Internal(e.to_string()))?;
             let cpus = sys.cpus();
             let model = cpus
                 .first()
@@ -170,7 +176,10 @@ impl SystemPort for SystemAdapter {
     }
 
     fn get_stats(&self) -> Result<SystemStats, AppError> {
-        let mut sys = self.sys.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+        let mut sys = self
+            .sys
+            .lock()
+            .map_err(|e| AppError::Internal(e.to_string()))?;
         sys.refresh_all();
 
         let cpu_usage = sys.global_cpu_usage();
@@ -190,7 +199,9 @@ impl SystemPort for SystemAdapter {
             .unwrap_or_else(|| "/".to_string());
         let (disk_total, disk_used) = statvfs_disk(&disk_root).unwrap_or_else(|| {
             // Fallback: aggregate across all visible disks.
-            let disks = Disks::new_with_refreshed_list();
+            let Ok(disks) = Disks::new_with_refreshed_list() else {
+                return (0, 0);
+            };
             disks.iter().fold((0u64, 0u64), |(total, used), d| {
                 (
                     total + d.total_space(),
@@ -205,9 +216,10 @@ impl SystemPort for SystemAdapter {
         };
 
         // Temperature from thermal zones
-        let components = Components::new_with_refreshed_list();
+        let components = Components::new_with_refreshed_list().ok();
         let temperature = components
             .iter()
+            .flat_map(|c| c.iter())
             .find(|c| {
                 let label = c.label();
                 label.contains("CPU") || label.contains("cpu") || label.contains("SoC")
@@ -225,7 +237,9 @@ impl SystemPort for SystemAdapter {
             disk_used,
             disk_percent,
             temperature,
-            load_average: [load_avg.one, load_avg.five, load_avg.fifteen],
+            load_average: load_avg
+                .map(|l| [l.one, l.five, l.fifteen])
+                .unwrap_or([0.0; 3]),
         })
     }
 }

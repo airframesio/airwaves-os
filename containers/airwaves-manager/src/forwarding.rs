@@ -43,7 +43,7 @@ fn device_hostname() -> String {
             }
         }
     }
-    sysinfo::System::host_name().unwrap_or_else(|| "airwaves".to_string())
+    sysinfo::System::host_name().unwrap_or_else(|_| "airwaves".to_string())
 }
 
 /// Whether collected messages should also be forwarded to a primary node.

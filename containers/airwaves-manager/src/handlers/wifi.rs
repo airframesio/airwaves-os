@@ -201,7 +201,7 @@ pub async fn scan_networks(
     }
 
     // Strongest first, then keep one entry per SSID (drops band/BSS duplicates).
-    networks.sort_by(|a, b| b.signal.cmp(&a.signal));
+    networks.sort_by_key(|n| std::cmp::Reverse(n.signal));
     networks.dedup_by(|a, b| a.ssid == b.ssid);
 
     Ok(Json(networks))

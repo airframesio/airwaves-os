@@ -375,7 +375,7 @@ async fn validate_sdr_assignments(
     };
     let mut targets = primary_apps.to_vec();
     targets.extend(bundled_apps.iter().cloned());
-    crate::sdr::validate_app_sdr_assignments(config, &targets, &devices)
+    crate::sdr::validate_app_sdr_assignments(config, &targets, devices)
         .map_err(AppError::BadRequest)
 }
 
