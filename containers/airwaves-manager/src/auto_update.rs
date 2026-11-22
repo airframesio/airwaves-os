@@ -43,7 +43,10 @@ fn default_interval() -> u32 {
 
 impl Default for AutoUpdateSettings {
     fn default() -> Self {
-        Self { enabled: false, check_interval_hours: DEFAULT_INTERVAL_HOURS }
+        Self {
+            enabled: false,
+            check_interval_hours: DEFAULT_INTERVAL_HOURS,
+        }
     }
 }
 
@@ -104,7 +107,10 @@ pub fn settings_from_config(config: &crate::domain::AirwavesConfig) -> AutoUpdat
         .clamped()
 }
 
-pub async fn save_settings(state: &AppState, settings: &AutoUpdateSettings) -> Result<(), AppError> {
+pub async fn save_settings(
+    state: &AppState,
+    settings: &AutoUpdateSettings,
+) -> Result<(), AppError> {
     let mut config = state.config.read_config().await?;
     if !config.preferences.is_object() {
         config.preferences = serde_json::json!({});
@@ -129,7 +135,12 @@ fn image_tag(image: &str) -> Option<String> {
         return None;
     }
     let last = image.rsplit('/').next().unwrap_or(image);
-    Some(last.split_once(':').map(|(_, t)| t).unwrap_or("latest").to_string())
+    Some(
+        last.split_once(':')
+            .map(|(_, t)| t)
+            .unwrap_or("latest")
+            .to_string(),
+    )
 }
 
 /// What to do for one app, decided from its record and the catalog.
@@ -145,12 +156,21 @@ fn plan_for(recorded_image: &str, pinned: bool, catalog_image: &str) -> Plan {
     if !pinned && recorded_image != catalog_image {
         Plan::MoveToCatalog
     } else {
-        Plan::Refresh { tag: if pinned { image_tag(recorded_image) } else { None } }
+        Plan::Refresh {
+            tag: if pinned {
+                image_tag(recorded_image)
+            } else {
+                None
+            },
+        }
     }
 }
 
 async fn update_one(state: &AppState, app_id: &str) -> AppUpdateResult {
-    let mut result = AppUpdateResult { app_id: app_id.to_string(), ..Default::default() };
+    let mut result = AppUpdateResult {
+        app_id: app_id.to_string(),
+        ..Default::default()
+    };
     let fail = |mut r: AppUpdateResult, e: AppError| {
         r.outcome = "failed".into();
         r.error = Some(e.to_string());
@@ -186,7 +206,10 @@ async fn update_one(state: &AppState, app_id: &str) -> AppUpdateResult {
                 Ok(id) => id,
                 Err(e) => return fail(result, e),
             };
-            let running = state.docker.container_image_id(&format!("airwaves-{app_id}")).await;
+            let running = state
+                .docker
+                .container_image_id(&format!("airwaves-{app_id}"))
+                .await;
             if running.as_deref() == Some(pulled.as_str()) {
                 result.outcome = "up_to_date".into();
             } else {
@@ -224,7 +247,11 @@ pub async fn run_once(state: &AppState) -> Option<AutoUpdateRun> {
         }
         results.push(r);
     }
-    let run = AutoUpdateRun { started_at, finished_at: chrono::Utc::now().to_rfc3339(), results };
+    let run = AutoUpdateRun {
+        started_at,
+        finished_at: chrono::Utc::now().to_rfc3339(),
+        results,
+    };
     if let Ok(mut last) = last_run().lock() {
         *last = Some(run.clone());
     }
@@ -283,8 +310,14 @@ mod tests {
     #[test]
     fn pinned_app_keeps_its_tag() {
         assert_eq!(
-            plan_for("localhost:5000/a/xng:0.20.0", true, "localhost:5000/a/xng:0.23.1"),
-            Plan::Refresh { tag: Some("0.20.0".into()) }
+            plan_for(
+                "localhost:5000/a/xng:0.20.0",
+                true,
+                "localhost:5000/a/xng:0.23.1"
+            ),
+            Plan::Refresh {
+                tag: Some("0.20.0".into())
+            }
         );
         assert_eq!(image_tag("docker.io/library/nginx"), Some("latest".into()));
         assert_eq!(image_tag("x/y@sha256:abc"), None);
@@ -292,7 +325,11 @@ mod tests {
 
     #[test]
     fn settings_default_off_and_clamped() {
-        let s = AutoUpdateSettings { enabled: true, check_interval_hours: 0 }.clamped();
+        let s = AutoUpdateSettings {
+            enabled: true,
+            check_interval_hours: 0,
+        }
+        .clamped();
         assert_eq!(s.check_interval_hours, 1);
         assert!(!AutoUpdateSettings::default().enabled);
         let mut cfg_prefs = serde_json::json!({"auto_update_apps": {"enabled": true}});
@@ -303,11 +340,17 @@ mod tests {
 
     #[test]
     fn due_only_when_enabled_and_interval_elapsed() {
-        let on = AutoUpdateSettings { enabled: true, check_interval_hours: 24 };
+        let on = AutoUpdateSettings {
+            enabled: true,
+            check_interval_hours: 24,
+        };
         let off = AutoUpdateSettings::default();
         assert!(!due(&off, None));
         assert!(due(&on, None));
-        let recent = AutoUpdateRun { finished_at: chrono::Utc::now().to_rfc3339(), ..Default::default() };
+        let recent = AutoUpdateRun {
+            finished_at: chrono::Utc::now().to_rfc3339(),
+            ..Default::default()
+        };
         assert!(!due(&on, Some(&recent)));
         let old = AutoUpdateRun {
             finished_at: (chrono::Utc::now() - chrono::Duration::hours(25)).to_rfc3339(),

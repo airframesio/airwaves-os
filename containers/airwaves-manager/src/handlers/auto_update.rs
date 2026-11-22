@@ -27,7 +27,9 @@ pub async fn set_auto_update(
     let current = auto_update::settings_from_config(&config);
     let next = AutoUpdateSettings {
         enabled: req.enabled.unwrap_or(current.enabled),
-        check_interval_hours: req.check_interval_hours.unwrap_or(current.check_interval_hours),
+        check_interval_hours: req
+            .check_interval_hours
+            .unwrap_or(current.check_interval_hours),
     }
     .clamped();
     auto_update::save_settings(&state, &next).await?;

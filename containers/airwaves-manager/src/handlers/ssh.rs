@@ -26,6 +26,9 @@ pub async fn set_ssh(
             "This system has no SSH server (ssh.service not found)".into(),
         ));
     }
-    tracing::info!("SSH {} via API", if req.enabled { "enabled" } else { "disabled" });
+    tracing::info!(
+        "SSH {} via API",
+        if req.enabled { "enabled" } else { "disabled" }
+    );
     Ok(Json(state.host.set_ssh(req.enabled).await?))
 }
