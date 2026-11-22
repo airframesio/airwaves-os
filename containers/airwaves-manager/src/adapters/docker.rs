@@ -545,7 +545,9 @@ impl DockerPort for DockerAdapter {
         // when the UI recorded an exact Airwaves SDR id. Apps that need to
         // enumerate the bus, such as acarsdec's native RTL path, get a bus
         // bind plus the USB character-device cgroup rule.
-        let (devices, binds, device_cgroup_rules) = if app.requires_sdr {
+        let (devices, binds, device_cgroup_rules) = if app.requires_sdr
+            || crate::sdr::requires_full_usb_bus_access(&runtime_env)
+        {
             let selected_paths = crate::sdr::usb_device_paths_for_env(&runtime_env);
             if crate::sdr::requires_full_usb_bus_access(&runtime_env) || selected_paths.is_empty() {
                 (
@@ -572,6 +574,24 @@ impl DockerPort for DockerAdapter {
         } else {
             (None, None, None)
         };
+
+        // Catalog-declared mounts: {{APP_DIR}} is the app's config directory,
+        // other relative sources are named volumes.
+        let mut binds = binds;
+        if !app.volumes.is_empty() {
+            let host_dir = crate::xng::host_apps_dir().join(&app.id);
+            let local_dir = crate::xng::apps_dir().join(&app.id);
+            if app.volumes.iter().any(|v| v.contains("{{APP_DIR}}")) {
+                std::fs::create_dir_all(&local_dir).map_err(|e| {
+                    AppError::Internal(format!("create {}: {e}", local_dir.display()))
+                })?;
+            }
+            let extra = app
+                .volumes
+                .iter()
+                .map(|v| v.replace("{{APP_DIR}}", &host_dir.to_string_lossy()));
+            binds = Some(binds.unwrap_or_default().into_iter().chain(extra).collect());
+        }
 
         let host_config = bollard::models::HostConfig {
             restart_policy: Some(bollard::models::RestartPolicy {

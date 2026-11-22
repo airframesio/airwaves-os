@@ -252,6 +252,12 @@ pub struct CatalogApp {
     pub bundled_features: Vec<AppBundledFeature>,
     #[serde(default)]
     pub links: Vec<AppLink>,
+    /// Extra mounts, Docker bind syntax ("source:target[:ro]"). A source of
+    /// `{{APP_DIR}}` becomes the app's host config directory
+    /// (/etc/airwaves/apps/<id>), created on install; any other source without
+    /// a leading "/" is a named Docker volume that survives reinstalls.
+    #[serde(default)]
+    pub volumes: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

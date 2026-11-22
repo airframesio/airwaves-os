@@ -1,5 +1,98 @@
 [
   {
+    "id": "xng",
+    "name": "xng: Feed Airframes",
+    "version": "0.23.1",
+    "category": "decoder",
+    "description": "One decoder for every SDR: ACARS, VDL2, HFDL, ADS-B, AIS and more, fed to Airframes under one station ID.",
+    "long_description": "xng decodes VHF ACARS, VDL Mode 2, HFDL, Mode S/ADS-B, UAT, AIS, Inmarsat Aero, Iridium and more in one process. Airwaves gives each free SDR a mode that suits its hardware (HF receivers decode HFDL; RTL-SDRs take ACARS, VDL2, ADS-B and AIS in turn), picks channels from xng's built-in plans and feeds Airframes with one station ID, suffixed per mode (XX-KSEA-ACARS, XX-KSEA-VDL2, ...). Change a radio's mode in XNG_MODES.",
+    "image": "ghcr.io/airframesio/xng:0.23.1",
+    "icon": null,
+    "ports": [
+      {
+        "container_port": 8080,
+        "host_port": 8090,
+        "protocol": "tcp"
+      }
+    ],
+    "requires_sdr": false,
+    "sdr_types": [
+      "rtl_sdr",
+      "airspy",
+      "airspy_hf",
+      "hack_rf",
+      "sdr_play"
+    ],
+    "env": {
+      "XNG_STATION_ID": "",
+      "XNG_MODES": "",
+      "XNG_FEED_AIRFRAMES": "true",
+      "XDG_CONFIG_HOME": "/etc/xng",
+      "TZ": "UTC"
+    },
+    "config_fields": [
+      {
+        "key": "XNG_STATION_ID",
+        "label": "Station ID",
+        "kind": "text",
+        "default": "",
+        "required": true,
+        "help": "Your Airframes station ident, for example XX-KSEA. xng adds -ACARS, -VDL2, -HFDL and so on per mode."
+      },
+      {
+        "key": "XNG_MODES",
+        "label": "SDR modes (optional)",
+        "kind": "text",
+        "default": "",
+        "required": false,
+        "help": "Leave blank to let Airwaves choose. Otherwise serial=mode, comma separated, e.g. 00000001=acars, 00000002=adsb@40. Modes: acars, vdl2, hfdl, adsb, uat, ais, iridium, std-c, sonde, or off."
+      },
+      {
+        "key": "XNG_FEED_AIRFRAMES",
+        "label": "Feed Airframes",
+        "kind": "select",
+        "default": "true",
+        "options": [
+          "true",
+          "false"
+        ],
+        "required": false,
+        "help": "Send decoded messages to Airframes.io."
+      }
+    ],
+    "command": [
+      "station",
+      "/etc/xng/station.toml"
+    ],
+    "install_notes": [
+      "Uses every SDR that no other app has been given. Stop or reassign other decoders first if you want xng to use their radios.",
+      "Set your station location in Settings so ADS-B and the map have a receiver position.",
+      "The xng dashboard (map and live messages) is on port 8090."
+    ],
+    "outputs": [
+      {
+        "kind": "messages",
+        "label": "Decoded messages",
+        "description": "ACARS, VDL2, HFDL, ADS-B, AIS and other modes, on the xng dashboard and fed to Airframes."
+      }
+    ],
+    "suggested_feeds": [],
+    "links": [
+      {
+        "label": "xng source",
+        "url": "https://github.com/airframesio/xng"
+      },
+      {
+        "label": "xng docs",
+        "url": "https://xng.airframes.io"
+      }
+    ],
+    "volumes": [
+      "{{APP_DIR}}:/etc/xng",
+      "airwaves-xng-cache:/var/cache/xng"
+    ]
+  },
+  {
     "id": "ultrafeeder",
     "name": "ADS-B Ultrafeeder",
     "description": "All-in-one ADS-B solution: readsb decoder, tar1090 map, graphs1090 stats, autogain, multi-feeder, and MLAT hub in a single container.",
