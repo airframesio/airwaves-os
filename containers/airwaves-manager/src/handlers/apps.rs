@@ -896,6 +896,19 @@ mod tests {
         for app in &apps {
             assert!(!app.id.is_empty());
             assert!(!app.image.is_empty(), "{}: empty image", app.id);
+            // Pinned tags keep installs reproducible; the updater moves them on purpose.
+            assert!(
+                !app.image.ends_with(":latest") && app.image.contains(':'),
+                "{}: image must be pinned to a version tag, got {}",
+                app.id,
+                app.image
+            );
+            assert_eq!(
+                app.image.rsplit_once(':').map(|(_, t)| t),
+                Some(app.version.as_str()),
+                "{}: version should match the image tag",
+                app.id
+            );
         }
     }
 
