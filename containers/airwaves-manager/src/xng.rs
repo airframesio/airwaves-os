@@ -391,7 +391,7 @@ pub fn normalize_station_id(raw: &str) -> Result<String, String> {
     Ok(id)
 }
 
-fn receiver_pos(config: &AirwavesConfig) -> Option<(f64, f64)> {
+pub(crate) fn receiver_pos(config: &AirwavesConfig) -> Option<(f64, f64)> {
     let (lat, lon) = (config.station.latitude, config.station.longitude);
     let valid = lat.is_finite()
         && lon.is_finite()

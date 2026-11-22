@@ -11,6 +11,9 @@
 //! - GET    /account        -> { signed_in, username, pending }
 //! - POST   /signin/start   -> { user_code, verification_uri, verification_uri_complete, expires_in, interval }
 //! - POST   /signin/poll    -> { status: pending|signed_in|denied|expired|none, username? }
+//!   On sign-in the manager also registers the device's station
+//!   (api `POST /feeder/station`, with the one access token it sees), so a
+//!   new device shows up on Airframes without the website wizard.
 //! - DELETE /account        -> sign out (keeps the feeder id, so feeds keep their identity)
 //! - GET    /atc/frequencies -> the Airframes ATC frequency directory
 //!   (api `GET /v1/atc/frequencies`, public), so the control app can offer
@@ -199,6 +202,8 @@ pub async fn start_signin() -> Result<Json<serde_json::Value>, AppError> {
 #[derive(Deserialize)]
 struct TokenResponse {
     #[serde(default)]
+    access_token: Option<String>,
+    #[serde(default)]
     refresh_token: Option<String>,
     #[serde(default)]
     user: Option<serde_json::Value>,
@@ -207,7 +212,9 @@ struct TokenResponse {
 /// One poll of the token endpoint. The UI calls this every `interval`
 /// seconds while the code is shown; calls in between return `pending`
 /// without contacting the API.
-pub async fn poll_signin() -> Result<Json<serde_json::Value>, AppError> {
+pub async fn poll_signin(
+    axum::extract::State(state): axum::extract::State<crate::AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
     let mut guard = PENDING.lock().await;
     let Some(p) = guard.as_mut() else {
         return Ok(Json(serde_json::json!({ "status": "none" })));
@@ -258,9 +265,15 @@ pub async fn poll_signin() -> Result<Json<serde_json::Value>, AppError> {
             "Signed in to Airframes as {}",
             c.username.as_deref().unwrap_or("(unknown user)")
         );
-        return Ok(Json(
-            serde_json::json!({ "status": "signed_in", "username": c.username }),
-        ));
+        let station = match t.access_token.filter(|a| !a.is_empty()) {
+            Some(token) => register_station(&state, &token).await,
+            None => serde_json::json!({ "status": "skipped", "reason": "no access token" }),
+        };
+        return Ok(Json(serde_json::json!({
+            "status": "signed_in",
+            "username": c.username,
+            "station": station,
+        })));
     }
     let next = match v.get("error").and_then(|e| e.as_str()) {
         Some("authorization_pending") => "pending",
@@ -285,9 +298,84 @@ pub async fn poll_signin() -> Result<Json<serde_json::Value>, AppError> {
     Ok(Json(serde_json::json!({ "status": next })))
 }
 
+/// The body for `POST /feeder/station`: the xng station ID and the
+/// receiver location, or None when xng has no station ID yet.
+fn station_request(config: &crate::domain::AirwavesConfig) -> Option<serde_json::Value> {
+    let env = crate::handlers::apps::recorded_app_env(config, crate::xng::APP_ID);
+    let ident = crate::xng::normalize_station_id(
+        env.get(crate::xng::STATION_ID_KEY)
+            .map(String::as_str)
+            .unwrap_or(""),
+    )
+    .ok()?;
+    let mut body = serde_json::json!({ "ident": ident });
+    if let Some((lat, lon)) = crate::xng::receiver_pos(config) {
+        body["latitude"] = serde_json::json!(lat);
+        body["longitude"] = serde_json::json!(lon);
+    }
+    Some(body)
+}
+
+/// Registers this device's station with Airframes (created for the account,
+/// or claimed if Airframes already made one from this device's feed). Never
+/// fails the sign-in: the result is only reported to the control app.
+async fn register_station(state: &crate::AppState, access_token: &str) -> serde_json::Value {
+    use crate::ports::ConfigPort;
+    let config = match state.config.read_config().await {
+        Ok(c) => c,
+        Err(e) => return serde_json::json!({ "status": "error", "message": e.to_string() }),
+    };
+    let Some(body) = station_request(&config) else {
+        return serde_json::json!({ "status": "skipped", "reason": "no station ID set" });
+    };
+    let ident = body["ident"].as_str().unwrap_or_default().to_string();
+    let resp = http()
+        .post(format!("{}/feeder/station", api_base()))
+        .bearer_auth(access_token)
+        .json(&body)
+        .send()
+        .await;
+    let resp = match resp {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("Airframes station registration failed: {e}");
+            return serde_json::json!({ "status": "error", "ident": ident, "message": "Airframes API unreachable" });
+        }
+    };
+    let code = resp.status().as_u16();
+    let v = resp
+        .json::<serde_json::Value>()
+        .await
+        .unwrap_or(serde_json::Value::Null);
+    let status = match code {
+        200 | 201 if v.get("created").and_then(|c| c.as_bool()) == Some(true) => "created",
+        200 | 201 if v.get("claimed").and_then(|c| c.as_bool()) == Some(true) => "claimed",
+        200 | 201 => "exists",
+        409 => "taken",
+        _ => "error",
+    };
+    tracing::info!("Airframes station {ident}: {status} ({code})");
+    let mut out = serde_json::json!({ "status": status, "ident": ident });
+    if let Some(id) = v.pointer("/station/id") {
+        out["station_id"] = id.clone();
+    }
+    if status == "error" || status == "taken" {
+        out["message"] = serde_json::json!(api_message(&v));
+    }
+    out
+}
+
 /// Query parameters passed through to the frequency directory.
 const FREQUENCY_QUERY: &[&str] = &[
-    "near", "radius_nm", "service", "band", "q", "facility_id", "mhz", "limit", "page",
+    "near",
+    "radius_nm",
+    "service",
+    "band",
+    "q",
+    "facility_id",
+    "mhz",
+    "limit",
+    "page",
 ];
 
 pub async fn atc_frequencies(
@@ -319,7 +407,14 @@ pub async fn atc_frequencies(
 }
 
 /// Fields of a frequency report passed through to the directory.
-const REPORT_FIELDS: &[&str] = &["frequency_mhz", "label", "service", "facility", "lat", "lon"];
+const REPORT_FIELDS: &[&str] = &[
+    "frequency_mhz",
+    "label",
+    "service",
+    "facility",
+    "lat",
+    "lon",
+];
 
 /// Report a channel the user added by hand, so Airframes can add it to the
 /// frequency directory. Sent without the feeder sign-in: its refresh token
@@ -374,6 +469,58 @@ pub async fn sign_out() -> Result<Json<serde_json::Value>, AppError> {
 
 #[cfg(test)]
 mod tests {
+    fn config(lat: f64, lon: f64, apps: serde_json::Value) -> crate::domain::AirwavesConfig {
+        crate::domain::AirwavesConfig {
+            version: 1,
+            device: crate::domain::DeviceConfig {
+                id: "device".to_string(),
+                name: "Airwaves".to_string(),
+                hostname: "airwaves".to_string(),
+            },
+            station: crate::domain::StationConfig {
+                latitude: lat,
+                longitude: lon,
+                altitude_m: 0,
+                operator: String::new(),
+            },
+            network: crate::domain::NetworkConfig {
+                mode: "dhcp".to_string(),
+            },
+            services: crate::domain::ServicesConfig {
+                gateway: crate::domain::ServiceState { enabled: true },
+                manager: crate::domain::ServiceState { enabled: true },
+            },
+            aggregators: serde_json::Value::Null,
+            apps,
+            hardware: serde_json::json!({}),
+            preferences: serde_json::json!({}),
+        }
+    }
+
+    #[test]
+    fn station_request_uses_the_xng_station_id_and_location() {
+        let apps = serde_json::json!([{ "id": "xng", "env": { "XNG_STATION_ID": " xx-ksea " } }]);
+        assert_eq!(
+            super::station_request(&config(47.45, -122.3, apps.clone())),
+            Some(serde_json::json!({ "ident": "XX-KSEA", "latitude": 47.45, "longitude": -122.3 }))
+        );
+        // No location set: the station is registered unplaced.
+        assert_eq!(
+            super::station_request(&config(0.0, 0.0, apps)),
+            Some(serde_json::json!({ "ident": "XX-KSEA" }))
+        );
+    }
+
+    #[test]
+    fn station_request_needs_a_valid_station_id() {
+        assert_eq!(
+            super::station_request(&config(47.0, -122.0, serde_json::json!([]))),
+            None
+        );
+        let bad = serde_json::json!([{ "id": "xng", "env": { "XNG_STATION_ID": "XX KSEA" } }]);
+        assert_eq!(super::station_request(&config(47.0, -122.0, bad)), None);
+    }
+
     use super::*;
 
     #[test]
