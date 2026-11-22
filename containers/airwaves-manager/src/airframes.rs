@@ -318,6 +318,48 @@ pub async fn atc_frequencies(
     Ok(Json(v))
 }
 
+/// Fields of a frequency report passed through to the directory.
+const REPORT_FIELDS: &[&str] = &["frequency_mhz", "label", "service", "facility", "lat", "lon"];
+
+/// Report a channel the user added by hand, so Airframes can add it to the
+/// frequency directory. Sent without the feeder sign-in: its refresh token
+/// rotates on every use and belongs to xng.
+pub async fn atc_frequency_report(
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let mut out = serde_json::Map::new();
+    if let Some(obj) = body.as_object() {
+        for k in REPORT_FIELDS {
+            if let Some(v) = obj.get(*k).filter(|v| v.is_string() || v.is_number()) {
+                out.insert((*k).to_string(), v.clone());
+            }
+        }
+    }
+    if !out.contains_key("frequency_mhz") {
+        return Err(AppError::BadRequest("frequency_mhz is required".into()));
+    }
+    out.insert("source".into(), "airwaves-os".into());
+    out.insert("client_version".into(), env!("CARGO_PKG_VERSION").into());
+    let resp = http()
+        .post(format!("{}/v1/atc/frequency-reports", api_base()))
+        .json(&out)
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("Airframes API unreachable: {e}")))?;
+    let status = resp.status().as_u16();
+    let v = resp
+        .json::<serde_json::Value>()
+        .await
+        .unwrap_or(serde_json::Value::Null);
+    if status >= 400 {
+        return Err(AppError::Internal(format!(
+            "Airframes frequency report failed ({status}): {}",
+            api_message(&v)
+        )));
+    }
+    Ok(Json(v))
+}
+
 pub async fn sign_out() -> Result<Json<serde_json::Value>, AppError> {
     *PENDING.lock().await = None;
     let mut c = load().await;
