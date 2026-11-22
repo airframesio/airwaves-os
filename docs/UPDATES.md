@@ -193,9 +193,14 @@ over `:latest`.
   concrete tag, so dev devices detect and pull the exact new image.
 - **beta**: push the `beta` branch. Same flow → `<version>-beta.<run#>`, manifest
   pinned automatically.
-- **stable**: push a `v<version>` tag (builds `stable` + `latest` + version);
-  bump versions and `releases/stable.json` to the version tag, and recompute the
-  compose/catalog `sha256`. (Stable is human-maintained, not auto-pinned.)
+- **stable**: push a `v<version>` tag (builds `stable` + `latest` + version),
+  then re-pin `releases/stable.json` to the tag with
+  `scripts/pin-manifest.py stable v<version> --os-version <version> --image-tag <version> --summary "..." --archive`.
+  It points every compose, catalog and host file URL at the tag, recomputes
+  each `sha256` from the tagged content and bumps the compose/catalog `version`
+  when that file changed. (Stable is human-maintained, not auto-pinned.)
+  `pin-manifest` in CI only updates dev/beta image tags, so run
+  `scripts/pin-manifest.py dev <main sha>` when host files or the catalog change.
 
 All `releases/*.json` are read from `main`, so update the channel manifest on
 `main` even when the images came from another branch.
