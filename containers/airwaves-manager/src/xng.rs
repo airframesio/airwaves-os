@@ -223,8 +223,14 @@ pub struct Airband {
     pub transcribe: bool,
 }
 
+/// Widest spread of airband channels one radio is set up for. xng captures
+/// 2.4 MHz around the middle of the channels; 2 MHz keeps every channel
+/// clear of the band edges on RTL-SDR and Airspy alike.
+pub const AIRBAND_MAX_SPAN_MHZ: f64 = 2.0;
+
 /// Parse `XNG_AIRBAND_CHANNELS`: `freq[=label]` separated by commas or
-/// newlines. Frequencies are MHz between 108 and 400.
+/// newlines. Frequencies are MHz between 108 and 400, all within
+/// [`AIRBAND_MAX_SPAN_MHZ`] of each other.
 pub fn parse_airband_channels(raw: &str) -> Result<Vec<(String, Option<String>)>, String> {
     let mut out: Vec<(String, Option<String>)> = Vec::new();
     for item in raw
@@ -256,6 +262,17 @@ pub fn parse_airband_channels(raw: &str) -> Result<Vec<(String, Option<String>)>
             }
         }
         out.push((freq, label.map(str::to_string)));
+    }
+    let mhz = |(f, _): &(String, Option<String>)| f.parse::<f64>().unwrap_or(0.0);
+    if let (Some(lo), Some(hi)) = (
+        out.iter().map(mhz).reduce(f64::min),
+        out.iter().map(mhz).reduce(f64::max),
+    ) {
+        if hi - lo > AIRBAND_MAX_SPAN_MHZ + 1e-9 {
+            return Err(format!(
+                "the channels span {lo:.3} to {hi:.3} MHz; one radio can hear channels within {AIRBAND_MAX_SPAN_MHZ} MHz of each other"
+            ));
+        }
     }
     Ok(out)
 }
@@ -625,6 +642,10 @@ mod tests {
             .unwrap_err()
             .contains("outside"));
         assert!(parse_airband_channels("tower").unwrap_err().contains("MHz"));
+        assert!(parse_airband_channels("118.0,120.0").is_ok());
+        assert!(parse_airband_channels("118.0,120.5")
+            .unwrap_err()
+            .contains("within 2 MHz"));
         assert!(parse_airband_channels("120.5,120.500")
             .unwrap_err()
             .contains("twice"));

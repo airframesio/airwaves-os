@@ -102,6 +102,7 @@ fn api_router(state: AppState) -> Router {
         .route("/api/v1/airframes/account", axum::routing::get(airframes::get_account).delete(airframes::sign_out))
         .route("/api/v1/airframes/signin/start", axum::routing::post(airframes::start_signin))
         .route("/api/v1/airframes/signin/poll", axum::routing::post(airframes::poll_signin))
+        .route("/api/v1/airframes/atc/frequencies", axum::routing::get(airframes::atc_frequencies))
         .route("/api/v1/feeds", axum::routing::get(handlers::feeds::list_feeds))
         .route("/api/v1/feeds", axum::routing::post(handlers::feeds::upsert_feed))
         .route("/api/v1/feeds/{id}", axum::routing::delete(handlers::feeds::delete_feed))

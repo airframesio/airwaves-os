@@ -12,6 +12,9 @@
 //! - POST   /signin/start   -> { user_code, verification_uri, verification_uri_complete, expires_in, interval }
 //! - POST   /signin/poll    -> { status: pending|signed_in|denied|expired|none, username? }
 //! - DELETE /account        -> sign out (keeps the feeder id, so feeds keep their identity)
+//! - GET    /atc/frequencies -> the Airframes ATC frequency directory
+//!   (api `GET /v1/atc/frequencies`, public), so the control app can offer
+//!   nearby tower and approach channels instead of a free-form list
 
 use axum::Json;
 use serde::{Deserialize, Serialize};
@@ -280,6 +283,39 @@ pub async fn poll_signin() -> Result<Json<serde_json::Value>, AppError> {
         *guard = None;
     }
     Ok(Json(serde_json::json!({ "status": next })))
+}
+
+/// Query parameters passed through to the frequency directory.
+const FREQUENCY_QUERY: &[&str] = &[
+    "near", "radius_nm", "service", "band", "q", "facility_id", "mhz", "limit", "page",
+];
+
+pub async fn atc_frequencies(
+    axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let params: Vec<(&str, &str)> = FREQUENCY_QUERY
+        .iter()
+        .filter_map(|k| query.get(*k).map(|v| (*k, v.as_str())))
+        .filter(|(_, v)| !v.is_empty() && v.len() <= 200)
+        .collect();
+    let resp = http()
+        .get(format!("{}/v1/atc/frequencies", api_base()))
+        .query(&params)
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("Airframes API unreachable: {e}")))?;
+    let status = resp.status().as_u16();
+    let v = resp
+        .json::<serde_json::Value>()
+        .await
+        .unwrap_or(serde_json::Value::Null);
+    if status >= 400 {
+        return Err(AppError::Internal(format!(
+            "Airframes frequency lookup failed ({status}): {}",
+            api_message(&v)
+        )));
+    }
+    Ok(Json(v))
 }
 
 pub async fn sign_out() -> Result<Json<serde_json::Value>, AppError> {
