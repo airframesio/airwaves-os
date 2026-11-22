@@ -11,12 +11,14 @@ Usage:
   scripts/pin-manifest.py stable v1.0.38 --os-version 1.0.38 \
       --image-tag 1.0.38 --summary "Airwaves OS 1.0.38 - ..." [--archive]
 
-  scripts/pin-manifest.py dev <main-sha>          # refresh dev host files only
+  scripts/pin-manifest.py dev <main-sha>   # re-pin dev's compose, catalog and
+                                           # host files to a main commit
 
 Run from the repository root after the tag exists (git fetch --tags).
 """
 import argparse
 import datetime
+import glob
 import hashlib
 import json
 import re
@@ -46,6 +48,19 @@ def repin(entry, ref):
     return old != entry["sha256"]
 
 
+def next_version(name):
+    """One more than the highest `name` version in any channel or archived
+    manifest. Devices keep their installed version when they switch channel,
+    so a changed file must outrank every channel's number, not just its own."""
+    highest = 0
+    for path in glob.glob("releases/*.json"):
+        with open(path) as f:
+            v = json.load(f).get("components", {}).get(name, {}).get("version")
+        if v is not None and str(v).isdigit():
+            highest = max(highest, int(v))
+    return str(highest + 1)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("channel")
@@ -57,6 +72,8 @@ def main():
     ap.add_argument("--archive", action="store_true",
                     help="also write releases/<os-version>.json")
     a = ap.parse_args()
+    if a.archive and not a.os_version:
+        sys.exit("--archive needs --os-version")
 
     path = f"releases/{a.channel}.json"
     with open(path) as f:
@@ -65,7 +82,7 @@ def main():
     comps = m["components"]
     for name in ("compose", "catalog"):
         if repin(comps[name], a.ref):
-            comps[name]["version"] = str(int(comps[name]["version"]) + 1)
+            comps[name]["version"] = next_version(name)
             print(f"{name}: content changed, version -> {comps[name]['version']}")
     changed = [h["dest"] for h in m["host_files"] if repin(h, a.ref)]
     for dest in changed:
@@ -90,8 +107,6 @@ def main():
         f.write(out)
     print(f"wrote {path}")
     if a.archive:
-        if not a.os_version:
-            sys.exit("--archive needs --os-version")
         with open(f"releases/{a.os_version}.json", "w") as f:
             f.write(out)
         print(f"wrote releases/{a.os_version}.json")
