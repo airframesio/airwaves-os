@@ -1,0 +1,55 @@
+name: Manager Check
+
+# Runs on pull requests that touch the manager: clippy, unit tests, and a
+# container build (amd64, not pushed) so Dockerfile breakage shows up before
+# merge instead of on the main-branch publish.
+
+on:
+  pull_request:
+    paths:
+      - "containers/airwaves-manager/**"
+      - ".github/workflows/manager-check.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: manager-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: containers/airwaves-manager
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            containers/airwaves-manager/target
+          key: manager-${{ runner.os }}-${{ hashFiles('containers/airwaves-manager/Cargo.lock') }}
+          restore-keys: manager-${{ runner.os }}-
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (amd64, no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: containers/airwaves-manager
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha,scope=manager-check
+          cache-to: type=gha,mode=max,scope=manager-check

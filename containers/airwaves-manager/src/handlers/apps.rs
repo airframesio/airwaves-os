@@ -178,6 +178,7 @@ pub async fn install_app(
     // (SDR assignment, frequencies, …) and an optional pinned image tag. Without
     // the env merge, the user's selections would be silently dropped at install.
     let mut app = app.clone();
+    let pinned = is_pinned_tag(&app, req.image_tag.as_deref());
     apply_app_overrides(&mut app, req.env, req.image_tag);
 
     let config = state.config.read_config().await?;
@@ -206,10 +207,14 @@ pub async fn install_app(
     )
     .await?;
 
+    if app.id == crate::xng::APP_ID {
+        crate::xng::prepare(&mut app, &config, &devices).await?;
+    }
+
     let container = state.docker.install_app(&app).await?;
     // Record the install in config.json so the app set survives reboots and the
     // manager can reconcile (re-create) it if its container ever goes missing.
-    if let Err(e) = record_installed_app(&state, &app).await {
+    if let Err(e) = record_installed_app(&state, &app, pinned).await {
         tracing::warn!("Installed {} but failed to record in config: {}", app.id, e);
     }
 
@@ -217,7 +222,7 @@ pub async fn install_app(
         let bundled_id = bundled_app.id.clone();
         match state.docker.install_app(&bundled_app).await {
             Ok(_) => {
-                if let Err(e) = record_installed_app(&state, &bundled_app).await {
+                if let Err(e) = record_installed_app(&state, &bundled_app, false).await {
                     tracing::warn!(
                         "Installed bundled {} but failed to record in config: {}",
                         bundled_id,
@@ -245,6 +250,19 @@ pub async fn update_app_config(
         .strip_prefix("airwaves-")
         .map(str::to_string)
         .unwrap_or(id);
+    Ok(Json(reapply_app(&state, &requested_id, req.env, req.image_tag).await?))
+}
+
+/// Recreate an installed app from the current catalog entry plus its recorded
+/// env, with optional env overrides and image tag. This is the one path that
+/// recreates app containers (config edits and auto-update both use it), so
+/// per-app preparation hooks belong here.
+pub async fn reapply_app(
+    state: &AppState,
+    requested_id: &str,
+    env: std::collections::HashMap<String, String>,
+    image_tag: Option<String>,
+) -> Result<crate::domain::ContainerInfo, AppError> {
     let catalog = load_catalog().await;
     let app = catalog
         .iter()
@@ -253,10 +271,11 @@ pub async fn update_app_config(
 
     let config = state.config.read_config().await?;
     let mut app = app.clone();
-    for (k, v) in recorded_app_env(&config, &requested_id) {
+    for (k, v) in recorded_app_env(&config, requested_id) {
         app.env.insert(k, v);
     }
-    apply_app_overrides(&mut app, req.env, req.image_tag);
+    let pinned = is_pinned_tag(&app, image_tag.as_deref());
+    apply_app_overrides(&mut app, env, image_tag);
     let recorded_ids = recorded_app_ids(&config);
     let acarshub_installed = recorded_ids.iter().any(|id| id == "acarshub");
     configure_acarsdec_output_policy(&mut app, acarshub_installed)?;
@@ -274,7 +293,7 @@ pub async fn update_app_config(
     }
 
     validate_sdr_assignments(
-        &state,
+        state,
         &[app.clone()],
         &bundled_apps,
         Some(&config),
@@ -282,8 +301,12 @@ pub async fn update_app_config(
     )
     .await?;
 
+    if app.id == crate::xng::APP_ID {
+        crate::xng::prepare(&mut app, &config, &devices).await?;
+    }
+
     let container = state.docker.install_app(&app).await?;
-    if let Err(e) = record_installed_app(&state, &app).await {
+    if let Err(e) = record_installed_app(state, &app, pinned).await {
         tracing::warn!("Updated {} but failed to record new config: {}", app.id, e);
     }
 
@@ -291,7 +314,7 @@ pub async fn update_app_config(
         let bundled_id = bundled_app.id.clone();
         match state.docker.install_app(&bundled_app).await {
             Ok(_) => {
-                if let Err(e) = record_installed_app(&state, &bundled_app).await {
+                if let Err(e) = record_installed_app(state, &bundled_app, false).await {
                     tracing::warn!(
                         "Updated bundled {} but failed to record new config: {}",
                         bundled_id,
@@ -307,7 +330,15 @@ pub async fn update_app_config(
         }
     }
 
-    Ok(Json(container))
+    Ok(container)
+}
+
+/// True when an explicit image tag selects a version other than the catalog's.
+/// Pinned apps keep their tag when auto-update runs.
+fn is_pinned_tag(app: &CatalogApp, image_tag: Option<&str>) -> bool {
+    image_tag
+        .map(str::trim)
+        .is_some_and(|t| !t.is_empty() && t != app.version && retag_image(&app.image, t) != app.image)
 }
 
 fn env_enabled(env: &std::collections::HashMap<String, String>, key: &str) -> bool {
@@ -352,7 +383,7 @@ async fn validate_sdr_assignments(
     };
     let mut targets = primary_apps.to_vec();
     targets.extend(bundled_apps.iter().cloned());
-    crate::sdr::validate_app_sdr_assignments(config, &targets, &devices)
+    crate::sdr::validate_app_sdr_assignments(config, &targets, devices)
         .map_err(AppError::BadRequest)
 }
 
@@ -611,14 +642,30 @@ pub async fn uninstall_app(
 /// The persisted record of an installed app (stored under config.apps).
 /// Includes the resolved env (SDR assignment, frequencies, etc.) so the user's
 /// configuration survives reboots and is re-applied if the app is recreated.
-fn installed_record(app: &CatalogApp) -> serde_json::Value {
+fn installed_record(app: &CatalogApp, pinned: bool) -> serde_json::Value {
     serde_json::json!({
         "id": app.id,
         "name": app.name,
         "image": app.image,
         "category": app.category,
         "env": app.env,
+        "pinned": pinned,
     })
+}
+
+/// The recorded image and pin flag of an installed app, if recorded.
+pub fn recorded_app_image(
+    config: &crate::domain::AirwavesConfig,
+    id: &str,
+) -> Option<(String, bool)> {
+    let record = config
+        .apps
+        .as_array()?
+        .iter()
+        .find(|a| a.get("id").and_then(|v| v.as_str()) == Some(id))?;
+    let image = record.get("image")?.as_str()?.to_string();
+    let pinned = record.get("pinned").and_then(|v| v.as_bool()).unwrap_or(false);
+    Some((image, pinned))
 }
 
 /// The persisted env overrides for a recorded app, if any. Used by the
@@ -641,14 +688,18 @@ pub fn recorded_app_env(
 }
 
 /// Add (or update) an app entry in config.apps.
-async fn record_installed_app(state: &AppState, app: &CatalogApp) -> Result<(), AppError> {
+async fn record_installed_app(
+    state: &AppState,
+    app: &CatalogApp,
+    pinned: bool,
+) -> Result<(), AppError> {
     let mut config = state.config.read_config().await?;
     let mut apps: Vec<serde_json::Value> = match config.apps.take() {
         serde_json::Value::Array(a) => a,
         _ => Vec::new(),
     };
     apps.retain(|e| e.get("id").and_then(|v| v.as_str()) != Some(app.id.as_str()));
-    apps.push(installed_record(app));
+    apps.push(installed_record(app, pinned));
     config.apps = serde_json::Value::Array(apps);
     state.config.write_config(&config).await
 }

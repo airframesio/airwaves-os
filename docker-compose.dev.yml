@@ -34,3 +34,6 @@ services:
       - RUST_LOG=airwaves_manager=debug,tower_http=debug
       - SIMULATE_HARDWARE=true
       - HOST_ROOT=/host
+      # Per-app config dirs (xng's station.toml) as the Docker host sees them,
+      # so app containers can bind-mount them.
+      - AIRWAVES_HOST_APPS_DIR=${PWD}/dev/config/apps

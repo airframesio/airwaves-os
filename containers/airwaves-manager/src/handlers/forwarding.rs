@@ -121,7 +121,7 @@ pub async fn simulate_messages(
     use rand::Rng;
     let mut rng = rand::rng();
 
-    let decoders = vec![
+    let decoders = [
         ("readsb", "adsb", "1090 MHz"),
         ("acarsdec", "acars", "131.550 MHz"),
         ("dumpvdl2", "vdl2", "136.975 MHz"),

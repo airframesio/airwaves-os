@@ -1,5 +1,5 @@
 # Stage 1: Generate dependency recipe
-FROM rust:1-bookworm AS chef
+FROM rust:1-trixie AS chef
 RUN cargo install cargo-chef
 WORKDIR /build
 
@@ -21,11 +21,10 @@ COPY src/ src/
 RUN cargo build --release
 
 # Stage 5: Runtime image
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    libssl3 \
     curl \
     iproute2 \
     avahi-utils \
