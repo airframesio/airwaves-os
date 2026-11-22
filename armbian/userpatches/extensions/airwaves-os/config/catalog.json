@@ -270,6 +270,15 @@
         "port": 30004,
         "description": "Optional ADS-B feed destination using Ultrafeeder output."
       },
+        {
+        "id": "adsbitalia-ultrafeeder",
+        "name": "ADSBItalia ADS-B",
+        "feed_type": "integrated_option",
+        "protocol": "tcp",
+        "host": "feed.adsbitalia.it",
+        "port": 31108,
+        "description": "Optional ADS-B feed destination using Ultrafeeder output."
+      },
       {
         "id": "custom-adsb-ultrafeeder",
         "name": "Custom ADS-B Beast Output",
@@ -415,6 +424,15 @@
         "protocol": "tcp",
         "host": "feed.theairtraffic.com",
         "port": 30004,
+        "description": "Optional ADS-B feed destination from readsb Beast output."
+      },
+         {
+        "id": "adsbitalia-readsb",
+        "name": "ADSBItalia ADS-B",
+        "feed_type": "integrated_option",
+        "protocol": "tcp",
+        "host": "feed.adsbitalia.it",
+        "port": 31108,
         "description": "Optional ADS-B feed destination from readsb Beast output."
       },
       {
