@@ -1,4 +1,5 @@
 pub mod apps;
+pub mod auto_update;
 pub mod config;
 pub mod containers;
 pub mod exec;
@@ -10,6 +11,7 @@ pub mod host;
 pub mod install;
 pub mod network;
 pub mod proxy;
+pub mod ssh;
 pub mod system;
 pub mod tracking;
 pub mod update;
