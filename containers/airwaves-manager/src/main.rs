@@ -16,6 +16,7 @@ mod forwarding;
 mod handlers;
 mod ports;
 mod sdr;
+mod xng;
 mod ws;
 
 pub use error::AppError;

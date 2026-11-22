@@ -207,6 +207,10 @@ pub async fn install_app(
     )
     .await?;
 
+    if app.id == crate::xng::APP_ID {
+        crate::xng::prepare(&mut app, &config, &devices).await?;
+    }
+
     let container = state.docker.install_app(&app).await?;
     // Record the install in config.json so the app set survives reboots and the
     // manager can reconcile (re-create) it if its container ever goes missing.
@@ -296,6 +300,10 @@ pub async fn reapply_app(
         Some(&devices),
     )
     .await?;
+
+    if app.id == crate::xng::APP_ID {
+        crate::xng::prepare(&mut app, &config, &devices).await?;
+    }
 
     let container = state.docker.install_app(&app).await?;
     if let Err(e) = record_installed_app(state, &app, pinned).await {
