@@ -113,6 +113,31 @@ impl DockerAdapter {
         info.config?.labels?.get(label).cloned()
     }
 
+    /// Pull an image reference and return the local image ID it now resolves
+    /// to (e.g. "sha256:…"). Used by app auto-update to see whether a tag moved.
+    pub async fn pull_image(&self, image: &str) -> Result<String, AppError> {
+        let mut stream = self.client.create_image(
+            Some(bollard::image::CreateImageOptions {
+                from_image: image.to_string(),
+                ..Default::default()
+            }),
+            None,
+            None,
+        );
+        while let Some(result) = stream.next().await {
+            result.map_err(AppError::Docker)?;
+        }
+        let inspected = self.client.inspect_image(image).await.map_err(AppError::Docker)?;
+        inspected
+            .id
+            .ok_or_else(|| AppError::Internal(format!("Pulled {image} but it has no image ID")))
+    }
+
+    /// The image ID (not reference) a container was created from.
+    pub async fn container_image_id(&self, name: &str) -> Option<String> {
+        self.client.inspect_container(name, None).await.ok()?.image
+    }
+
     /// The tag portion of a running container's image reference, e.g. the
     /// "1.0.10-dev.60" of "ghcr.io/airframesio/airwaves-manager:1.0.10-dev.60".
     /// This is the concrete version actually deployed, which is more precise than
