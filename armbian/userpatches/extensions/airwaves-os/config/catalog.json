@@ -28,7 +28,11 @@
       "XNG_MODES": "",
       "XNG_FEED_AIRFRAMES": "true",
       "XDG_CONFIG_HOME": "/etc/xng",
-      "TZ": "UTC"
+      "TZ": "UTC",
+      "XNG_AIRBAND_CHANNELS": "",
+      "XNG_ATC_FEED": "true",
+      "XNG_ATC_STATION_NAME": "",
+      "XNG_TRANSCRIBE": "false"
     },
     "config_fields": [
       {
@@ -45,7 +49,7 @@
         "kind": "text",
         "default": "",
         "required": false,
-        "help": "Leave blank to let Airwaves choose. Otherwise serial=mode, comma separated, e.g. 00000001=acars, 00000002=adsb@40. Modes: acars, vdl2, hfdl, adsb, uat, ais, iridium, std-c, sonde, or off."
+        "help": "Leave blank to let Airwaves choose. Otherwise serial=mode, comma separated, e.g. 00000001=acars, 00000002=adsb@40. Modes: airband, acars, vdl2, hfdl, adsb, uat, ais, iridium, std-c, sonde, or off."
       },
       {
         "key": "XNG_FEED_AIRFRAMES",
@@ -58,6 +62,46 @@
         ],
         "required": false,
         "help": "Send decoded messages to Airframes.io."
+      },
+      {
+        "key": "XNG_AIRBAND_CHANNELS",
+        "label": "Airband channels",
+        "kind": "text",
+        "default": "",
+        "required": false,
+        "help": "For an SDR set to airband: frequencies in MHz with optional labels, e.g. 120.500=Tower, 121.800=Ground. They must fit in one 2.4 MHz window."
+      },
+      {
+        "key": "XNG_ATC_FEED",
+        "label": "Feed ATC audio to Airframes",
+        "kind": "select",
+        "default": "true",
+        "options": [
+          "true",
+          "false"
+        ],
+        "required": false,
+        "help": "Streams the airband channels to atc.airframes.io once this device is signed in to Airframes."
+      },
+      {
+        "key": "XNG_ATC_STATION_NAME",
+        "label": "ATC station name",
+        "kind": "text",
+        "default": "",
+        "required": false,
+        "help": "Shown to listeners. Defaults to the device name."
+      },
+      {
+        "key": "XNG_TRANSCRIBE",
+        "label": "Transcribe airband",
+        "kind": "select",
+        "default": "false",
+        "options": [
+          "false",
+          "true"
+        ],
+        "required": false,
+        "help": "On-device transcripts with an ATC-tuned model (137 MB download on first use; amd64 and arm64 only)."
       }
     ],
     "command": [
@@ -67,7 +111,8 @@
     "install_notes": [
       "Uses every SDR that no other app has been given. Stop or reassign other decoders first if you want xng to use their radios.",
       "Set your station location in Settings so ADS-B and the map have a receiver position.",
-      "The xng dashboard (map and live messages) is on port 8090."
+      "The xng dashboard (map and live messages) is on port 8090.",
+      "To feed ATC audio, set one SDR to airband, list its channels, and sign this device in to Airframes."
     ],
     "outputs": [
       {
