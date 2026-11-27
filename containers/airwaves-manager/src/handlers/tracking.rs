@@ -28,6 +28,12 @@ pub struct Aircraft {
     pub seen: Option<f64>,
     #[serde(default)]
     pub rssi: Option<f64>,
+    /// ADS-B emitter category (A1 to C7), when sent.
+    #[serde(default)]
+    pub category: Option<String>,
+    /// ICAO aircraft type designator, when readsb has its aircraft database.
+    #[serde(default)]
+    pub t: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -101,6 +107,15 @@ pub struct Vehicle {
     /// Ships: the AIS ship and cargo type code (ITU-R M.1371), when known.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ship_type: Option<u64>,
+    /// Aircraft: ADS-B emitter category (A1 to C7), when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// Aircraft: ICAO type designator (B738, A21N, ...), when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aircraft_type: Option<String>,
+    /// Ships: length in meters (AIS dimension to bow plus to stern), when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub length: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -164,6 +179,9 @@ pub async fn get_vehicles(
                         source: "readsb".to_string(),
                         mmsi: None,
                         ship_type: None,
+                        category: ac.category.filter(|c| !c.is_empty()),
+                        aircraft_type: ac.t.filter(|t| !t.is_empty()),
+                        length: None,
                     });
                 }
             }
@@ -293,6 +311,8 @@ async fn fetch_readsb_aircraft_protobuf() -> Result<Vec<Aircraft>, AppError> {
                 squawk,
                 seen: Some(ac.seen as f64 / 1000.0),
                 rssi: Some(ac.rssi as f64),
+                category: None,
+                t: None,
             }
         })
         .collect())
@@ -334,7 +354,9 @@ fn ships_from_json(data: &serde_json::Value) -> Vec<Vehicle> {
             .unwrap_or_default();
         let lat = ship["lat"].as_f64().or(ship["latitude"].as_f64());
         let lon = ship["lon"].as_f64().or(ship["longitude"].as_f64());
-        let (Some(lat), Some(lon)) = (lat, lon) else { continue };
+        let (Some(lat), Some(lon)) = (lat, lon) else {
+            continue;
+        };
         // AIS "not available": heading 511, course 360.
         let heading = ship["heading"]
             .as_f64()
@@ -342,7 +364,10 @@ fn ships_from_json(data: &serde_json::Value) -> Vec<Vehicle> {
             .or(ship["cog"].as_f64().filter(|c| *c < 360.0))
             .or(ship["course"].as_f64().filter(|c| *c < 360.0))
             .unwrap_or(0.0);
-        let name = ship["shipname"].as_str().map(str::trim).filter(|s| !s.is_empty());
+        let name = ship["shipname"]
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
         ships.push(Vehicle {
             id: mmsi.clone(),
             callsign: name.unwrap_or(&mmsi).to_string(),
@@ -355,6 +380,12 @@ fn ships_from_json(data: &serde_json::Value) -> Vec<Vehicle> {
             source: "ais-catcher".to_string(),
             mmsi: (!mmsi.is_empty()).then(|| mmsi.clone()),
             ship_type: ship["shiptype"].as_u64().filter(|t| *t > 0),
+            category: None,
+            aircraft_type: None,
+            length: Some(
+                ship["to_bow"].as_f64().unwrap_or(0.0) + ship["to_stern"].as_f64().unwrap_or(0.0),
+            )
+            .filter(|l| *l > 0.0 && *l < 1000.0),
         });
     }
     ships
