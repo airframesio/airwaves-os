@@ -28,6 +28,12 @@ pub struct Aircraft {
     pub seen: Option<f64>,
     #[serde(default)]
     pub rssi: Option<f64>,
+    /// ADS-B emitter category (A1 to C7), when sent.
+    #[serde(default)]
+    pub category: Option<String>,
+    /// ICAO aircraft type designator, when readsb has its aircraft database.
+    #[serde(default)]
+    pub t: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -93,6 +99,23 @@ pub struct Vehicle {
     pub speed: f64,
     pub heading: f64,
     pub source: String,
+    /// Ships: the MMSI, whose leading digits say what kind of station it is
+    /// (aid to navigation, base station, SART, ...). The map picks its icon
+    /// from this and `ship_type`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mmsi: Option<String>,
+    /// Ships: the AIS ship and cargo type code (ITU-R M.1371), when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ship_type: Option<u64>,
+    /// Aircraft: ADS-B emitter category (A1 to C7), when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// Aircraft: ICAO type designator (B738, A21N, ...), when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aircraft_type: Option<String>,
+    /// Ships: length in meters (AIS dimension to bow plus to stern), when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub length: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -154,6 +177,11 @@ pub async fn get_vehicles(
                         speed: ac.gs.unwrap_or(0.0),
                         heading: ac.track.unwrap_or(0.0),
                         source: "readsb".to_string(),
+                        mmsi: None,
+                        ship_type: None,
+                        category: ac.category.filter(|c| !c.is_empty()),
+                        aircraft_type: ac.t.filter(|t| !t.is_empty()),
+                        length: None,
                     });
                 }
             }
@@ -283,6 +311,8 @@ async fn fetch_readsb_aircraft_protobuf() -> Result<Vec<Aircraft>, AppError> {
                 squawk,
                 seen: Some(ac.seen as f64 / 1000.0),
                 rssi: Some(ac.rssi as f64),
+                category: None,
+                t: None,
             }
         })
         .collect())
@@ -309,38 +339,76 @@ async fn fetch_ais_vessels() -> Result<Vec<Vehicle>, AppError> {
         .await
         .map_err(|e| AppError::Internal(format!("ais-catcher parse error: {}", e)))?;
 
-    let mut ships = Vec::new();
-    if let Some(arr) = data.as_array() {
-        for ship in arr {
-            let mmsi = ship["mmsi"]
-                .as_str()
-                .or(ship["mmsi"].as_u64().map(|_| ""))
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-            let lat = ship["lat"].as_f64().or(ship["latitude"].as_f64());
-            let lon = ship["lon"].as_f64().or(ship["longitude"].as_f64());
-            if let (Some(lat), Some(lon)) = (lat, lon) {
-                ships.push(Vehicle {
-                    id: mmsi.clone(),
-                    callsign: ship["shipname"]
-                        .as_str()
-                        .unwrap_or(&mmsi)
-                        .trim()
-                        .to_string(),
-                    vehicle_type: "ship".to_string(),
-                    lat,
-                    lng: lon,
-                    altitude: 0.0,
-                    speed: ship["speed"].as_f64().unwrap_or(0.0),
-                    heading: ship["heading"]
-                        .as_f64()
-                        .or(ship["course"].as_f64())
-                        .unwrap_or(0.0),
-                    source: "ais-catcher".to_string(),
-                });
-            }
-        }
-    }
+    Ok(ships_from_json(&data))
+}
 
-    Ok(ships)
+/// Ships from AIS-catcher's JSON: a bare array, or `{"ships": [...]}`.
+fn ships_from_json(data: &serde_json::Value) -> Vec<Vehicle> {
+    let list = data.as_array().or_else(|| data["ships"].as_array());
+    let mut ships = Vec::new();
+    for ship in list.into_iter().flatten() {
+        let mmsi = ship["mmsi"]
+            .as_str()
+            .map(|s| s.trim().to_string())
+            .or_else(|| ship["mmsi"].as_u64().map(|n| format!("{n:09}")))
+            .unwrap_or_default();
+        let lat = ship["lat"].as_f64().or(ship["latitude"].as_f64());
+        let lon = ship["lon"].as_f64().or(ship["longitude"].as_f64());
+        let (Some(lat), Some(lon)) = (lat, lon) else {
+            continue;
+        };
+        // AIS "not available": heading 511, course 360.
+        let heading = ship["heading"]
+            .as_f64()
+            .filter(|h| *h < 360.0)
+            .or(ship["cog"].as_f64().filter(|c| *c < 360.0))
+            .or(ship["course"].as_f64().filter(|c| *c < 360.0))
+            .unwrap_or(0.0);
+        let name = ship["shipname"]
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        ships.push(Vehicle {
+            id: mmsi.clone(),
+            callsign: name.unwrap_or(&mmsi).to_string(),
+            vehicle_type: "ship".to_string(),
+            lat,
+            lng: lon,
+            altitude: 0.0,
+            speed: ship["speed"].as_f64().unwrap_or(0.0),
+            heading,
+            source: "ais-catcher".to_string(),
+            mmsi: (!mmsi.is_empty()).then(|| mmsi.clone()),
+            ship_type: ship["shiptype"].as_u64().filter(|t| *t > 0),
+            category: None,
+            aircraft_type: None,
+            length: Some(
+                ship["to_bow"].as_f64().unwrap_or(0.0) + ship["to_stern"].as_f64().unwrap_or(0.0),
+            )
+            .filter(|l| *l > 0.0 && *l < 1000.0),
+        });
+    }
+    ships
+}
+
+#[cfg(test)]
+mod ship_tests {
+    use super::*;
+
+    #[test]
+    fn reads_ais_catcher_ships() {
+        let data = serde_json::json!({ "ships": [
+            { "mmsi": 2573000, "lat": 59.9, "lon": 10.7, "heading": 511, "cog": 360 },
+            { "mmsi": "366998410", "lat": 37.8, "lon": -122.4, "shiptype": 70, "heading": 511, "cog": 91.5, "speed": 12.1, "shipname": "BAY TRADER " },
+            { "mmsi": 1, "shiptype": 30 }
+        ]});
+        let ships = ships_from_json(&data);
+        assert_eq!(ships.len(), 2);
+        assert_eq!(ships[0].mmsi.as_deref(), Some("002573000"));
+        assert_eq!(ships[0].heading, 0.0);
+        assert_eq!(ships[0].ship_type, None);
+        assert_eq!(ships[1].callsign, "BAY TRADER");
+        assert_eq!(ships[1].ship_type, Some(70));
+        assert_eq!(ships[1].heading, 91.5);
+    }
 }
