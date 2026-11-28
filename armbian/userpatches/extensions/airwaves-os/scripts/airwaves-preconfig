@@ -325,6 +325,33 @@ if [ "${#ssh_keys[@]}" -gt 0 ]; then
     [ -d /home/airwaves ] && add_keys /home/airwaves airwaves
 fi
 
+# ---- network install: enrollment + station (docs/NETBOOT.md) -------------
+# The network installer adds "enroll" (Desktop's one-time code) and "station"
+# blocks. Hand them to the manager in /etc/airwaves/netinstall.json (root
+# only) and take them off the FAT partition, together with the Wi-Fi
+# password, so the code and password do not stay readable on the disk.
+NETINSTALL_JSON="/etc/airwaves/netinstall.json"
+if jq -e '(.enroll | type == "object") or (.station | type == "object")' "$cfg" >/dev/null 2>&1; then
+    if [ "$first_setup" -eq 1 ] || [ ! -f "$NETINSTALL_JSON" ]; then
+        mkdir -p /etc/airwaves 2>/dev/null || true
+        ( umask 077; jq '{enroll: (.enroll // null), station: (.station // null)}' "$cfg" > "${NETINSTALL_JSON}.tmp" ) \
+            && mv -f "${NETINSTALL_JSON}.tmp" "$NETINSTALL_JSON" \
+            && chmod 600 "$NETINSTALL_JSON" \
+            && log "Network install: enrollment handed to the manager" \
+            || log "WARNING: could not write ${NETINSTALL_JSON}"
+    fi
+    if [ "$mnt_rw" -ne 1 ]; then
+        mount -o remount,rw "$MNT" 2>/dev/null && mnt_rw=1
+    fi
+    if [ "$mnt_rw" -eq 1 ]; then
+        tmp="$(jq 'del(.enroll, .station) | if .wifi then .wifi.psk = "" else . end' "$cfg" 2>/dev/null)" \
+            && [ -n "$tmp" ] && printf '%s\n' "$tmp" > "$cfg" && sync \
+            && log "Network install: removed the enrollment code and Wi-Fi password from ${LABEL}"
+    else
+        log "WARNING: ${LABEL} is read-only; the enrollment code stays on it"
+    fi
+fi
+
 # ---- destructive: unattended / self-install (FIRST SETUP ONLY) -------------
 # Never arm a destructive install from an apply.conf re-run on an already-set-up
 # system — apply.conf is only for non-destructive reconfig.

@@ -55,7 +55,7 @@ Each release carries, next to the OS images:
   "kernel": "6.18.35-current-x86",
   "protocol": 1,
   "files": { "kernel": "vmlinuz", "initramfs": "initramfs.img", "bootloader": "ipxe.efi" },
-  "cmdline": "console=tty0 console=ttyS0,115200 quiet"
+  "cmdline": "console=ttyS0,115200 console=tty0 quiet"
 }
 ```
 
@@ -84,8 +84,10 @@ link and uses the first one that reaches `awnet.url`.
    `http://<desktop>:<port>/netboot/v1/boot.ipxe?token=<token>`, so iPXE does
    not loop back into itself.
 3. `boot.ipxe` is generated per device from the template in the tar
-   (`@URL@`, `@TOKEN@`, `@CMDLINE@` replaced). It fetches `vmlinuz` and
-   `initramfs.img` over HTTP and boots them with the parameters above.
+   (`@URL@`, `@TOKEN@`, `@CMDLINE@` replaced). It fetches
+   `@URL@/files/vmlinuz?token=@TOKEN@` and `@URL@/files/initramfs.img?token=@TOKEN@`
+   (iPXE cannot easily send headers, so Desktop also takes the token as
+   `?token=`) and boots them with the parameters above.
 
 ### Raspberry Pi 4 (EEPROM bootloader)
 
@@ -167,7 +169,8 @@ Answer (`200`), one of:
     "name": "Airwaves_OS_1.0.39_Uefi-x86_trixie_current_6.18.35_minimal.img.xz",
     "url": "http://192.168.1.20:47811/netboot/v1/image/Airwaves_OS_1.0.39_Uefi-x86_trixie_current_6.18.35_minimal.img.xz",
     "sha256": "<64 hex>",
-    "size_bytes": 1368392160
+    "size_bytes": 1368392160,
+    "uncompressed_bytes": 5418008576
   },
   "sums": {
     "url": "http://192.168.1.20:47811/netboot/v1/release/1.0.39/SHA256SUMS",
@@ -189,6 +192,8 @@ Answer (`200`), one of:
   base URL. They are fetched with the same bearer token.
 - `image.name` must be listed in `SHA256SUMS` with the same `sha256`.
   `size_bytes` is the compressed size and drives the progress bar.
+  `uncompressed_bytes` (optional, from `xz --robot --list`) lets the
+  installer refuse a disk that is too small before erasing it.
 - `target` must match a disk from `/hello` by `path`, and by `serial` and
   `size_bytes` when the installer reported them, so a renumbered disk is never
   written. The installer also refuses a target smaller than the decompressed
@@ -293,10 +298,14 @@ not already signed in:
    signed-in Desktop user, and answers:
 
    ```json
-   { "device_code": "<device_code>", "interval": 5, "expires_in": 600 }
+   { "device_code": "<device_code>", "interval": 5, "expires_in": 600,
+     "device_id": 42, "device_token": "afd_..." }
    ```
 
-   Only the `device_code` crosses the LAN. `410` means the code was used or
+   Only the `device_code` (and the device's own token) crosses the LAN.
+   `device_id` and `device_token` come from api-server's devices API
+   (`POST /user/devices/:id/enroll`, api-server `docs/devices.md`) and are
+   optional. The manager keeps them in `/etc/airwaves/device.json` (mode 600). `410` means the code was used or
    expired and `404` that Desktop does not know it: the manager stops
    enrolling and the device's dashboard shows the normal sign-in. Network
    errors are retried every 30 s until `enroll.expires_at`.
@@ -306,7 +315,9 @@ not already signed in:
    credentials (`atc.json`).
 
 3. With the access token from that answer it registers the station:
-   `POST /feeder/station` `{ "ident", "latitude", "longitude" }`.
+   `POST /feeder/station` `{ "ident", "latitude", "longitude", "device_token" }`
+   (`device_token` only when Desktop sent one; it links the station to the
+   device record).
 
 4. It applies the station location and name, and installs xng with the
    `station.xng` settings if xng is not installed yet and an SDR is free.
@@ -316,7 +327,14 @@ not already signed in:
    `{ "code": "...", "stage": "signed_in" | "station_registered" | "done" | "failed", "station_id": 237411012, "ident": "KE-HANGAR", "username": "kevin", "message": "" }`.
 
 Then `netinstall.json` is deleted, except after `failed`, when it is kept
-with `"done": true` so the manager does not try again on every restart.
+with `"done": true` (and the code cleared) so the manager does not try again
+on every restart.
+
+With a device token the manager sends `POST /devices/heartbeat` (Bearer
+`afd_...`) every minute: `os_version`, `agent_version`, `model`, `board`,
+`uptime_seconds`, `temperature_c`, `load_1m`, memory and disk use, `sdrs`
+and `apps`. A `401`/`403` (device removed or enrolled again) stops it until
+the next restart.
 
 ## Signatures
 
@@ -365,11 +383,42 @@ slot.
 
 ## Testing without hardware
 
-`netinstall/test/` boots the x86 installer in QEMU with OVMF against a small
-mock of Desktop's API (`mock-desktop.py`), installs a real release image onto
-a virtual disk, and checks the AWCFG it wrote:
+`netinstall/test/qemu-x86.sh` boots the x86 installer in QEMU (UEFI, OVMF)
+against `mock-desktop.py`, a small stand-in for Desktop's API, and checks the
+disk it wrote. It needs an installer built with a throwaway signing key:
 
 ```sh
-sudo netinstall/build.sh --rootfs /mnt/uefi-rootfs --arch x86_64 --out out/
-netinstall/test/qemu-x86.sh out/netinstall-x86_64.tar Airwaves_OS_..._Uefi-x86_....img.xz
+minisign -G -W -p /tmp/test.pub -s /tmp/test.key
+# rootfs: the Uefi-x86 image's root partition, mounted read only
+sudo netinstall/build.sh --rootfs /mnt/rootfs --arch x86_64 --out out/ --pubkey /tmp/test.pub
+for c in ok wrong-target wrong-sha tampered; do
+  netinstall/test/qemu-x86.sh --tar out/netinstall-x86_64.tar --key /tmp/test.key --case $c
+done
+```
+
+Without `--image` it installs a small stand-in image (GPT with an ESP and an
+AWCFG partition); `--image` takes a real release image. The cases: a normal
+install; a target whose size does not match (refused, disk untouched); a plan
+checksum that differs from the signed one (refused, disk untouched); and an
+image whose bytes differ from the signed checksum (found while streaming,
+disk cleared). No KVM is needed; one case takes about two minutes under TCG.
+
+## Releasing
+
+`release.yml` builds the `uefi-x86` (trixie) and `rpi4b` (noble) images with
+`build-image-simple.yml`, which also builds each board's network installer
+from the image's own rootfs, then attaches the images, the installers,
+`SHA256SUMS` and `SHA256SUMS.minisig` to the release. Signing needs the
+repository secrets `MINISIGN_SECRET_KEY` (the whole `.key` file) and, if the
+key has one, `MINISIGN_PASSWORD`; the job checks the signature against
+`netinstall/minisign.pub` and the installer's own verifier. Without the
+secret the release still publishes, unsigned, with a warning.
+
+To create the key once (keep the `.key` file somewhere safe; a new key means
+rebuilding the installer and Desktop):
+
+```sh
+minisign -G -W -p netinstall/minisign.pub -s ~/.config/airframes/airwaves-os-minisign.key
+gh secret set MINISIGN_SECRET_KEY -R airframesio/airwaves-os < ~/.config/airframes/airwaves-os-minisign.key
+git add netinstall/minisign.pub   # commit it; Desktop embeds the same key
 ```

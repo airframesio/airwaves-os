@@ -1,0 +1,12 @@
+# Airwaves OS network installer for the Raspberry Pi 4 family (TFTP boot).
+# See docs/NETBOOT.md.
+[all]
+arm_64bit=1
+kernel=kernel8.img
+initramfs initramfs.img followkernel
+disable_overscan=1
+dtparam=audio=off
+enable_uart=1
+
+[cm4]
+otg_mode=1
