@@ -1,0 +1,1 @@
+@CMDLINE@ awnet.url=@URL@ awnet.token=@TOKEN@

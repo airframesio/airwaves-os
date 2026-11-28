@@ -1,0 +1,429 @@
+#!/bin/sh
+# Airwaves OS network installer (/init of the netinstall initramfs).
+#
+# Asks Airframes Desktop what to install (POST <awnet.url>/hello), streams the
+# image onto the chosen disk while checking its SHA-256, writes the device
+# settings to the new disk's AWCFG partition and reboots. The HTTP API is in
+# docs/NETBOOT.md. Nothing is erased unless Desktop names a disk that matches
+# what this device reported and the user confirmed it, and the release's
+# signed SHA256SUMS lists the image.
+
+export PATH=/usr/bin:/usr/sbin:/bin:/sbin
+export OPENSSL_CONF=/usr/lib/ssl/openssl.cnf
+umask 022
+
+mkdir -p /proc /sys /dev /run /tmp
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev 2>/dev/null
+mkdir -p /dev/pts && mount -t devpts devpts /dev/pts 2>/dev/null
+mount -t tmpfs tmpfs /run
+mount -t tmpfs tmpfs /tmp
+[ -d /sys/firmware/efi/efivars ] && mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null
+echo 1 > /proc/sys/kernel/printk 2>/dev/null
+
+. /etc/airwaves-netinstall   # version arch board kernel protocol
+LOG=/tmp/install.log
+CON=/dev/console
+
+# ---- command line ------------------------------------------------------------
+URL="" TOKEN="" DEBUG=0
+for a in $(cat /proc/cmdline); do
+    case "$a" in
+        awnet.url=*) URL="${a#awnet.url=}" ;;
+        awnet.token=*) TOKEN="${a#awnet.token=}" ;;
+        awnet.debug=1) DEBUG=1 ;;
+    esac
+done
+URL="${URL%/}"
+
+say() { echo "$*" > "$CON"; echo "$(date -u +%H:%M:%S) $*" >> "$LOG"; }
+banner() {
+    clear > "$CON" 2>/dev/null
+    say ""
+    say "  Airwaves OS network installer ${version}"
+    say "  ------------------------------------------------------------"
+    say ""
+}
+
+STAGE=booted
+# post_progress <stage> [percent] [message] [error] [bytes_done] [bytes_total]
+post_progress() {
+    STAGE="$1"
+    [ -n "$URL" ] || return 0
+    jq -nc --arg s "$1" --arg p "${2:-}" --arg m "${3:-}" --arg e "${4:-}" \
+          --arg bd "${5:-}" --arg bt "${6:-}" \
+        '{stage:$s, message:$m}
+         + (if $p  != "" then {percent: ($p|tonumber)} else {} end)
+         + (if $e  != "" then {error: $e} else {} end)
+         + (if $bd != "" then {bytes_done: ($bd|tonumber)} else {} end)
+         + (if $bt != "" then {bytes_total: ($bt|tonumber)} else {} end)' > /tmp/progress.json
+    curl -s -m 4 -o /dev/null -X POST -H "Authorization: Bearer $TOKEN" \
+        -H "Content-Type: application/json" -A "airwaves-netinstall/${version}" \
+        --data-binary @/tmp/progress.json "$URL/progress" 2>/dev/null
+    return 0
+}
+
+finish() {  # finish reboot|poweroff|shell
+    sync
+    case "$1" in
+        shell)
+            if [ "$DEBUG" = 1 ]; then say "Debug shell (exit to reboot)."; setsid sh -c "exec sh <$CON >$CON 2>&1"; fi ;;
+        poweroff) say "Powering off in 10 seconds."; sleep 10; poweroff -f ;;
+    esac
+    say "Restarting in 10 seconds."
+    sleep 10
+    reboot -f
+}
+
+fail() {  # fail <error code> <message>
+    say ""
+    say "  Install stopped: $2"
+    say ""
+    post_progress failed "" "$2" "$1"
+    if [ "$DEBUG" = 1 ]; then finish shell; fi
+    finish poweroff
+}
+
+if [ "$DEBUG" = 1 ]; then
+    setsid sh -c 'exec sh </dev/tty2 >/dev/tty2 2>&1' &
+fi
+
+banner
+[ -n "$URL" ] && [ -n "$TOKEN" ] || fail boot "No awnet.url / awnet.token on the kernel command line. Start this installer from Airframes Desktop."
+
+# ---- drivers -----------------------------------------------------------------
+say "Loading drivers..."
+load_drivers() {
+    find /sys/devices -name modalias -type f 2>/dev/null | xargs cat 2>/dev/null | sort -u \
+        | xargs modprobe -qab 2>/dev/null
+}
+modprobe -qab sd_mod nvme ahci usb_storage uas xhci_pci ehci_pci vfat nls_cp437 nls_iso8859_1 2>/dev/null
+load_drivers; sleep 2; load_drivers; sleep 1; load_drivers
+
+# ---- network -----------------------------------------------------------------
+say "Starting the network..."
+IFACE="" IP=""
+for _try in 1 2 3 4 5 6; do
+    for d in /sys/class/net/*; do
+        n="$(basename "$d")"
+        case "$n" in lo|wl*|wwan*|docker*|veth*) continue ;; esac
+        ip link set "$n" up 2>/dev/null
+    done
+    sleep 3
+    for d in /sys/class/net/*; do
+        n="$(basename "$d")"
+        case "$n" in lo|wl*|wwan*|docker*|veth*) continue ;; esac
+        [ "$(cat "$d/carrier" 2>/dev/null)" = 1 ] || continue
+        if udhcpc -i "$n" -n -q -t 4 -T 3 -s /usr/share/airwaves/udhcpc.script >>"$LOG" 2>&1; then
+            if curl -s -m 5 -o /dev/null "$URL/" 2>/dev/null || [ $? -eq 22 ]; then
+                IFACE="$n"; break 2
+            fi
+        fi
+    done
+    say "  no network yet, retrying..."
+    load_drivers
+done
+[ -n "$IFACE" ] || fail network "No wired network reached Airframes Desktop at ${URL}. Check the cable and that Desktop is still in Install mode."
+IP="$(ip -4 -o addr show dev "$IFACE" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)"
+say "  ${IFACE} ${IP}"
+
+# ---- device report ---------------------------------------------------------------
+dt_str() { [ -f "$1" ] && tr -d '\000' < "$1"; }
+VENDOR="" PRODUCT="" SERIAL="" MODEL="" RPI_SERIAL="" BOOT=uefi
+if [ -d /sys/class/dmi/id ]; then
+    VENDOR="$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null)"
+    PRODUCT="$(cat /sys/class/dmi/id/product_name 2>/dev/null)"
+    SERIAL="$(cat /sys/class/dmi/id/product_serial 2>/dev/null)"
+    MODEL="$(echo "$VENDOR $PRODUCT" | sed 's/^ *//; s/ *$//')"
+fi
+if [ -f /proc/device-tree/model ]; then
+    MODEL="$(dt_str /proc/device-tree/model)"
+    SERIAL="$(dt_str /proc/device-tree/serial-number)"
+    case "$MODEL" in Raspberry\ Pi*)
+        BOOT=rpi
+        RPI_SERIAL="$(echo "$SERIAL" | tr 'A-F' 'a-f' | sed 's/^.*\(........\)$/\1/')" ;;
+    esac
+fi
+MEM="$(awk '/MemTotal/ {print $2 * 1024}' /proc/meminfo)"
+
+interfaces_json() {
+    for d in /sys/class/net/*; do
+        n="$(basename "$d")"; [ "$n" = lo ] && continue
+        ip4="$(ip -4 -o addr show dev "$n" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)"
+        jq -nc --arg n "$n" --arg m "$(cat "$d/address" 2>/dev/null)" --arg ip "$ip4" \
+               --argjson l "$([ "$(cat "$d/carrier" 2>/dev/null)" = 1 ] && echo true || echo false)" \
+            '{name:$n, mac:$m, ip:(if $ip == "" then null else $ip end), link:$l}'
+    done | jq -sc .
+}
+
+disk_transport() {
+    case "$1" in nvme*) echo nvme; return ;; mmcblk*) echo mmc; return ;; vd*) echo virtio; return ;; esac
+    p="$(readlink -f "/sys/block/$1")"
+    case "$p" in */usb*) echo usb ;; */ata*) echo sata ;; *) echo "" ;; esac
+}
+disk_serial() {
+    n="$1"; s=""
+    for f in "/sys/block/$n/device/serial" "/sys/block/$n/serial" "/sys/block/$n/device/cid"; do
+        [ -f "$f" ] && { s="$(cat "$f" 2>/dev/null)"; break; }
+    done
+    [ -z "$s" ] && s="$(lsblk -dno SERIAL "/dev/$n" 2>/dev/null)"
+    echo "$s" | sed 's/^ *//; s/ *$//'
+}
+disks_json() {
+    for d in /sys/block/*; do
+        n="$(basename "$d")"
+        case "$n" in loop*|ram*|zram*|sr*|nbd*|md*|dm-*|mmcblk*boot*|mmcblk*rpmb) continue ;; esac
+        sectors="$(cat "$d/size" 2>/dev/null || echo 0)"
+        size=$((sectors * 512))
+        [ "$size" -ge 4294967296 ] || continue
+        model="$(cat "$d/device/model" 2>/dev/null || cat "$d/device/name" 2>/dev/null)"
+        parts=0; has=false
+        for p in "$d"/"$n"*; do
+            [ -d "$p" ] || continue
+            parts=$((parts + 1))
+            lbl="$(blkid -o value -s LABEL "/dev/$(basename "$p")" 2>/dev/null)"
+            case "$lbl" in AWCFG|armbi_root) has=true ;; esac
+        done
+        jq -nc --arg p "/dev/$n" --argjson s "$size" --arg m "$(echo "$model" | sed 's/^ *//; s/ *$//')" \
+               --arg ser "$(disk_serial "$n")" --arg t "$(disk_transport "$n")" \
+               --argjson rm "$([ "$(cat "$d/removable" 2>/dev/null)" = 1 ] && echo true || echo false)" \
+               --argjson rot "$([ "$(cat "$d/queue/rotational" 2>/dev/null)" = 1 ] && echo true || echo false)" \
+               --argjson parts "$parts" --argjson has "$has" \
+            '{path:$p, size_bytes:$s, model:(if $m == "" then null else $m end),
+              serial:(if $ser == "" then null else $ser end), transport:(if $t == "" then null else $t end),
+              removable:$rm, rotational:$rot, partitions:$parts, has_airwaves:$has}'
+    done | jq -sc .
+}
+
+hello_json() {
+    jq -nc --argjson proto "$protocol" --arg ver "$version" --arg arch "$arch" --arg boot "$BOOT" \
+           --arg model "$MODEL" --arg vendor "$VENDOR" --arg product "$PRODUCT" --arg serial "$SERIAL" \
+           --arg rpi "$RPI_SERIAL" --argjson mem "${MEM:-0}" \
+           --argjson ifs "$(interfaces_json)" --argjson disks "$(disks_json)" \
+        'def n: if . == "" then null else . end;
+         {protocol:$proto, installer_version:$ver, arch:$arch, boot:$boot, model:($model|n),
+          vendor:($vendor|n), product:($product|n), serial:($serial|n), rpi_serial:($rpi|n),
+          memory_bytes:$mem, interfaces:$ifs, disks:$disks}'
+}
+
+# api <method> <path> <body file|-> <out file>; prints the HTTP status.
+api() {
+    case "$2" in http://*|https://*) u="$2" ;; *) u="$URL/${2#/}" ;; esac
+    if [ "$3" = "-" ]; then
+        curl -s -m 30 -o "$4" -w '%{http_code}' -X "$1" -H "Authorization: Bearer $TOKEN" \
+            -A "airwaves-netinstall/${version}" "$u" 2>/dev/null
+    else
+        curl -s -m 30 -o "$4" -w '%{http_code}' -X "$1" -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" -A "airwaves-netinstall/${version}" \
+            --data-binary @"$3" "$u" 2>/dev/null
+    fi
+}
+abs_url() { case "$1" in http://*|https://*) echo "$1" ;; *) echo "$URL/${1#/}" ;; esac; }
+
+post_progress booted "" "Installer started on ${MODEL:-this device}"
+say ""
+say "  Device: ${MODEL:-unknown}"
+[ -n "$RPI_SERIAL" ] && say "  Serial: ${RPI_SERIAL}"
+say "  Address: ${IP} ($(cat /sys/class/net/$IFACE/address))"
+say ""
+
+# ---- ask Desktop what to do ---------------------------------------------------------
+PLAN=/tmp/plan.json
+waited=0 errors=0 shown=""
+while :; do
+    hello_json > /tmp/hello.json
+    code="$(api POST /hello /tmp/hello.json "$PLAN")"
+    case "$code" in
+        200) errors=0 ;;
+        401|403) fail auth "Airframes Desktop did not accept this device's token (HTTP ${code}). Approve it again in Desktop." ;;
+        *)
+            errors=$((errors + 1))
+            [ "$errors" -gt 60 ] && fail network "Lost contact with Airframes Desktop (HTTP ${code:-none})."
+            sleep 10; continue ;;
+    esac
+    action="$(jq -r '.action // empty' "$PLAN" 2>/dev/null)"
+    msg="$(jq -r '.message // empty' "$PLAN" 2>/dev/null)"
+    case "$action" in
+        install) break ;;
+        wait)
+            [ "$waited" = 0 ] && post_progress waiting "" "${msg:-Waiting for approval}"
+            waited=1
+            if [ "$msg" != "$shown" ]; then say "  ${msg:-Waiting for approval in Airframes Desktop...}"; shown="$msg"; fi
+            ra="$(jq -r '.retry_after // 5' "$PLAN")"
+            case "$ra" in ''|*[!0-9]*) ra=5 ;; esac
+            [ "$ra" -lt 1 ] && ra=1; [ "$ra" -gt 60 ] && ra=60
+            sleep "$ra" ;;
+        abort)
+            say "  ${msg:-Airframes Desktop canceled this install.}"
+            post_progress failed "" "${msg:-aborted}" canceled
+            finish "$(jq -r '.then // "poweroff"' "$PLAN")" ;;
+        *) fail protocol "Airframes Desktop sent an answer this installer does not understand." ;;
+    esac
+done
+
+# ---- check the plan --------------------------------------------------------------------
+j() { jq -r "$1 // empty" "$PLAN"; }
+IMG_NAME="$(j .image.name)"; IMG_URL="$(abs_url "$(j .image.url)")"
+IMG_SHA="$(j .image.sha256 | tr 'A-F' 'a-f')"; IMG_SIZE="$(j .image.size_bytes)"
+IMG_RAW="$(j .image.uncompressed_bytes)"
+SUMS_URL="$(abs_url "$(j .sums.url)")"; SIG_URL="$(abs_url "$(j .sums.sig_url)")"
+TGT="$(j .target.path)"; TGT_SERIAL="$(j .target.serial)"; TGT_SIZE="$(j .target.size_bytes)"
+COUNTDOWN="$(j .countdown_seconds)"; POST="$(j .post_install)"
+case "$IMG_NAME" in ''|*/*|*' '*) fail protocol "The install plan has no valid image name." ;; esac
+echo "$IMG_SHA" | grep -Eq '^[0-9a-f]{64}$' || fail protocol "The install plan has no valid image checksum."
+[ "$(j .erase_confirmed)" = true ] || fail target_mismatch "The install plan does not confirm erasing the disk."
+jq -e '.awcfg | type == "object"' "$PLAN" >/dev/null 2>&1 || fail awcfg "The install plan has no device settings."
+case "$COUNTDOWN" in ''|*[!0-9]*) COUNTDOWN=10 ;; esac; [ "$COUNTDOWN" -gt 60 ] && COUNTDOWN=60
+case "$POST" in poweroff) ;; *) POST=reboot ;; esac
+
+# The target must be a disk this device reported, with the same serial and size.
+hello_json > /tmp/hello.json
+jq -e --arg p "$TGT" --arg s "$TGT_SERIAL" --arg z "$TGT_SIZE" \
+    'any(.disks[]; .path == $p
+        and ($s == "" or .serial == null or .serial == $s)
+        and ($z == "" or (.size_bytes|tostring) == $z))' /tmp/hello.json >/dev/null \
+    || fail target_mismatch "Disk ${TGT} does not match what this device reported. Nothing was erased."
+TGT_BYTES="$(jq -r --arg p "$TGT" '.disks[] | select(.path == $p) | .size_bytes' /tmp/hello.json)"
+if [ -n "$IMG_RAW" ] && [ "$IMG_RAW" -gt "$TGT_BYTES" ] 2>/dev/null; then
+    fail target_too_small "Disk ${TGT} is smaller than the image. Nothing was erased."
+fi
+
+# ---- signed checksums ---------------------------------------------------------------------
+post_progress verifying_manifest "" "Checking the release signature"
+say "Checking the release signature..."
+[ -s /usr/share/airwaves/minisign.pub ] || fail manifest_signature "This installer has no signing key built in."
+c1="$(api GET "$SUMS_URL" - /tmp/SHA256SUMS)"; c2="$(api GET "$SIG_URL" - /tmp/SHA256SUMS.minisig)"
+[ "$c1" = 200 ] && [ "$c2" = 200 ] || fail download "Could not fetch the release checksums from Desktop (HTTP ${c1}/${c2})."
+minisign-verify /usr/share/airwaves/minisign.pub /tmp/SHA256SUMS /tmp/SHA256SUMS.minisig >>"$LOG" 2>&1 \
+    || fail manifest_signature "The release checksums are not signed by Airwaves OS. Nothing was erased."
+listed="$(awk -v n="$IMG_NAME" '{f=$2; sub(/^\*/, "", f)} f == n {print tolower($1); exit}' /tmp/SHA256SUMS)"
+[ -n "$listed" ] || fail manifest_missing_image "${IMG_NAME} is not part of the signed release. Nothing was erased."
+[ "$listed" = "$IMG_SHA" ] || fail image_checksum "The image checksum does not match the signed release. Nothing was erased."
+say "  ${IMG_NAME}"
+say "  signed checksum OK"
+
+# ---- countdown --------------------------------------------------------------------------------
+tmodel="$(jq -r --arg p "$TGT" '.disks[] | select(.path == $p) | (.model // "")' /tmp/hello.json)"
+tgb="$(awk -v b="$TGT_BYTES" 'BEGIN {printf "%.0f", b / 1000000000}')"
+say ""
+say "  ${TGT} (${tmodel:+$tmodel, }${tgb} GB) will be ERASED and Airwaves OS installed on it."
+if [ "$COUNTDOWN" -gt 0 ]; then
+    post_progress countdown "" "Installing in ${COUNTDOWN} seconds"
+    say "  Press any key on this keyboard to cancel."
+    i="$COUNTDOWN"
+    while [ "$i" -gt 0 ]; do
+        printf '\r  Starting in %2d seconds... ' "$i" > "$CON"
+        if read -r -s -n 1 -t 1 _k < "$CON" 2>/dev/null; then
+            say ""
+            fail canceled "Canceled on the device's keyboard. Nothing was erased."
+        fi
+        i=$((i - 1))
+    done
+    say ""
+fi
+
+# ---- write ------------------------------------------------------------------------------------
+post_progress writing 0 "" "" 0 "$IMG_SIZE"
+say "Writing Airwaves OS to ${TGT}..."
+for p in $(ls "${TGT}"?* 2>/dev/null); do umount "$p" 2>/dev/null; done
+wipefs -a -q "$TGT" >>"$LOG" 2>&1
+
+rm -f /tmp/hashpipe /tmp/pv.out /tmp/img.sha
+mkfifo /tmp/hashpipe
+sha256sum < /tmp/hashpipe > /tmp/img.sha &
+HASH_PID=$!
+(
+    # Progress reporter: last byte count from pv, every 2 s.
+    last=-1
+    while [ ! -f /tmp/write.done ]; do
+        sleep 2
+        b="$(tail -n 1 /tmp/pv.out 2>/dev/null | tr -dc 0-9)"
+        [ -n "$b" ] && [ "$b" != "$last" ] || continue
+        last="$b"
+        pct=0; [ -n "$IMG_SIZE" ] && [ "$IMG_SIZE" -gt 0 ] && pct=$((b * 100 / IMG_SIZE))
+        [ "$pct" -gt 99 ] && pct=99
+        printf '\r  %3d%%  %s / %s MB ' "$pct" "$((b / 1000000))" "$((${IMG_SIZE:-0} / 1000000))" > "$CON"
+        post_progress writing "$pct" "" "" "$b" "$IMG_SIZE"
+    done
+) &
+REP_PID=$!
+
+set -o pipefail
+curl -sfS --retry 3 -m 7200 -H "Authorization: Bearer $TOKEN" -A "airwaves-netinstall/${version}" "$IMG_URL" 2>>"$LOG" \
+    | tee /tmp/hashpipe \
+    | pv -n -b -i 1 2>/tmp/pv.out \
+    | xz -dc 2>>"$LOG" \
+    | dd of="$TGT" bs=4M iflag=fullblock oflag=direct conv=fsync 2>>"$LOG"
+rc=$?
+set +o pipefail
+touch /tmp/write.done
+wait "$HASH_PID" 2>/dev/null
+kill "$REP_PID" 2>/dev/null
+say ""
+
+scrub() {  # make sure a partly or wrongly written disk never boots
+    wipefs -a -q "$TGT" 2>/dev/null
+    dd if=/dev/zero of="$TGT" bs=1M count=64 conv=fsync 2>/dev/null
+    sync
+}
+if [ "$rc" -ne 0 ]; then
+    scrub
+    tail -n 5 "$LOG" > "$CON"
+    fail write "Writing the image failed (download or disk error). The disk was cleared."
+fi
+
+post_progress verifying 100 "Checking the written image"
+got="$(cut -d' ' -f1 /tmp/img.sha)"
+if [ "$got" != "$IMG_SHA" ]; then
+    scrub
+    fail image_checksum "The downloaded image did not match its signed checksum. The disk was cleared."
+fi
+say "  image checksum OK"
+
+# ---- settings (AWCFG) --------------------------------------------------------------------
+post_progress configuring 100 "Writing device settings"
+say "Writing device settings..."
+blockdev --rereadpt "$TGT" 2>/dev/null || partprobe "$TGT" 2>/dev/null
+sleep 2
+CFGDEV=""
+for _i in 1 2 3 4 5; do
+    for p in $(ls "${TGT}"?* 2>/dev/null); do
+        [ "$(blkid -o value -s LABEL "$p" 2>/dev/null)" = AWCFG ] && { CFGDEV="$p"; break 2; }
+    done
+    sleep 1; mdev -s 2>/dev/null
+done
+[ -n "$CFGDEV" ] || fail awcfg "The installed image has no AWCFG partition."
+mkdir -p /mnt/awcfg
+mount -t vfat "$CFGDEV" /mnt/awcfg || fail awcfg "Could not open the AWCFG partition."
+jq '.awcfg | .auto_install = false | .self_install = false | .confirm_destructive = false' "$PLAN" \
+    > /mnt/awcfg/airwaves-install.json || { umount /mnt/awcfg; fail awcfg "Could not write airwaves-install.json."; }
+rm -f /mnt/awcfg/apply.conf
+sync; umount /mnt/awcfg
+
+# x86: make the new disk the first UEFI boot entry.
+if [ "$BOOT" = uefi ] && [ -d /sys/firmware/efi/efivars ]; then
+    ESPN=""
+    for p in $(ls "${TGT}"?* 2>/dev/null); do
+        t="$(blkid -p -o value -s PART_ENTRY_TYPE "$p" 2>/dev/null)"
+        [ "$t" = c12a7328-f81f-11d2-ba4b-00a0c93ec93b ] && { ESPN="$(cat "/sys/class/block/$(basename "$p")/partition")"; break; }
+    done
+    if [ -n "$ESPN" ]; then
+        for b in $(efibootmgr 2>/dev/null | sed -n 's/^Boot\([0-9A-F]\{4\}\)\* Airwaves OS.*/\1/p'); do
+            efibootmgr -q -b "$b" -B >>"$LOG" 2>&1
+        done
+        efibootmgr -q -c -d "$TGT" -p "$ESPN" -L "Airwaves OS" -l '\EFI\BOOT\BOOTX64.EFI' >>"$LOG" 2>&1 \
+            && say "  boot entry added" || say "  (could not add a UEFI boot entry; the firmware will find the disk)"
+    fi
+fi
+
+post_progress rebooting 100 "Installed. Starting Airwaves OS"
+say ""
+say "  Airwaves OS is installed. It finishes setting up on first boot and"
+say "  then shows up in Airframes Desktop."
+say ""
+sync
+if [ "$DEBUG" = 1 ]; then finish shell; fi
+if [ "$POST" = poweroff ]; then sleep 3; poweroff -f; fi
+sleep 3
+reboot -f

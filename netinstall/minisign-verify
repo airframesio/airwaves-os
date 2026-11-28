@@ -1,0 +1,52 @@
+#!/bin/sh
+# minisign-verify <public key file> <file> <signature file>
+#
+# Verifies a minisign signature with OpenSSL only (the installer has no
+# minisign binary): Ed25519 over BLAKE2b-512(file) for prehashed signatures
+# ("ED", minisign's default) or over the file itself (legacy "Ed"), then the
+# global signature over (signature || trusted comment). Exits 0 when both
+# check out and the key IDs match.
+set -eu
+PUB="$1" FILE="$2" SIG="$3"
+T="$(mktemp -d)"
+trap 'rm -rf "$T"' EXIT
+
+b64line() { sed -n "${2}p" "$1" | tr -d '\r\n' | base64 -d > "$3"; }
+
+# Public key: "Ed" + key id (8) + key (32).
+b64line "$PUB" 2 "$T/pk"
+[ "$(wc -c < "$T/pk")" -eq 42 ] || { echo "bad public key" >&2; exit 1; }
+[ "$(dd if="$T/pk" bs=1 count=2 2>/dev/null)" = "Ed" ] || { echo "bad public key algorithm" >&2; exit 1; }
+dd if="$T/pk" of="$T/pk.id" bs=1 skip=2 count=8 2>/dev/null
+dd if="$T/pk" of="$T/pk.raw" bs=1 skip=10 count=32 2>/dev/null
+# SubjectPublicKeyInfo for Ed25519 = fixed 12-byte prefix + raw key.
+printf '\060\052\060\005\006\003\053\145\160\003\041\000' > "$T/pk.der"
+cat "$T/pk.raw" >> "$T/pk.der"
+
+# Signature file: untrusted comment, sig, trusted comment, global sig.
+b64line "$SIG" 2 "$T/sig"
+[ "$(wc -c < "$T/sig")" -eq 74 ] || { echo "bad signature" >&2; exit 1; }
+alg="$(dd if="$T/sig" bs=1 count=2 2>/dev/null)"
+dd if="$T/sig" of="$T/sig.id" bs=1 skip=2 count=8 2>/dev/null
+dd if="$T/sig" of="$T/sig.raw" bs=1 skip=10 count=64 2>/dev/null
+cmp -s "$T/pk.id" "$T/sig.id" || { echo "signed with a different key" >&2; exit 1; }
+tc="$(sed -n 3p "$SIG" | tr -d '\r\n')"
+case "$tc" in "trusted comment: "*) tc="${tc#trusted comment: }" ;; *) echo "no trusted comment" >&2; exit 1 ;; esac
+b64line "$SIG" 4 "$T/gsig"
+[ "$(wc -c < "$T/gsig")" -eq 64 ] || { echo "bad global signature" >&2; exit 1; }
+
+case "$alg" in
+    ED) openssl dgst -blake2b512 -binary "$FILE" > "$T/msg" ;;
+    Ed) cp "$FILE" "$T/msg" ;;
+    *) echo "unknown signature algorithm" >&2; exit 1 ;;
+esac
+
+verify() {  # verify <message file> <signature file>
+    openssl pkeyutl -verify -pubin -keyform DER -inkey "$T/pk.der" -rawin \
+        -in "$1" -sigfile "$2" >/dev/null 2>&1
+}
+verify "$T/msg" "$T/sig.raw" || { echo "signature does not match" >&2; exit 1; }
+cp "$T/sig.raw" "$T/global"
+printf '%s' "$tc" >> "$T/global"
+verify "$T/global" "$T/gsig" || { echo "trusted comment signature does not match" >&2; exit 1; }
+echo "Signature and comment signature verified (trusted comment: $tc)"

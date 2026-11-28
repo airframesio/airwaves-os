@@ -31,7 +31,7 @@ pub const CLIENT_ID: &str = "airframes-feeder";
 pub const SCOPE: &str = "atc:feed";
 const DEVICE_GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
 
-fn api_base() -> String {
+pub(crate) fn api_base() -> String {
     std::env::var("AIRFRAMES_API")
         .ok()
         .filter(|s| !s.is_empty())
@@ -104,7 +104,7 @@ struct Pending {
 
 static PENDING: Mutex<Option<Pending>> = Mutex::const_new(None);
 
-fn http() -> reqwest::Client {
+pub(crate) fn http() -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .user_agent(concat!("airwaves-manager/", env!("CARGO_PKG_VERSION")))
@@ -238,40 +238,16 @@ pub async fn poll_signin(
     .await?;
     if status < 400 {
         let t: TokenResponse = serde_json::from_value(v)?;
-        let refresh = t.refresh_token.filter(|r| !r.is_empty()).ok_or_else(|| {
-            AppError::Internal("Airframes returned no refresh token for the feeder sign-in".into())
-        })?;
-        let mut c = load().await;
-        c.refresh_token = Some(refresh);
-        let base = api_base();
-        c.api = (base != "https://api.airframes.io").then_some(base);
-        if let Some(u) = &t.user {
-            c.username = u
-                .get("username")
-                .and_then(|n| n.as_str())
-                .map(str::to_string);
-            c.user_id = u.get("id").map(|id| {
-                id.as_str()
-                    .map(str::to_string)
-                    .unwrap_or_else(|| id.to_string())
-            });
-        }
-        if c.feeder_id.is_none() {
-            c.feeder_id = Some(uuid::Uuid::new_v4().to_string());
-        }
-        save(&c).await?;
+        let access = t.access_token.clone().filter(|a| !a.is_empty());
+        let username = store_signin(t).await?;
         *guard = None;
-        tracing::info!(
-            "Signed in to Airframes as {}",
-            c.username.as_deref().unwrap_or("(unknown user)")
-        );
-        let station = match t.access_token.filter(|a| !a.is_empty()) {
+        let station = match access {
             Some(token) => register_station(&state, &token).await,
             None => serde_json::json!({ "status": "skipped", "reason": "no access token" }),
         };
         return Ok(Json(serde_json::json!({
             "status": "signed_in",
-            "username": c.username,
+            "username": username,
             "station": station,
         })));
     }
@@ -296,6 +272,86 @@ pub async fn poll_signin(
         *guard = None;
     }
     Ok(Json(serde_json::json!({ "status": next })))
+}
+
+/// Saves the feeder sign-in from a successful token answer where xng reads
+/// it, and returns the username.
+async fn store_signin(t: TokenResponse) -> Result<Option<String>, AppError> {
+    let refresh = t.refresh_token.filter(|r| !r.is_empty()).ok_or_else(|| {
+        AppError::Internal("Airframes returned no refresh token for the feeder sign-in".into())
+    })?;
+    let mut c = load().await;
+    c.refresh_token = Some(refresh);
+    let base = api_base();
+    c.api = (base != "https://api.airframes.io").then_some(base);
+    if let Some(u) = &t.user {
+        c.username = u
+            .get("username")
+            .and_then(|n| n.as_str())
+            .map(str::to_string);
+        c.user_id = u.get("id").map(|id| {
+            id.as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| id.to_string())
+        });
+    }
+    if c.feeder_id.is_none() {
+        c.feeder_id = Some(uuid::Uuid::new_v4().to_string());
+    }
+    save(&c).await?;
+    tracing::info!(
+        "Signed in to Airframes as {}",
+        c.username.as_deref().unwrap_or("(unknown user)")
+    );
+    Ok(c.username)
+}
+
+/// The outcome of one token poll for a device code.
+pub(crate) enum TokenPoll {
+    /// Signed in: the username and the short-lived access token.
+    SignedIn {
+        username: Option<String>,
+        access_token: Option<String>,
+    },
+    Pending,
+    SlowDown,
+    Denied,
+    Expired,
+}
+
+/// Polls `POST /auth/token` once for `device_code` and stores the sign-in
+/// when it succeeds (network install: Desktop approved the code already).
+pub(crate) async fn poll_device_code(device_code: &str) -> Result<TokenPoll, AppError> {
+    let (status, v) = post(
+        "/auth/token",
+        serde_json::json!({
+            "grant_type": DEVICE_GRANT,
+            "device_code": device_code,
+            "client_id": CLIENT_ID,
+        }),
+    )
+    .await?;
+    if status < 400 {
+        let t: TokenResponse = serde_json::from_value(v)?;
+        let access_token = t.access_token.clone().filter(|a| !a.is_empty());
+        let username = store_signin(t).await?;
+        return Ok(TokenPoll::SignedIn {
+            username,
+            access_token,
+        });
+    }
+    Ok(match v.get("error").and_then(|e| e.as_str()) {
+        Some("authorization_pending") => TokenPoll::Pending,
+        Some("slow_down") => TokenPoll::SlowDown,
+        Some("access_denied") => TokenPoll::Denied,
+        Some("expired_token") => TokenPoll::Expired,
+        _ => {
+            return Err(AppError::Internal(format!(
+                "Airframes sign-in failed ({status}): {}",
+                api_message(&v)
+            )))
+        }
+    })
 }
 
 /// The body for `POST /feeder/station`: the xng station ID and the
@@ -328,6 +384,19 @@ async fn register_station(state: &crate::AppState, access_token: &str) -> serde_
     let Some(body) = station_request(&config) else {
         return serde_json::json!({ "status": "skipped", "reason": "no station ID set" });
     };
+    register_station_body(access_token, body).await
+}
+
+/// `POST /feeder/station` with `body` (`ident`, optional location). Adds the
+/// device token from a network install, which links the station to the
+/// device record in the account.
+pub(crate) async fn register_station_body(
+    access_token: &str,
+    mut body: serde_json::Value,
+) -> serde_json::Value {
+    if let Some(token) = crate::netinstall::device_token().await {
+        body["device_token"] = serde_json::json!(token);
+    }
     let ident = body["ident"].as_str().unwrap_or_default().to_string();
     let resp = http()
         .post(format!("{}/feeder/station", api_base()))

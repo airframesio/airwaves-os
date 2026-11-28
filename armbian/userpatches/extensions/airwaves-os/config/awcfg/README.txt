@@ -53,6 +53,17 @@ FIELDS (all optional; leave blank to skip)
   post_install        "poweroff" or "reboot" after a successful install.
 
 ------------------------------------------------------------------------
+NETWORK INSTALLS FROM AIRFRAMES DESKTOP
+------------------------------------------------------------------------
+  A device installed over the network by Airframes Desktop also gets
+  "enroll" (a one-time code for Desktop) and "station" (station ID,
+  location, xng settings) sections. On first boot they are moved off this
+  partition, together with the Wi-Fi password, and the device signs in to
+  the Desktop user's Airframes account and registers its station. You do
+  not need to write them by hand. Details: docs/NETBOOT.md in the
+  airframesio/airwaves-os repository.
+
+------------------------------------------------------------------------
 SECURITY NOTE
 ------------------------------------------------------------------------
 This partition is NOT encrypted. The Wi-Fi password is stored in plain text

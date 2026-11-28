@@ -15,6 +15,7 @@ mod domain;
 mod error;
 mod forwarding;
 mod handlers;
+mod netinstall;
 mod ports;
 mod sdr;
 mod xng;
@@ -174,6 +175,9 @@ async fn main() -> anyhow::Result<()> {
     spawn_update_checker(state.updater.clone(), state.events_tx.clone());
     spawn_app_reconciler(state.clone());
     auto_update::spawn_auto_updater(state.clone());
+    // First boot after a network install: enroll with Desktop, register the
+    // station; then the device heartbeat (docs/NETBOOT.md).
+    netinstall::spawn(state.clone());
 
     // Spawn message forwarding service
     forwarding::spawn_forwarding_service(

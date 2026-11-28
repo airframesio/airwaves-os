@@ -82,6 +82,22 @@ on:
         default: ""
         type: string
 
+  # Called by release.yml for the network-install boards (uefi-x86, rpi4b) so
+  # every release carries their images and network installers.
+  workflow_call:
+    inputs:
+      board: { type: string, required: true }
+      release: { type: string, required: true }
+      branch: { type: string, required: false, default: "current" }
+      bundle_containers: { type: boolean, required: false, default: true }
+      channel: { type: string, required: false, default: "stable" }
+      armbian_tag: { type: string, required: false, default: "" }
+      upload_to_release:
+        description: "Upload to the tag's release (release.yml uploads itself)"
+        type: boolean
+        required: false
+        default: false
+
 # The Armbian build framework tag is normally pinned in armbian/build.sh (single
 # source of truth). The optional armbian_tag input overrides it per-dispatch
 # (via ARMBIAN_BUILD_TAG) so a newer tag can be canaried without editing build.sh;
@@ -90,7 +106,7 @@ on:
 
 jobs:
   build:
-    name: Build ${{ github.event.inputs.board }} (${{ github.event.inputs.release }})
+    name: Build ${{ inputs.board }} (${{ inputs.release }})
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
@@ -127,10 +143,10 @@ jobs:
             .armbian-build/output/debs
             .armbian-build/cache/rootfs
             .armbian-build/cache/ccache
-          key: armbian-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}-${{ github.event.inputs.branch }}-${{ github.event.inputs.armbian_tag }}-${{ hashFiles('armbian/build.sh', 'armbian/userpatches/**') }}
+          key: armbian-${{ inputs.board }}-${{ inputs.release }}-${{ inputs.branch }}-${{ inputs.armbian_tag }}-${{ hashFiles('armbian/build.sh', 'armbian/userpatches/**') }}
           restore-keys: |
-            armbian-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}-${{ github.event.inputs.branch }}-${{ github.event.inputs.armbian_tag }}-
-            armbian-${{ github.event.inputs.board }}-${{ github.event.inputs.release }}-
+            armbian-${{ inputs.board }}-${{ inputs.release }}-${{ inputs.branch }}-${{ inputs.armbian_tag }}-
+            armbian-${{ inputs.board }}-${{ inputs.release }}-
 
       # Bake the release's manager+gateway container images INTO the rootfs so the
       # device's FIRST boot needs no network. Without this, first boot can't pull
@@ -144,8 +160,8 @@ jobs:
       - name: Bundle release containers (offline first boot)
         if: ${{ inputs.bundle_containers }}
         env:
-          BOARD: ${{ github.event.inputs.board }}
-          CHANNEL_INPUT: ${{ github.event.inputs.channel }}
+          BOARD: ${{ inputs.board }}
+          CHANNEL_INPUT: ${{ inputs.channel }}
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -201,10 +217,10 @@ jobs:
 
       - name: Build image
         env:
-          BOARD: ${{ github.event.inputs.board }}
-          RELEASE: ${{ github.event.inputs.release }}
-          BRANCH: ${{ github.event.inputs.branch }}
-          ARMBIAN_BUILD_TAG: ${{ github.event.inputs.armbian_tag }}
+          BOARD: ${{ inputs.board }}
+          RELEASE: ${{ inputs.release }}
+          BRANCH: ${{ inputs.branch }}
+          ARMBIAN_BUILD_TAG: ${{ inputs.armbian_tag }}
           COLUMNS: "160"
         run: |
           # `env` guarantees ARMBIAN_BUILD_TAG reaches the command regardless of
@@ -233,7 +249,7 @@ jobs:
       # Reads the embedded image read-only and writes a NEW Airwaves_OS_LiveUSB_*
       # image; the embedded image is untouched.
       - name: Build Live USB image (x86, squashfs + live-boot + toram)
-        if: ${{ github.event.inputs.board == 'uefi-x86' }}
+        if: ${{ inputs.board == 'uefi-x86' }}
         run: |
           set -euo pipefail
           sudo chown -R "$(id -u):$(id -g)" .armbian-build/output/images 2>/dev/null || true
@@ -301,7 +317,7 @@ jobs:
           SQ_MIB=$(( (SQ_BYTES + 1048575) / 1048576 ))
           LIVE_DATA_MIB=$(( SQ_MIB + 192 ))
           IMG_MIB=$(( 4 + 260 + LIVE_DATA_MIB + 64 + 2 ))
-          LIVE="Airwaves_OS_LiveUSB_${AWVER}_x86_UEFI_${{ github.event.inputs.release }}.img"
+          LIVE="Airwaves_OS_LiveUSB_${AWVER}_x86_UEFI_${{ inputs.release }}.img"
           echo "Live image: ${LIVE} (${IMG_MIB} MiB)"
           rm -f "${LIVE}"; truncate -s "${IMG_MIB}M" "${LIVE}"
           # GPT: BIOS-boot 4M + ESP 260M + LIVE-DATA + AWCFG 64M.
@@ -562,14 +578,55 @@ jobs:
           done
           cat *.sha256
 
+      # Network installer (kernel + initramfs) for Airframes Desktop network
+      # installs, built from this image's own rootfs so it runs the same kernel
+      # and tools (netinstall/build.sh, docs/NETBOOT.md). Only for the boards
+      # Desktop can network boot: x86 UEFI and the Raspberry Pi 4 family.
+      - name: Build network installer
+        if: ${{ inputs.board == 'uefi-x86' || inputs.board == 'rpi4b' }}
+        env:
+          BOARD: ${{ inputs.board }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y ipxe cpio kmod binutils jq xz-utils >/dev/null
+          cd .armbian-build/output/images
+          shopt -s nullglob
+          xzs=( Airwaves_OS_*.img.xz ); IMG=""
+          for f in "${xzs[@]}"; do case "$f" in *LiveUSB*) ;; *) IMG="$f"; break ;; esac; done
+          [ -n "$IMG" ] || { echo "::error::no image to build the network installer from"; exit 1; }
+          VER="$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' \
+            "$GITHUB_WORKSPACE/containers/airwaves-manager/Cargo.toml" | head -1)"
+          case "$GITHUB_REF" in refs/tags/v*) AWVER="${GITHUB_REF#refs/tags/v}" ;; *) AWVER="${VER:-dev}-$(git -C "$GITHUB_WORKSPACE" rev-parse --short HEAD)" ;; esac
+          RAW="$RUNNER_TEMP/netinstall-src.img"
+          xz -dc -T0 "$IMG" > "$RAW"
+          LOOP="$(sudo losetup -fP --show "$RAW")"
+          sudo partprobe "$LOOP" 2>/dev/null || true; sudo udevadm settle --timeout=30 2>/dev/null || true
+          MNT="$(mktemp -d)"; FOUND=""
+          for p in "${LOOP}"p*; do
+            [ -b "$p" ] || continue
+            case "$(sudo blkid -o value -s TYPE "$p" 2>/dev/null)" in ext4|ext3) ;; *) continue ;; esac
+            if sudo mount -o ro "$p" "$MNT" 2>/dev/null; then
+              [ -d "$MNT/lib/modules" ] && [ -d "$MNT/opt/airwaves" ] && { FOUND="$p"; break; }
+              sudo umount "$MNT"
+            fi
+          done
+          [ -n "$FOUND" ] || { echo "::error::no rootfs in $IMG"; sudo losetup -d "$LOOP"; exit 1; }
+          case "$BOARD" in uefi-x86) ARCH=x86_64 ;; *) ARCH=arm64 ;; esac
+          sudo bash "$GITHUB_WORKSPACE/netinstall/build.sh" --rootfs "$MNT" --arch "$ARCH" \
+            --out "$PWD" --version "$AWVER"
+          sudo umount "$MNT"; sudo losetup -d "$LOOP"; rm -f "$RAW"
+          sudo chown "$(id -u):$(id -g)" netinstall-*.tar
+          for f in netinstall-*.tar; do sha256sum "$f" > "$f.sha256"; done
+          ls -lh netinstall-*.tar
+
       # The rpi4b image boots all 64-bit Raspberry Pi models (3/4/5), so publish
       # it under a name Pi 5 users will recognize.
       - name: Compute artifact name
         id: artname
         if: always()
         env:
-          BOARD: ${{ github.event.inputs.board }}
-          RELEASE: ${{ github.event.inputs.release }}
+          BOARD: ${{ inputs.board }}
+          RELEASE: ${{ inputs.release }}
         run: |
           if [ "$BOARD" = "rpi4b" ]; then
             # arm64 Armbian rpi4b boots Pi 3 (64-bit) and Pi 4. Pi 5 (BCM2712/RP1)
@@ -587,12 +644,16 @@ jobs:
           path: |
             .armbian-build/output/images/*.img.xz
             .armbian-build/output/images/*.img.xz.sha256
+            .armbian-build/output/images/netinstall-*.tar
+            .armbian-build/output/images/netinstall-*.tar.sha256
           retention-days: 30
 
       - name: Upload to release
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ startsWith(github.ref, 'refs/tags/') && inputs.upload_to_release != false }}
         uses: softprops/action-gh-release@v2
         with:
           files: |
             .armbian-build/output/images/*.img.xz
             .armbian-build/output/images/*.img.xz.sha256
+            .armbian-build/output/images/netinstall-*.tar
+            .armbian-build/output/images/netinstall-*.tar.sha256

@@ -1,0 +1,12 @@
+#!ipxe
+# Airwaves OS network installer. Airframes Desktop generates this per device,
+# replacing @URL@ (its netboot API base), @TOKEN@ (the device token) and
+# @CMDLINE@ (manifest.json "cmdline"). See docs/NETBOOT.md.
+echo Airwaves OS network installer: loading from Airframes Desktop...
+kernel @URL@/files/vmlinuz?token=@TOKEN@ initrd=initramfs.img awnet.url=@URL@ awnet.token=@TOKEN@ @CMDLINE@ || goto failed
+initrd --name initramfs.img @URL@/files/initramfs.img?token=@TOKEN@ || goto failed
+boot || goto failed
+:failed
+echo Could not load the installer from Airframes Desktop. Retrying in 10 seconds.
+sleep 10
+reboot
