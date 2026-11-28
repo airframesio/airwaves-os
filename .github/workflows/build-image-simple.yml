@@ -107,7 +107,9 @@ on:
 jobs:
   build:
     name: Build ${{ inputs.board }} (${{ inputs.release }})
-    runs-on: ubuntu-latest
+    # ubuntu-latest moved to 26.04 (Nov 2026), which has no qemu-user-static
+    # package and is not an Armbian-supported build host. Pin the last LTS that works.
+    runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
 

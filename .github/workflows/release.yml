@@ -208,7 +208,7 @@ jobs:
     name: Attach images and signed checksums
     needs: [create-release, images]
     if: ${{ !failure() && !cancelled() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -256,6 +256,7 @@ jobs:
             echo "::warning::MINISIGN_SECRET_KEY is not set: SHA256SUMS is not signed, so Desktop shows these images as checksum only and the network installer refuses them."
             exit 0
           fi
+          sudo apt-get update -qq
           sudo apt-get install -y minisign >/dev/null
           umask 077
           printf '%s\n' "$MINISIGN_SECRET_KEY" > "$RUNNER_TEMP/minisign.key"
