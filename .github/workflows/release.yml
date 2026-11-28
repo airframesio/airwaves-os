@@ -202,83 +202,16 @@ jobs:
     secrets: inherit
 
   # Attach the images and network installers, then SHA256SUMS over every asset
-  # signed with minisign (docs/NETBOOT.md "Signatures"). Desktop and the network
+  # signed with minisign (attach-release.yml). Desktop and the network
   # installer refuse images that are not in a signed SHA256SUMS.
   attach-images:
-    name: Attach images and signed checksums
+    name: Attach images
     needs: [create-release, images]
     if: ${{ !failure() && !cancelled() }}
-    runs-on: ubuntu-24.04
     permissions:
       contents: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download containers, images and network installers
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts/
-          merge-multiple: true
-
-      - name: Determine version
-        id: version
-        env:
-          INPUT_VERSION: ${{ github.event.inputs.version }}
-          REF_NAME: ${{ github.ref_name }}
-        run: echo "tag=${INPUT_VERSION:-$REF_NAME}" >> $GITHUB_OUTPUT
-
-      - name: SHA256SUMS
-        working-directory: artifacts
-        run: |
-          set -euo pipefail
-          ls -lh
-          shopt -s nullglob
-          files=( *.tar *.img.xz )
-          [ ${#files[@]} -gt 0 ] || { echo "::error::nothing to checksum"; exit 1; }
-          sha256sum "${files[@]}" | LC_ALL=C sort -k2 > SHA256SUMS
-          # Every per-file .sha256 must agree with SHA256SUMS.
-          for f in *.sha256; do
-            want="$(cut -d' ' -f1 "$f")"; name="${f%.sha256}"
-            got="$(awk -v n="$name" '$2 == n {print $1}' SHA256SUMS)"
-            [ -z "$got" ] || [ "$got" = "$want" ] || { echo "::error::$name: $f disagrees with SHA256SUMS"; exit 1; }
-          done
-          cat SHA256SUMS
-
-      - name: Sign SHA256SUMS (minisign)
-        working-directory: artifacts
-        env:
-          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
-          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
-          TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          set -euo pipefail
-          if [ -z "${MINISIGN_SECRET_KEY}" ]; then
-            echo "::warning::MINISIGN_SECRET_KEY is not set: SHA256SUMS is not signed, so Desktop shows these images as checksum only and the network installer refuses them."
-            exit 0
-          fi
-          sudo apt-get update -qq
-          sudo apt-get install -y minisign >/dev/null
-          umask 077
-          printf '%s\n' "$MINISIGN_SECRET_KEY" > "$RUNNER_TEMP/minisign.key"
-          if [ -n "${MINISIGN_PASSWORD}" ]; then
-            printf '%s\n' "$MINISIGN_PASSWORD" | minisign -S -s "$RUNNER_TEMP/minisign.key" -m SHA256SUMS -t "Airwaves OS ${TAG} SHA256SUMS"
-          else
-            minisign -S -s "$RUNNER_TEMP/minisign.key" -m SHA256SUMS -t "Airwaves OS ${TAG} SHA256SUMS" </dev/null
-          fi
-          rm -f "$RUNNER_TEMP/minisign.key"
-          # The key in the repository (built into the installer and Desktop) must match.
-          minisign -V -p "$GITHUB_WORKSPACE/netinstall/minisign.pub" -m SHA256SUMS
-          # And the installer's own verifier must accept it.
-          sh "$GITHUB_WORKSPACE/netinstall/minisign-verify" "$GITHUB_WORKSPACE/netinstall/minisign.pub" SHA256SUMS SHA256SUMS.minisig
-
-      - name: Upload to the release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          files: |
-            artifacts/*.img.xz
-            artifacts/*.img.xz.sha256
-            artifacts/netinstall-*.tar
-            artifacts/netinstall-*.tar.sha256
-            artifacts/SHA256SUMS
-            artifacts/SHA256SUMS.minisig
+      actions: read
+    uses: ./.github/workflows/attach-release.yml
+    with:
+      tag: ${{ github.event.inputs.version || github.ref_name }}
+    secrets: inherit
